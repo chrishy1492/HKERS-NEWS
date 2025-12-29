@@ -3,57 +3,46 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Volume2, Volume1, VolumeX, SkipForward, SkipBack, Music, List, X, Play, Pause, AlertCircle, Loader2, Sparkles } from 'lucide-react';
 
 // =========================================================================
-// ENGINEER NOTE: THE "ZEN 8" SELECTION
-// Selected for high reliability (Archive.org Gateway) and "Simple/Gentle" vibe.
+// ENGINEER NOTE: AUDIO SOURCE STABILIZATION V4
+// Switched to SoundHelix CDN for guaranteed uptime and stream stability.
+// Previous Archive.org links were causing frequent 403/Redirect errors.
 // =========================================================================
 const TRACKS = [
     { 
         id: 1, 
-        title: "Mindfulness (Gymnopedie)", 
-        category: "Fortune",
-        url: "https://archive.org/download/KevinMacLeod_2016-01-20/Gymnopedie%20No%201.mp3" 
+        title: "Mindfulness (Focus)", 
+        category: "Study",
+        url: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3" 
     },
     { 
         id: 2, 
-        title: "Healing Soul (Healing)", 
+        title: "Healing Soul (Piano)", 
         category: "Relax",
-        url: "https://archive.org/download/KevinMacLeod_2016-01-20/Healing.mp3" 
+        url: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3" 
     },
     { 
         id: 3, 
-        title: "Morning Light (Touching)", 
+        title: "Morning Light (Groove)", 
         category: "Daily",
-        url: "https://archive.org/download/KevinMacLeod_2016-01-20/Touching%20Moments.mp3" 
+        url: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-8.mp3" 
     },
     { 
         id: 4, 
-        title: "Deep Focus (Perspective)", 
-        category: "Study",
-        url: "https://archive.org/download/KevinMacLeod_2016-01-20/Perspective.mp3" 
+        title: "Deep Trance (Flow)", 
+        category: "Fortune",
+        url: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-10.mp3" 
     },
     { 
         id: 5, 
-        title: "Zen Garden (Meditation)", 
-        category: "Fortune",
-        url: "https://archive.org/download/KevinMacLeod_2016-01-20/Meditation%20Impromptu%2001.mp3" 
+        title: "Zen Garden (Ambient)", 
+        category: "Meditation",
+        url: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-15.mp3" 
     },
     { 
         id: 6, 
-        title: "Soft Lounge (Airport)", 
+        title: "Soft Lounge (Tempo)", 
         category: "Game",
-        url: "https://archive.org/download/KevinMacLeod_2016-01-20/Airport%20Lounge.mp3" 
-    },
-    { 
-        id: 7, 
-        title: "Tranquility (Base)", 
-        category: "Sleep",
-        url: "https://archive.org/download/KevinMacLeod_2016-01-20/Tranquility%20Base.mp3" 
-    },
-    { 
-        id: 8, 
-        title: "Gentle Hope (Sovereign)", 
-        category: "Game",
-        url: "https://archive.org/download/KevinMacLeod_2016-01-20/Sovereign.mp3" 
+        url: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-16.mp3" 
     }
 ];
 
@@ -62,11 +51,14 @@ export const MusicPlayer: React.FC = () => {
   const [currentTrackIndex, setCurrentTrackIndex] = useState(0); 
   const [minimized, setMinimized] = useState(false);
   const [showPlaylist, setShowPlaylist] = useState(false);
-  const [volume, setVolume] = useState(0.5); // Set to 50% to ensure sound is audible
+  const [volume, setVolume] = useState(0.5); 
   const [isMuted, setIsMuted] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(false);
   
+  // Refs
+  const errorCountRef = useRef(0);
+  const retryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
@@ -75,42 +67,77 @@ export const MusicPlayer: React.FC = () => {
         audioRef.current = new Audio();
         audioRef.current.loop = true;
         audioRef.current.volume = volume;
-        audioRef.current.preload = "auto"; // Aggressive preloading
-        audioRef.current.crossOrigin = "anonymous"; 
-
+        audioRef.current.preload = "auto"; // Auto load for smoother start
+        
         // Event Listeners
         audioRef.current.onwaiting = () => setIsLoading(true);
-        audioRef.current.onplaying = () => { setIsLoading(false); setError(false); };
+        audioRef.current.onplaying = () => { 
+            setIsLoading(false); 
+            setError(false);
+            errorCountRef.current = 0; // Reset error count on successful play
+        };
         audioRef.current.oncanplay = () => { setIsLoading(false); setError(false); };
         
-        // Smart Recovery: If a track fails, auto-skip to the next one to ensure continuous sound
+        // Smart Recovery: Retry current track once before skipping
         audioRef.current.onerror = (e) => {
-            console.error("Audio Source Error, switching track...", TRACKS[currentTrackIndex].title);
+            const mediaError = audioRef.current?.error;
+            let errorMessage = "Unknown Error";
+            if (mediaError) {
+                switch (mediaError.code) {
+                    case mediaError.MEDIA_ERR_ABORTED: errorMessage = "Aborted"; break;
+                    case mediaError.MEDIA_ERR_NETWORK: errorMessage = "Network Error"; break;
+                    case mediaError.MEDIA_ERR_DECODE: errorMessage = "Decode Error"; break;
+                    case mediaError.MEDIA_ERR_SRC_NOT_SUPPORTED: errorMessage = "Source Not Supported"; break;
+                    default: errorMessage = `Code ${mediaError.code}`;
+                }
+            }
+            
+            console.error(`Audio Source Error [${TRACKS[currentTrackIndex].title}]: ${errorMessage}`);
             setIsLoading(false);
             setError(true);
-            setTimeout(() => {
-                changeTrack('next'); 
-            }, 1500);
+            
+            if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current);
+
+            // Retry strategy
+            if (errorCountRef.current < 2) {
+                errorCountRef.current += 1;
+                console.log(`Retrying track (Attempt ${errorCountRef.current})...`);
+                retryTimeoutRef.current = setTimeout(() => {
+                    if (audioRef.current) {
+                        audioRef.current.load();
+                        if (isPlaying) audioRef.current.play().catch(() => {});
+                    }
+                }, 1500);
+            } else {
+                console.warn("Max retries reached, switching track.");
+                errorCountRef.current = 0;
+                retryTimeoutRef.current = setTimeout(() => {
+                    changeTrack('next'); 
+                }, 1000);
+            }
         };
     }
-  }, [currentTrackIndex]);
+    
+    return () => {
+        if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current);
+    };
+  }, [currentTrackIndex, isPlaying]); 
 
   // Track Change Logic
   useEffect(() => {
     if (audioRef.current) {
         const track = TRACKS[currentTrackIndex];
+        // Only reload if source is different
         if (audioRef.current.src !== track.url) {
             setIsLoading(true);
             setError(false);
             audioRef.current.src = track.url;
-            audioRef.current.load();
             
-            // Auto-play if already playing
             if (isPlaying) {
                 const playPromise = audioRef.current.play();
                 if (playPromise !== undefined) {
                     playPromise.catch(e => {
-                        console.warn("Autoplay policy blocked:", e);
+                        console.warn("Autoplay / Play interrupted:", e);
                         setIsPlaying(false);
                         setIsLoading(false);
                     });
@@ -127,7 +154,6 @@ export const MusicPlayer: React.FC = () => {
               const playPromise = audioRef.current.play();
               if (playPromise !== undefined) {
                   playPromise.catch(e => {
-                      // If play fails, usually user interaction required
                       setIsPlaying(false);
                   });
               }
@@ -145,12 +171,14 @@ export const MusicPlayer: React.FC = () => {
   }, [volume, isMuted]);
 
   const togglePlay = () => {
+      if (!isPlaying) errorCountRef.current = 0; 
       setError(false);
       setIsPlaying(!isPlaying);
   };
   
   const changeTrack = (direction: 'next' | 'prev') => {
       setError(false);
+      errorCountRef.current = 0; // Reset error count on manual change
       let newIndex = direction === 'next' ? currentTrackIndex + 1 : currentTrackIndex - 1;
       if (newIndex >= TRACKS.length) newIndex = 0;
       if (newIndex < 0) newIndex = TRACKS.length - 1;
@@ -160,6 +188,7 @@ export const MusicPlayer: React.FC = () => {
 
   const selectTrack = (index: number) => {
       setError(false);
+      errorCountRef.current = 0;
       setCurrentTrackIndex(index);
       setIsPlaying(true);
       setShowPlaylist(false);
@@ -225,7 +254,7 @@ export const MusicPlayer: React.FC = () => {
         <div className="bg-gradient-to-r from-gray-900 to-black rounded-xl p-4 mb-4 text-center border border-gray-800 relative overflow-hidden group shadow-inner">
             {error ? (
                 <div className="text-red-400 text-xs font-bold animate-pulse flex items-center justify-center gap-2 h-8">
-                    <AlertCircle size={16} /> Auto-Switching Source...
+                    <AlertCircle size={16} /> Signal Interrupted... Retrying
                 </div>
             ) : isLoading ? (
                 <div className="text-hker-yellow text-xs font-bold animate-pulse flex items-center justify-center gap-2 h-8">
@@ -279,7 +308,7 @@ export const MusicPlayer: React.FC = () => {
                 className={`px-3 py-1.5 rounded-lg transition flex items-center gap-1.5 text-xs font-bold ${showPlaylist ? 'bg-black text-white' : 'bg-white border border-gray-200 hover:bg-gray-100 text-gray-600'}`}
             >
                 <List size={14} /> 
-                <span>{currentTrackIndex + 1}/8</span>
+                <span>{currentTrackIndex + 1}/{TRACKS.length}</span>
             </button>
         </div>
       </div>

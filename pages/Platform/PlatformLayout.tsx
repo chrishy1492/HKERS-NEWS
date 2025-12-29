@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { 
@@ -5,7 +6,6 @@ import {
 } from 'lucide-react';
 import { MockDB } from '../../services/mockDatabase';
 import { User as UserType, UserRole } from '../../types';
-import { MusicPlayer } from '../../components/MusicPlayer';
 
 export const PlatformLayout: React.FC = () => {
   const navigate = useNavigate();
@@ -96,21 +96,32 @@ export const PlatformLayout: React.FC = () => {
       </aside>
 
       {/* Mobile Header */}
-      <div className="md:hidden fixed top-0 w-full bg-white z-30 border-b flex justify-between items-center px-4 py-3 shadow-sm">
-         <h2 className="text-xl font-bold text-hker-red" onClick={() => navigate('/platform')}>HKER</h2>
-         <div className="flex items-center gap-3">
-            {user && (
-                <span className="text-xs font-bold text-hker-gold">{user.points} pts</span>
-            )}
-            <button onClick={() => setSidebarOpen(!isSidebarOpen)}>
-                {isSidebarOpen ? <X /> : <Menu />}
-            </button>
+      <div className="md:hidden fixed top-0 w-full bg-white z-30 shadow-sm flex flex-col">
+         <div className="flex justify-between items-center px-4 py-3 border-b">
+             <h2 className="text-xl font-bold text-hker-red" onClick={() => navigate('/platform')}>HKER</h2>
+             <div className="flex items-center gap-3">
+                {user && (
+                    <span className="text-xs font-bold text-hker-gold">{user.points} pts</span>
+                )}
+                <button onClick={() => setSidebarOpen(!isSidebarOpen)}>
+                    {isSidebarOpen ? <X /> : <Menu />}
+                </button>
+             </div>
+         </div>
+         {/* Mobile Quick Access Buttons */}
+         <div className="grid grid-cols-2 gap-2 p-2 bg-gray-50 border-b border-gray-200">
+             <button onClick={() => navigate('/platform/games')} className="bg-white border border-hker-red text-hker-red py-2 rounded-lg font-bold text-sm flex items-center justify-center gap-2 shadow-sm">
+                 <Gamepad2 size={16} /> {lang === 'cn' ? '遨遊遊戲' : 'Arcade'}
+             </button>
+             <button onClick={() => navigate('/platform/fortune')} className="bg-white border border-purple-500 text-purple-600 py-2 rounded-lg font-bold text-sm flex items-center justify-center gap-2 shadow-sm">
+                 <Sparkles size={16} /> {lang === 'cn' ? '算命祈福' : 'Fortune'}
+             </button>
          </div>
       </div>
 
       {/* Mobile Menu Overlay */}
       {isSidebarOpen && (
-        <div className="fixed inset-0 bg-white z-20 pt-16 px-6 md:hidden">
+        <div className="fixed inset-0 bg-white z-20 pt-28 px-6 md:hidden">
            <nav className="space-y-4">
               {menuItems.map((item, idx) => (
                 <button
@@ -142,7 +153,7 @@ export const PlatformLayout: React.FC = () => {
       )}
 
       {/* Main Content */}
-      <main className="flex-1 md:ml-64 pt-16 md:pt-0 p-4 md:p-8 bg-gray-50 min-h-screen">
+      <main className="flex-1 md:ml-64 pt-32 md:pt-0 p-4 md:p-8 bg-gray-50 min-h-screen">
         <Outlet context={{ user, setUser, lang }} />
         
         {/* Footer / Disclaimer */}
@@ -164,10 +175,10 @@ export const PlatformLayout: React.FC = () => {
                           : 'Games provided are for entertainment only. All points are virtual and have no monetary value. Not for gambling.'}</p>
                   </div>
                   <div>
-                      <h5 className="font-bold mb-1">{lang === 'cn' ? '三、 專業內容參考與免責' : '3. Content Disclaimer'}</h5>
+                      <h5 className="font-bold mb-1">{lang === 'cn' ? '三、 積分獎勵與派發' : '3. Point Rewards'}</h5>
                       <p>{lang === 'cn'
-                          ? '參考性質：本站所提供之「算命」、「占卜」及「運勢分析」及新聞功能，其結果僅供參考，不代表科學事實。'
-                          : 'Fortune telling and news analysis are for reference only and do not constitute scientific fact or professional advice.'}</p>
+                          ? '送完即止：所有 HKER Token 積分活動（包含機械人貼文互動獎勵）均為推廣性質，送完即止。當積分池耗盡後，用戶將無法獲取額外積分，用戶不得對此追究或投訴。'
+                          : 'While stocks last: All HKER Token point rewards are promotional and finite. Once depleted, no further points will be issued. Users cannot complain or claim against this.'}</p>
                   </div>
                   <div>
                       <h5 className="font-bold mb-1">{lang === 'cn' ? '四、 聯絡我們' : '4. Contact Us'}</h5>
@@ -179,8 +190,6 @@ export const PlatformLayout: React.FC = () => {
            </div>
         </footer>
       </main>
-
-      <MusicPlayer />
     </div>
   );
 };

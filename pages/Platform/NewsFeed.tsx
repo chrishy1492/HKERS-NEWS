@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useOutletContext, useNavigate } from 'react-router-dom';
-import { Heart, ThumbsUp, Share2, AlertTriangle, Search, Filter, Clock, MessageSquare, Bot, ChevronLeft, ChevronRight, Languages, Trash2, Send, X } from 'lucide-react';
+import { Heart, ThumbsUp, Share2, AlertTriangle, Search, Filter, Clock, MessageSquare, Bot, ChevronLeft, ChevronRight, Languages, Trash2, Send, X, Gift } from 'lucide-react';
 import { MockDB } from '../../services/mockDatabase';
 import { Post, User, REGIONS, CATEGORIES, REGIONS_CN, CATEGORIES_CN, UserRole, Comment } from '../../types';
 
@@ -58,32 +58,69 @@ export const NewsFeed: React.FC = () => {
       return;
     }
 
-    const post = posts.find(p => p.id === postId);
-    if (!post) return;
+    const postIndex = posts.findIndex(p => p.id === postId);
+    if (postIndex === -1) return;
+    const post = { ...posts[postIndex] }; // Create copy
 
-    if (type === 'like') post.likes++;
-    if (type === 'heart') post.hearts++;
+    // Initialize interactions map if not exists
+    if (!post.userInteractions) post.userInteractions = {};
+    if (!post.userInteractions[user.id]) post.userInteractions[user.id] = { likes: 0, hearts: 0 };
+
+    // Rate Limiting Logic (Max 3)
+    if (type === 'like') {
+        if (post.userInteractions[user.id].likes >= 3) {
+            alert(lang === 'cn' ? "每個帳戶對每個貼文只能給讚 3 次。" : "Max 3 likes per post allowed.");
+            return;
+        }
+        post.userInteractions[user.id].likes++;
+        post.likes++;
+    } else if (type === 'heart') {
+        if (post.userInteractions[user.id].hearts >= 3) {
+            alert(lang === 'cn' ? "每個帳戶對每個貼文只能給心 3 次。" : "Max 3 hearts per post allowed.");
+            return;
+        }
+        post.userInteractions[user.id].hearts++;
+        post.hearts++;
+    }
+    
+    // Save to DB
+    MockDB.savePost(post);
     
     // Optimistic UI Update
-    setPosts([...posts]);
-    MockDB.savePost(post);
+    const newPosts = [...posts];
+    newPosts[postIndex] = post;
+    setPosts(newPosts);
 
+    // Points Logic
     let pointsAwarded = 0;
-    if (type === 'view') pointsAwarded = 200;
-    if (type === 'like') pointsAwarded = 300;
-    if (type === 'heart') pointsAwarded = 300;
+    if (type === 'view') pointsAwarded = 5; // Reduced view points to prevent spam
+    
+    // Robot Post Special Reward (150 pts)
+    if (post.isRobot && (type === 'like' || type === 'heart')) {
+        pointsAwarded = 150;
+    } else if (type === 'like' || type === 'heart') {
+        pointsAwarded = 50; // Standard reward for user posts
+    }
 
-    MockDB.updateUserPoints(user.id, pointsAwarded);
+    if (pointsAwarded > 0) {
+        MockDB.updateUserPoints(user.id, pointsAwarded);
+    }
   };
 
   const handleSubmitComment = (postId: string) => {
       if (!user) return alert(lang === 'cn' ? "請先登入" : "Please login");
       if (!commentInput.trim()) return;
 
+      const post = posts.find(p => p.id === postId);
+      // Robot Post Restriction
+      if (post?.isRobot) {
+          return alert(lang === 'cn' ? "機械人貼文不可留言。" : "Comments disabled for robot posts.");
+      }
+
       MockDB.addComment(postId, user, commentInput);
       setCommentInput('');
       
-      // Points for commenting (Requirement check: usually implies activity)
+      // Points for commenting
       MockDB.updateUserPoints(user.id, 200); 
       
       // Force refresh
@@ -224,6 +261,11 @@ export const NewsFeed: React.FC = () => {
             const isTranslated = translatedPosts.has(post.id);
             const displayTitle = (isTranslated && post.titleCN) ? post.titleCN : post.title;
             const displayContent = (isTranslated && post.contentCN) ? post.contentCN : post.content;
+            
+            // User Interaction Counts
+            const myInteractions = user && post.userInteractions?.[user.id] 
+                ? post.userInteractions[user.id] 
+                : { likes: 0, hearts: 0 };
 
             return (
               <div 
@@ -287,15 +329,23 @@ export const NewsFeed: React.FC = () => {
                         </div>
                     )}
 
+                    {/* Robot Reward Info */}
+                    {post.isRobot && (
+                        <div className="flex items-center gap-2 text-xs font-bold text-hker-red bg-red-50 p-2 rounded mb-4 border border-red-100">
+                            <Gift size={14} />
+                            {lang === 'cn' ? '機械人貼文獎勵：比心獎 150 HKER，比讚獎 150 HKER (每人限3次)' : 'Robot Post Bonus: Heart +150 HKER, Like +150 HKER (Max 3 times)'}
+                        </div>
+                    )}
+
                     {/* Interactions */}
                     <div className="flex items-center justify-between pt-2 border-t border-gray-50 mt-4">
                         <div className="flex gap-4">
-                            <button onClick={() => handleInteraction(post.id, 'heart')} className="group flex items-center gap-1.5 text-gray-500 hover:text-red-500 transition">
-                                <div className="p-1.5 rounded-full group-hover:bg-red-50"><Heart size={18} /></div>
+                            <button onClick={() => handleInteraction(post.id, 'heart')} className={`group flex items-center gap-1.5 transition ${myInteractions.hearts >= 3 ? 'text-red-500 opacity-50 cursor-not-allowed' : 'text-gray-500 hover:text-red-500'}`}>
+                                <div className="p-1.5 rounded-full group-hover:bg-red-50"><Heart size={18} fill={myInteractions.hearts > 0 ? "currentColor" : "none"} /></div>
                                 <span className="text-xs font-medium">{post.hearts}</span>
                             </button>
-                            <button onClick={() => handleInteraction(post.id, 'like')} className="group flex items-center gap-1.5 text-gray-500 hover:text-blue-500 transition">
-                                <div className="p-1.5 rounded-full group-hover:bg-blue-50"><ThumbsUp size={18} /></div>
+                            <button onClick={() => handleInteraction(post.id, 'like')} className={`group flex items-center gap-1.5 transition ${myInteractions.likes >= 3 ? 'text-blue-500 opacity-50 cursor-not-allowed' : 'text-gray-500 hover:text-blue-500'}`}>
+                                <div className="p-1.5 rounded-full group-hover:bg-blue-50"><ThumbsUp size={18} fill={myInteractions.likes > 0 ? "currentColor" : "none"} /></div>
                                 <span className="text-xs font-medium">{post.likes}</span>
                             </button>
                             <button onClick={() => setExpandedPostId(expandedPostId === post.id ? null : post.id)} className="group flex items-center gap-1.5 text-gray-500 hover:text-purple-500 transition">
@@ -337,16 +387,17 @@ export const NewsFeed: React.FC = () => {
                             ))}
                         </div>
                         
-                        {/* Input */}
-                        <div className="flex gap-2">
+                        {/* Input - DISABLED FOR ROBOTS */}
+                        <div className="flex gap-2 relative">
                             <input 
-                                value={commentInput}
+                                value={post.isRobot ? '' : commentInput}
                                 onChange={e => setCommentInput(e.target.value)}
-                                placeholder={lang === 'cn' ? "撰寫回覆..." : "Write a reply..."}
-                                className="flex-1 border border-gray-300 rounded-full px-4 py-2 text-sm outline-none focus:border-hker-red"
+                                placeholder={post.isRobot ? (lang === 'cn' ? "機械人貼文不可留言" : "Comments disabled for robot posts") : (lang === 'cn' ? "撰寫回覆..." : "Write a reply...")}
+                                className={`flex-1 border border-gray-300 rounded-full px-4 py-2 text-sm outline-none focus:border-hker-red ${post.isRobot ? 'bg-gray-100 cursor-not-allowed' : 'bg-white'}`}
                                 onKeyDown={e => e.key === 'Enter' && handleSubmitComment(post.id)}
+                                disabled={post.isRobot}
                             />
-                            <button onClick={() => handleSubmitComment(post.id)} className="bg-hker-red text-white p-2 rounded-full hover:bg-red-700">
+                            <button onClick={() => handleSubmitComment(post.id)} disabled={post.isRobot} className={`bg-hker-red text-white p-2 rounded-full hover:bg-red-700 ${post.isRobot ? 'opacity-50 cursor-not-allowed' : ''}`}>
                                 <Send size={16} />
                             </button>
                         </div>

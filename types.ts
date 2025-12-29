@@ -48,6 +48,8 @@ export interface Post {
   source?: string;
   botId?: string;
   replies: Comment[]; // New: Comments array
+  // New: Track user interactions { userId: { likes: 0-3, hearts: 0-3 } }
+  userInteractions?: Record<string, { likes: number, hearts: number }>;
 }
 
 export interface RobotLog {
@@ -61,7 +63,7 @@ export interface RobotLog {
 export interface GameResult {
   win: boolean;
   amount: number;
-  game: 'Slots' | 'FishPrawnCrab';
+  game: 'Slots' | 'FishPrawnCrab' | 'Blackjack' | 'Roulette' | 'Baccarat';
 }
 
 export const REGIONS = ['Hong Kong', 'Taiwan', 'UK', 'USA', 'Canada', 'Australia'];

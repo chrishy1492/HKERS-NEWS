@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { useOutletContext, useNavigate } from 'react-router-dom';
 import { User, UserRole, Post, RobotLog, ADMIN_EMAILS } from '../../types';
 import { MockDB } from '../../services/mockDatabase';
-import { Trash2, Edit, Save, Search, RefreshCw, AlertOctagon, Bot, Activity, Clock, Shield } from 'lucide-react';
+import { Trash2, Edit, Save, Search, RefreshCw, AlertOctagon, Bot, Activity, Clock, Shield, Users } from 'lucide-react';
 
 export const Admin: React.FC = () => {
   const { user } = useOutletContext<{ user: User | null }>();
@@ -28,7 +28,9 @@ export const Admin: React.FC = () => {
   }, [user]);
 
   const refreshData = () => {
-    setUsers(MockDB.getUsers());
+    // Explicitly call MockDB to ensure we have the latest LocalStorage data
+    const allUsers = MockDB.getUsers();
+    setUsers(allUsers);
     setPosts(MockDB.getPosts());
     setRobotLogs(MockDB.getRobotLogs());
   };
@@ -52,11 +54,15 @@ export const Admin: React.FC = () => {
   };
 
   const handleDeleteUser = (id: string) => {
-    if(confirm('Are you sure you want to remove this user? This cannot be undone.')) {
-        const newUsers = users.filter(u => u.id !== id);
-        // MockDB persistence manual override for delete
+    if(confirm('Are you sure you want to remove this user permanently? This cannot be undone.')) {
+        // Manually filter and save to ensure persistence
+        const currentUsers = MockDB.getUsers();
+        const newUsers = currentUsers.filter(u => u.id !== id);
         localStorage.setItem('hker_users_db_v4', JSON.stringify(newUsers));
+        
+        // Also remove from session if it was the logged in user (unlikely for admin deleting others)
         refreshData();
+        alert("User removed.");
     }
   };
 
@@ -131,84 +137,93 @@ export const Admin: React.FC = () => {
         </div>
       )}
 
-      {/* User Table */}
-      <div className="overflow-x-auto bg-white rounded-lg border">
-        <div className="p-4 bg-gray-50 border-b font-bold flex justify-between">
-            <span>User Management ({filteredUsers.length})</span>
-            <button onClick={refreshData}><RefreshCw size={16} /></button>
+      {/* User Table (Enhanced) */}
+      <div className="overflow-hidden bg-white rounded-lg border border-gray-200 shadow-sm">
+        <div className="p-4 bg-gray-50 border-b font-bold flex justify-between items-center">
+            <span className="flex items-center gap-2 text-lg"><Users size={20}/> Registered Member List ({filteredUsers.length})</span>
+            <button onClick={refreshData} className="text-blue-500 hover:text-blue-700 flex items-center gap-1 text-sm"><RefreshCw size={14} /> Refresh List</button>
         </div>
-        <table className="min-w-full text-sm">
-            <thead className="bg-gray-50 text-gray-500">
-                <tr>
-                    <th className="p-3 text-left">ID / Info</th>
-                    <th className="p-3 text-left">Role & Access</th>
-                    <th className="p-3 text-left">Points</th>
-                    <th className="p-3 text-left">Actions</th>
-                </tr>
-            </thead>
-            <tbody>
-                {filteredUsers.map(u => (
-                    <tr key={u.id} className="border-b hover:bg-gray-50">
-                        <td className="p-3">
-                            {editUser === u.id ? (
-                                <div className="flex flex-col gap-1">
-                                    <input className="border p-1 rounded" placeholder="Name" value={editData.name !== undefined ? editData.name : u.name} onChange={e => setEditData({...editData, name: e.target.value})} />
-                                    <input className="border p-1 rounded" placeholder="Email" value={editData.email !== undefined ? editData.email : u.email} onChange={e => setEditData({...editData, email: e.target.value})} />
-                                </div>
-                            ) : (
-                                <div>
-                                    <div className="font-bold">{u.name}</div>
-                                    <div className="text-xs text-gray-500">{u.email}</div>
-                                    <div className="font-mono text-[10px] text-gray-400">{u.id}</div>
-                                </div>
-                            )}
-                        </td>
-                        <td className="p-3">
-                             {editUser === u.id ? (
-                                 <select 
-                                    className="border p-1 rounded"
-                                    value={editData.role || u.role}
-                                    onChange={e => setEditData({...editData, role: e.target.value as UserRole})}
-                                 >
-                                     <option value={UserRole.USER}>User</option>
-                                     <option value={UserRole.MODERATOR}>Moderator (版主)</option>
-                                     <option value={UserRole.ADMIN}>Admin</option>
-                                 </select>
-                             ) : (
-                                 <div className={`text-xs font-bold px-2 py-1 rounded inline-block ${u.role === UserRole.ADMIN ? 'bg-red-100 text-red-600' : u.role === UserRole.MODERATOR ? 'bg-blue-100 text-blue-600' : 'bg-gray-100 text-gray-600'}`}>
-                                     {u.role}
-                                 </div>
-                             )}
-                        </td>
-                        <td className="p-3">
-                            {editUser === u.id ? (
-                                <input 
-                                    type="number" 
-                                    className="border p-1 rounded w-24" 
-                                    value={editData.points !== undefined ? editData.points : u.points} 
-                                    onChange={e => setEditData({...editData, points: parseInt(e.target.value)})} 
-                                />
-                            ) : (
-                                <span className="font-bold text-hker-gold">{u.points.toLocaleString()}</span>
-                            )}
-                        </td>
-                        <td className="p-3">
-                            <div className="flex gap-2">
-                                {editUser === u.id ? (
-                                    <>
-                                        <button onClick={() => handleUpdateUser(u.id)} className="p-1 bg-green-100 text-green-600 rounded"><Save size={16}/></button>
-                                        <button onClick={() => setEditUser(null)} className="p-1 bg-gray-100 text-gray-600 rounded">X</button>
-                                    </>
-                                ) : (
-                                    <button onClick={() => { setEditUser(u.id); setEditData({}); }} className="p-1 bg-blue-100 text-blue-600 rounded"><Edit size={16}/></button>
-                                )}
-                                <button onClick={() => handleDeleteUser(u.id)} className="p-1 bg-red-100 text-red-600 rounded"><Trash2 size={16}/></button>
-                            </div>
-                        </td>
+        <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+                <thead className="bg-gray-100 text-gray-700 uppercase text-xs font-bold">
+                    <tr>
+                        <th className="p-4 text-left">User Identity</th>
+                        <th className="p-4 text-left">Contact Info</th>
+                        <th className="p-4 text-left">Role / Status</th>
+                        <th className="p-4 text-left">Points Balance</th>
+                        <th className="p-4 text-left">Actions</th>
                     </tr>
-                ))}
-            </tbody>
-        </table>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                    {filteredUsers.map(u => (
+                        <tr key={u.id} className="hover:bg-blue-50 transition-colors">
+                            <td className="p-4">
+                                {editUser === u.id ? (
+                                    <input className="border p-2 rounded w-full mb-1" placeholder="Name" value={editData.name !== undefined ? editData.name : u.name} onChange={e => setEditData({...editData, name: e.target.value})} />
+                                ) : (
+                                    <div>
+                                        <div className="font-bold text-gray-900">{u.name}</div>
+                                        <div className="font-mono text-xs text-gray-400">ID: {u.id}</div>
+                                    </div>
+                                )}
+                            </td>
+                            <td className="p-4">
+                                {editUser === u.id ? (
+                                    <input className="border p-2 rounded w-full" placeholder="Email" value={editData.email !== undefined ? editData.email : u.email} onChange={e => setEditData({...editData, email: e.target.value})} />
+                                ) : (
+                                    <div>
+                                        <div className="text-gray-600">{u.email}</div>
+                                        <div className="text-xs text-gray-400">{u.phone || 'No Phone'}</div>
+                                    </div>
+                                )}
+                            </td>
+                            <td className="p-4">
+                                {editUser === u.id ? (
+                                    <select 
+                                        className="border p-2 rounded w-full"
+                                        value={editData.role || u.role}
+                                        onChange={e => setEditData({...editData, role: e.target.value as UserRole})}
+                                    >
+                                        <option value={UserRole.USER}>User</option>
+                                        <option value={UserRole.MODERATOR}>Moderator</option>
+                                        <option value={UserRole.ADMIN}>Admin</option>
+                                    </select>
+                                ) : (
+                                    <span className={`px-2 py-1 rounded text-xs font-bold ${u.role === UserRole.ADMIN ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'}`}>
+                                        {u.role}
+                                    </span>
+                                )}
+                            </td>
+                            <td className="p-4">
+                                {editUser === u.id ? (
+                                    <input 
+                                        type="number" 
+                                        className="border p-2 rounded w-24" 
+                                        value={editData.points !== undefined ? editData.points : u.points} 
+                                        onChange={e => setEditData({...editData, points: parseInt(e.target.value)})} 
+                                    />
+                                ) : (
+                                    <span className="font-mono font-bold text-yellow-600">{u.points.toLocaleString()}</span>
+                                )}
+                            </td>
+                            <td className="p-4">
+                                <div className="flex gap-2">
+                                    {editUser === u.id ? (
+                                        <>
+                                            <button onClick={() => handleUpdateUser(u.id)} className="p-2 bg-green-500 text-white rounded hover:bg-green-600"><Save size={16}/></button>
+                                            <button onClick={() => setEditUser(null)} className="p-2 bg-gray-300 text-gray-700 rounded hover:bg-gray-400">X</button>
+                                        </>
+                                    ) : (
+                                        <button onClick={() => { setEditUser(u.id); setEditData({}); }} className="p-2 bg-blue-100 text-blue-600 rounded hover:bg-blue-200" title="Edit User"><Edit size={16}/></button>
+                                    )}
+                                    <button onClick={() => handleDeleteUser(u.id)} className="p-2 bg-red-100 text-red-600 rounded hover:bg-red-200" title="Remove User"><Trash2 size={16}/></button>
+                                </div>
+                            </td>
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+        </div>
       </div>
 
       {/* Post Management */}
