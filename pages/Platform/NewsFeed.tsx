@@ -1,11 +1,12 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useOutletContext, useNavigate } from 'react-router-dom';
-import { Heart, ThumbsUp, Share2, AlertTriangle, Search, Filter, Clock, MessageSquare, Bot, ChevronLeft, ChevronRight, Languages, Trash2, Send, X, Gift, CloudLightning, ExternalLink, Link2, FileText } from 'lucide-react';
+import { Heart, ThumbsUp, Share2, AlertTriangle, Search, Filter, Clock, MessageSquare, Bot, ChevronLeft, ChevronRight, Languages, Trash2, Send, X, Gift, CloudLightning, ExternalLink, Link2, FileText, ShieldAlert, Copy } from 'lucide-react';
 import { MockDB } from '../../services/mockDatabase';
 import { Post, User, REGIONS, CATEGORIES, REGIONS_CN, CATEGORIES_CN, UserRole, Comment } from '../../types';
 
 const ITEMS_PER_PAGE = 10;
+const FORUM_URL = 'https://hkers-news-mmzi.vercel.app';
 
 export const NewsFeed: React.FC = () => {
   const { user, lang } = useOutletContext<{ user: User | null, lang: 'en' | 'cn' }>();
@@ -34,14 +35,13 @@ export const NewsFeed: React.FC = () => {
   useEffect(() => {
     fetchData(); // Initial
 
-    // 1. DATA SYNC POLLING (Supabase)
+    // 1. DATA SYNC POLLING (Increased frequency to 2s for "Instant" feel)
     const syncInterval = setInterval(() => {
-        fetchData(); // Updates every 5 seconds for read-heavy feed
-    }, 5000);
+        fetchData(); 
+    }, 2000);
 
-    // 2. ROBOT AUTOMATION (Distributed Check)
+    // 2. ROBOT AUTOMATION (Distributed Check - 24/7 Simulation)
     const robotInterval = setInterval(async () => {
-        // All clients try, but DB ensures only one posts via timestamp check
         await MockDB.triggerRobotPost();
     }, 20000); 
 
@@ -61,13 +61,11 @@ export const NewsFeed: React.FC = () => {
 
     const postIndex = posts.findIndex(p => p.id === postId);
     if (postIndex === -1) return;
-    const post = { ...posts[postIndex] }; // Create copy
+    const post = { ...posts[postIndex] };
 
-    // Initialize interactions map if not exists
     if (!post.userInteractions) post.userInteractions = {};
     if (!post.userInteractions[user.id]) post.userInteractions[user.id] = { likes: 0, hearts: 0 };
 
-    // Rate Limiting Logic (Max 3)
     if (type === 'like') {
         if (post.userInteractions[user.id].likes >= 3) {
             alert(lang === 'cn' ? "每個帳戶對每個貼文只能給讚 3 次。" : "Max 3 likes per post allowed.");
@@ -84,20 +82,19 @@ export const NewsFeed: React.FC = () => {
         post.hearts++;
     }
     
-    // Save to Cloud
-    await MockDB.savePost(post);
-    
-    // Optimistic UI Update
+    // Optimistic Update
     const newPosts = [...posts];
     newPosts[postIndex] = post;
     setPosts(newPosts);
 
-    // Points Logic
+    // Background Sync
+    await MockDB.savePost(post);
+    
     let pointsAwarded = 0;
     if (type === 'view') pointsAwarded = 5; 
     
     if (post.isRobot && (type === 'like' || type === 'heart')) {
-        pointsAwarded = 150; // Increased to 150 as requested
+        pointsAwarded = 150; 
     } else if (type === 'like' || type === 'heart') {
         pointsAwarded = 50; 
     }
@@ -119,7 +116,7 @@ export const NewsFeed: React.FC = () => {
       await MockDB.addComment(postId, user, commentInput);
       setCommentInput('');
       await MockDB.updateUserPoints(user.id, 200); 
-      fetchData(); // Refresh to show comment
+      fetchData(); 
   };
 
   const handleDeletePost = async (postId: string) => {
@@ -136,10 +133,8 @@ export const NewsFeed: React.FC = () => {
       }
   };
 
+  // SMART SHARE FUNCTION
   const handleShare = (post: Post) => {
-    // ENGINEER NOTE: 
-    // IF ROBOT: Directly copy the ORIGINAL SOURCE URL to clipboard.
-    // IF USER: Copy the internal platform link.
     let url = `${window.location.origin}/#/platform?post=${post.id}`;
     let msg = lang === 'cn' ? `連結已複製！\n${url}` : `Link Copied!\n${url}`;
 
@@ -152,6 +147,11 @@ export const NewsFeed: React.FC = () => {
 
     navigator.clipboard.writeText(url);
     alert(msg);
+  };
+
+  const handleSharePlatform = () => {
+      navigator.clipboard.writeText(FORUM_URL);
+      alert(lang === 'cn' ? `論壇網址已複製！快分享給朋友：\n${FORUM_URL}` : `Forum URL Copied! Share with friends:\n${FORUM_URL}`);
   };
 
   const handleReport = (postId: string) => {
@@ -177,7 +177,6 @@ export const NewsFeed: React.FC = () => {
 
   const canManage = user?.role === UserRole.ADMIN || user?.role === UserRole.MODERATOR;
 
-  // Filter Logic
   const filteredPosts = posts.filter(post => {
     const matchesRegion = selectedRegion === 'All' || post.region === selectedRegion;
     const matchesCategory = selectedCategory === 'All' || post.category === selectedCategory;
@@ -211,8 +210,17 @@ export const NewsFeed: React.FC = () => {
                 {isSyncing ? <CloudLightning size={12} className="text-blue-500 animate-pulse"/> : <CloudLightning size={12}/>}
                 {isSyncing ? (lang === 'cn' ? '雲端同步中...' : 'Syncing Cloud...') : (lang === 'cn' ? '已連接雲端' : 'Cloud Connected')}
             </div>
-            <div className="text-xs text-gray-300">v4.0 Live</div>
+            <div className="text-xs text-gray-300">v4.5 Safe-Bot</div>
         </div>
+
+        <button 
+            onClick={handleSharePlatform}
+            className="w-full mb-3 py-2 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-lg font-bold shadow-md flex items-center justify-center gap-2 hover:opacity-90 transition active:scale-95"
+        >
+            <Share2 size={18} />
+            {lang === 'cn' ? '分享論壇地址給朋友' : 'Share Forum URL with Friends'}
+        </button>
+
         <div className="flex gap-2 mb-4">
             <div className="flex-1 flex items-center bg-gray-100 rounded-lg px-3">
                 <Search className="text-gray-400" size={18} />
@@ -276,7 +284,6 @@ export const NewsFeed: React.FC = () => {
             const displayTitle = (isTranslated && post.titleCN) ? post.titleCN : post.title;
             const displayContent = (isTranslated && post.contentCN) ? post.contentCN : post.content;
             
-            // User Interaction Counts
             const myInteractions = user && post.userInteractions?.[user.id] 
                 ? post.userInteractions[user.id] 
                 : { likes: 0, hearts: 0 };
@@ -333,18 +340,20 @@ export const NewsFeed: React.FC = () => {
                     <h3 className="text-lg font-bold mb-4 text-gray-900 leading-tight">{displayTitle}</h3>
                     <p className="text-gray-700 text-sm leading-7 mb-4 whitespace-pre-line font-serif">{displayContent}</p>
                     
-                    {post.source && (
+                    {post.isRobot && post.source && (
                         <div className="bg-amber-50 p-4 rounded-lg border border-amber-100 text-xs mb-4">
                             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-2 gap-2">
                                 <div className="flex items-center gap-2">
-                                    <span className="font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded">{lang === 'cn' ? '新聞來源' : 'Source'}: {post.source}</span>
+                                    <span className="font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded flex items-center gap-1">
+                                        <ShieldAlert size={12}/> {lang === 'cn' ? '新聞來源' : 'Source'}: {post.source}
+                                    </span>
                                 </div>
                                 {post.sourceUrl && (
                                     <a 
                                         href={post.sourceUrl} 
                                         target="_blank" 
                                         rel="noopener noreferrer" 
-                                        className="flex items-center gap-1 text-blue-600 hover:underline cursor-pointer font-bold bg-white px-3 py-1.5 rounded-full shadow-sm border border-blue-100"
+                                        className="flex items-center gap-1 text-blue-600 hover:underline cursor-pointer font-bold bg-white px-3 py-1.5 rounded-full shadow-sm border border-blue-100 hover:bg-blue-50 transition"
                                     >
                                         <ExternalLink size={12} />
                                         {lang === 'cn' ? '閱讀原文 (Read Original)' : 'Read Original'}
@@ -354,13 +363,12 @@ export const NewsFeed: React.FC = () => {
                             <p className="text-amber-800/70 italic flex items-start gap-1">
                                 <FileText size={12} className="mt-0.5 shrink-0"/>
                                 {lang === 'cn' 
-                                    ? '注意：本內容由 AI 系統摘錄重點，非完整文章。請點擊連結支持原作。資訊只供參考。' 
-                                    : 'Note: AI summarized highlights only. Please support original author via link. For reference only.'}
+                                    ? '注意：本內容由 AI 系統摘錄重點並重新編寫，並非完整文章。請點擊上方按鈕支持原作。資訊只供參考。' 
+                                    : 'Note: AI synthesized summary only. Please support the original author by clicking the link above. For reference only.'}
                             </p>
                         </div>
                     )}
 
-                    {/* Robot Reward Info */}
                     {post.isRobot && (
                         <div className="flex items-center gap-2 text-xs font-bold text-hker-red bg-red-50 p-2 rounded mb-4 border border-red-100">
                             <Gift size={14} />
@@ -368,7 +376,6 @@ export const NewsFeed: React.FC = () => {
                         </div>
                     )}
 
-                    {/* Interactions */}
                     <div className="flex items-center justify-between pt-2 border-t border-gray-50 mt-4">
                         <div className="flex gap-4">
                             <button onClick={() => handleInteraction(post.id, 'heart')} className={`group flex items-center gap-1.5 transition ${myInteractions.hearts >= 3 ? 'text-red-500 opacity-50 cursor-not-allowed' : 'text-gray-500 hover:text-red-500'}`}>
@@ -385,12 +392,11 @@ export const NewsFeed: React.FC = () => {
                                     <span className="text-xs font-medium">{post.replies?.length || 0}</span>
                                 </button>
                             )}
-                            {/* Smart Share Button */}
                             <button onClick={() => handleShare(post)} className="group flex items-center gap-1.5 text-gray-500 hover:text-green-500 transition" title={post.isRobot ? (lang === 'cn' ? '複製新聞原連結' : 'Copy Original News Link') : (lang === 'cn' ? '複製貼文連結' : 'Copy Post Link')}>
                                 <div className="p-1.5 rounded-full group-hover:bg-green-50">
                                     {post.isRobot ? <Link2 size={18} /> : <Share2 size={18} />}
                                 </div>
-                                {post.isRobot && <span className="text-[10px] font-bold text-green-600 hidden sm:inline">{lang === 'cn' ? '分享新聞' : 'Share News'}</span>}
+                                {post.isRobot && <span className="text-[10px] font-bold text-green-600 hidden sm:inline">{lang === 'cn' ? '分享連結' : 'Share Link'}</span>}
                             </button>
                         </div>
                         
@@ -400,10 +406,8 @@ export const NewsFeed: React.FC = () => {
                     </div>
                 </div>
 
-                {/* Comment Section - Hidden for Robots */}
                 {expandedPostId === post.id && !post.isRobot && (
                     <div className="bg-gray-50 border-t border-gray-100 p-4 animate-fade-in-up">
-                        {/* List */}
                         <div className="space-y-3 mb-4 max-h-60 overflow-y-auto">
                             {(!post.replies || post.replies.length === 0) && <p className="text-xs text-gray-400 italic text-center">No comments yet. Be the first!</p>}
                             {post.replies?.map(comment => (
@@ -424,7 +428,6 @@ export const NewsFeed: React.FC = () => {
                             ))}
                         </div>
                         
-                        {/* Input */}
                         <div className="flex gap-2 relative">
                             <input 
                                 value={commentInput}
@@ -448,7 +451,6 @@ export const NewsFeed: React.FC = () => {
             );
         })}
 
-        {/* Pagination Controls */}
         {filteredPosts.length > ITEMS_PER_PAGE && (
             <div className="flex justify-center items-center gap-4 pt-4">
                 <button 

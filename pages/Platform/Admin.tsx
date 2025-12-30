@@ -1,9 +1,9 @@
 
 import React, { useState, useEffect } from 'react';
 import { useOutletContext, useNavigate } from 'react-router-dom';
-import { User, UserRole, Post, RobotLog, ADMIN_EMAILS } from '../../types';
+import { User, UserRole, Post, RobotLog } from '../../types';
 import { MockDB } from '../../services/mockDatabase';
-import { Trash2, Edit, Save, Search, RefreshCw, AlertOctagon, Bot, Activity, Clock, Shield, Users } from 'lucide-react';
+import { Trash2, Edit, Save, Search, RefreshCw, AlertOctagon, Bot, Activity, Clock, Users, UserPlus, Eye, Shield, BarChart3 } from 'lucide-react';
 
 export const Admin: React.FC = () => {
   const { user } = useOutletContext<{ user: User | null }>();
@@ -15,6 +15,14 @@ export const Admin: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [editUser, setEditUser] = useState<string | null>(null);
   const [editData, setEditData] = useState<Partial<User>>({});
+  
+  const [analytics, setAnalytics] = useState({
+      totalMembers: 0,
+      newMembersToday: 0,
+      activeMembersToday: 0,
+      guestsToday: 0,
+      totalVisitsToday: 0
+  });
 
   useEffect(() => {
     if (!user || user.role !== UserRole.ADMIN) {
@@ -22,26 +30,36 @@ export const Admin: React.FC = () => {
       return;
     }
     refreshData();
-    // Auto-refresh admin view every 10 seconds (reduced frequency for cloud ops)
-    const interval = setInterval(refreshData, 10000);
+    // Fast Polling for Real-time Analytics (2s)
+    const interval = setInterval(refreshData, 2000);
     return () => clearInterval(interval);
   }, [user]);
 
   const refreshData = async () => {
-    // ASYNC CALLS TO SUPABASE
+    // 1. Fetch Cloud Data
     const allUsers = await MockDB.getUsers();
     setUsers(allUsers);
+    
     const allPosts = await MockDB.getPosts();
     setPosts(allPosts);
+    
     const logs = await MockDB.getRobotLogs();
     setRobotLogs(logs);
+
+    // 2. Fetch Calculated Analytics
+    const stats = await MockDB.getAnalytics();
+    setAnalytics(stats);
+  };
+
+  const handleManualSync = async () => {
+      await refreshData();
+      alert("資料已即時同步更新！(Data Synced Successfully)");
   };
 
   const handleUpdateUser = async (id: string) => {
     const currentUser = users.find(u => u.id === id);
     if (!currentUser) return;
     
-    // Safety: don't let editing own role lock yourself out
     if (id === user?.id && editData.role && editData.role !== UserRole.ADMIN) {
         alert("Cannot downgrade your own Admin privileges.");
         return;
@@ -92,29 +110,59 @@ export const Admin: React.FC = () => {
   return (
     <div className="space-y-8 bg-white p-6 rounded-lg shadow pb-20">
       <div className="flex justify-between items-center border-b pb-4">
-        <h1 className="text-2xl font-bold text-red-600">Admin Control Panel (Cloud Connected)</h1>
-        <div className="text-sm text-gray-500">
-             Admin: {user?.email}
+        <h1 className="text-2xl font-bold text-red-600">Admin Control Panel (Live Sync)</h1>
+        <div className="text-sm text-gray-500 flex items-center gap-2">
+             <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
+             Cloud Connected: {user?.email}
         </div>
       </div>
-      
-      {/* Tools */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+
+      {/* TOOLS & SYNC SECTION */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
           <div className="bg-gray-100 p-4 rounded-lg flex items-center gap-2">
             <Search className="text-gray-500" />
             <input 
                 className="bg-transparent outline-none flex-1" 
-                placeholder="Search User by Name, Email, ID..." 
+                placeholder="Search User..." 
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
             />
           </div>
+          {/* REQUESTED FEATURE: Live Stats Button */}
+          <button onClick={handleManualSync} className="bg-indigo-600 text-white p-4 rounded-lg font-bold flex items-center justify-center gap-2 hover:bg-indigo-700 shadow-lg transition transform active:scale-95">
+             <BarChart3 size={20} />
+             即時查看流量與會員 (Sync Stats)
+          </button>
           <button onClick={handleGlobalPointReset} className="bg-red-100 text-red-600 p-4 rounded-lg font-bold flex items-center justify-center gap-2 hover:bg-red-200">
              <AlertOctagon size={20} /> Mass Reset Points
           </button>
           <button onClick={() => setShowRobotMonitor(!showRobotMonitor)} className={`p-4 rounded-lg font-bold flex items-center justify-center gap-2 transition ${showRobotMonitor ? 'bg-blue-600 text-white' : 'bg-blue-100 text-blue-600 hover:bg-blue-200'}`}>
              <Bot size={20} /> {showRobotMonitor ? 'Hide Robot Monitor' : '🤖 Robot Monitor'}
           </button>
+      </div>
+
+      {/* ANALYTICS DASHBOARD */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 animate-fade-in-up">
+          <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 flex flex-col items-center justify-center text-center">
+              <Users size={28} className="text-blue-500 mb-2" />
+              <div className="text-3xl font-black text-blue-700">{analytics.totalMembers}</div>
+              <div className="text-xs font-bold text-blue-400 uppercase">已註冊會員 (Total Members)</div>
+          </div>
+          <div className="bg-green-50 p-4 rounded-xl border border-green-100 flex flex-col items-center justify-center text-center">
+              <UserPlus size={28} className="text-green-500 mb-2" />
+              <div className="text-3xl font-black text-green-700">+{analytics.newMembersToday}</div>
+              <div className="text-xs font-bold text-green-400 uppercase">今天新註冊 (New Today)</div>
+          </div>
+          <div className="bg-purple-50 p-4 rounded-xl border border-purple-100 flex flex-col items-center justify-center text-center">
+              <Activity size={28} className="text-purple-500 mb-2" />
+              <div className="text-3xl font-black text-purple-700">{analytics.activeMembersToday}</div>
+              <div className="text-xs font-bold text-purple-400 uppercase">今天到訪會員 (Member Visits)</div>
+          </div>
+          <div className="bg-orange-50 p-4 rounded-xl border border-orange-100 flex flex-col items-center justify-center text-center">
+              <Eye size={28} className="text-orange-500 mb-2" />
+              <div className="text-3xl font-black text-orange-700">{analytics.guestsToday}</div>
+              <div className="text-xs font-bold text-orange-400 uppercase">今天到訪遊客 (Guest Visits)</div>
+          </div>
       </div>
 
       {/* ROBOT MONITOR SECTION */}
@@ -125,7 +173,6 @@ export const Admin: React.FC = () => {
                 <div className="text-xs text-green-600">Refreshed: {new Date().toLocaleTimeString()}</div>
             </div>
             <div className="h-64 overflow-y-auto space-y-2 pr-2 custom-scrollbar">
-                {robotLogs.length === 0 && <div className="text-gray-500 italic">No logs generated yet. Robot is active in background...</div>}
                 {robotLogs.map(log => (
                     <div key={log.id} className="text-xs border-b border-green-900/30 pb-1">
                         <span className="text-gray-500">[{new Date(log.timestamp).toLocaleString()}]</span>
@@ -141,17 +188,17 @@ export const Admin: React.FC = () => {
       {/* User Table (Enhanced) */}
       <div className="overflow-hidden bg-white rounded-lg border border-gray-200 shadow-sm">
         <div className="p-4 bg-gray-50 border-b font-bold flex justify-between items-center">
-            <span className="flex items-center gap-2 text-lg"><Users size={20}/> Registered Member List ({filteredUsers.length})</span>
-            <button onClick={refreshData} className="text-blue-500 hover:text-blue-700 flex items-center gap-1 text-sm"><RefreshCw size={14} /> Refresh List</button>
+            <span className="flex items-center gap-2 text-lg"><Users size={20}/> 註冊會員列表 (Member List) - {filteredUsers.length}</span>
+            <button onClick={refreshData} className="text-blue-500 hover:text-blue-700 flex items-center gap-1 text-sm"><RefreshCw size={14} /> Auto-Syncing...</button>
         </div>
         <div className="overflow-x-auto">
             <table className="min-w-full text-sm">
                 <thead className="bg-gray-100 text-gray-700 uppercase text-xs font-bold">
                     <tr>
-                        <th className="p-4 text-left">User Identity</th>
-                        <th className="p-4 text-left">Contact Info</th>
-                        <th className="p-4 text-left">Role / Status</th>
-                        <th className="p-4 text-left">Points Balance</th>
+                        <th className="p-4 text-left">Identity (ID / Name)</th>
+                        <th className="p-4 text-left">Contact / Address</th>
+                        <th className="p-4 text-left">Role / Activity</th>
+                        <th className="p-4 text-left">Points</th>
                         <th className="p-4 text-left">Actions</th>
                     </tr>
                 </thead>
@@ -164,17 +211,23 @@ export const Admin: React.FC = () => {
                                 ) : (
                                     <div>
                                         <div className="font-bold text-gray-900">{u.name}</div>
-                                        <div className="font-mono text-xs text-gray-400">ID: {u.id}</div>
+                                        <div className="font-mono text-xs text-gray-400 bg-gray-100 px-1 rounded inline-block">{u.id}</div>
+                                        <div className="text-[10px] text-gray-400 mt-1">Joined: {u.joinedAt ? new Date(u.joinedAt).toLocaleDateString() : 'N/A'}</div>
                                     </div>
                                 )}
                             </td>
                             <td className="p-4">
                                 {editUser === u.id ? (
-                                    <input className="border p-2 rounded w-full" placeholder="Email" value={editData.email !== undefined ? editData.email : u.email} onChange={e => setEditData({...editData, email: e.target.value})} />
+                                    <div className="space-y-1">
+                                        <input className="border p-1 rounded w-full text-xs" placeholder="Email" value={editData.email !== undefined ? editData.email : u.email} onChange={e => setEditData({...editData, email: e.target.value})} />
+                                        <input className="border p-1 rounded w-full text-xs" placeholder="Phone" value={editData.phone !== undefined ? editData.phone : u.phone} onChange={e => setEditData({...editData, phone: e.target.value})} />
+                                        <input className="border p-1 rounded w-full text-xs" placeholder="Addr" value={editData.address !== undefined ? editData.address : u.address} onChange={e => setEditData({...editData, address: e.target.value})} />
+                                    </div>
                                 ) : (
-                                    <div>
-                                        <div className="text-gray-600">{u.email}</div>
-                                        <div className="text-xs text-gray-400">{u.phone || 'No Phone'}</div>
+                                    <div className="space-y-0.5">
+                                        <div className="text-gray-700 font-bold">{u.email}</div>
+                                        <div className="text-xs text-gray-500">📞 {u.phone}</div>
+                                        <div className="text-xs text-gray-500 truncate max-w-[150px]">🏠 {u.address}</div>
                                     </div>
                                 )}
                             </td>
@@ -190,9 +243,14 @@ export const Admin: React.FC = () => {
                                         <option value={UserRole.ADMIN}>Admin</option>
                                     </select>
                                 ) : (
-                                    <span className={`px-2 py-1 rounded text-xs font-bold ${u.role === UserRole.ADMIN ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'}`}>
-                                        {u.role}
-                                    </span>
+                                    <div>
+                                        <span className={`px-2 py-1 rounded text-xs font-bold ${u.role === UserRole.ADMIN ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'}`}>
+                                            {u.role}
+                                        </span>
+                                        {u.lastActive && (
+                                            <div className="text-[10px] text-gray-400 mt-1">Last: {new Date(u.lastActive).toLocaleTimeString()}</div>
+                                        )}
+                                    </div>
                                 )}
                             </td>
                             <td className="p-4">
@@ -239,7 +297,7 @@ export const Admin: React.FC = () => {
                             <span>{p.author}</span>
                             <span>{p.region}</span>
                             <span className="flex items-center gap-1"><Clock size={10}/> {new Date(p.timestamp).toLocaleTimeString()}</span>
-                            <span>({p.replies?.length || 0} replies)</span>
+                            <span className="flex items-center gap-1 text-green-600"><Eye size={10}/> {p.views}</span>
                         </div>
                     </div>
                     <button onClick={() => handleDeletePost(p.id)} className="text-red-500 hover:bg-red-50 p-2 rounded">

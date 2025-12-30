@@ -18,6 +18,8 @@ export interface User {
   points: number;
   avatarId: number; // 1-88
   isBanned?: boolean;
+  joinedAt?: number; // Timestamp for registration analysis
+  lastActive?: number; // Timestamp for "Active Today" analysis
 }
 
 export interface Comment {
@@ -95,6 +97,7 @@ export const CATEGORIES_CN: Record<string, string> = {
   'Weather': '天氣'
 };
 
+// STRICT ADMIN LIST
 export const ADMIN_EMAILS = [
   'chrishy1494@gmail.com', 
   'hkerstoken@gmail.com', 

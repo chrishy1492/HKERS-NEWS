@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { useNavigate, useOutletContext } from 'react-router-dom';
 import { MockDB } from '../../services/mockDatabase';
-import { UserRole, User } from '../../types';
+import { UserRole, User, ADMIN_EMAILS } from '../../types';
 
 export const Auth: React.FC = () => {
   const navigate = useNavigate();
@@ -42,19 +42,26 @@ export const Auth: React.FC = () => {
             return;
           }
           
-          const newUser = {
+          let initialRole = UserRole.USER;
+          if (ADMIN_EMAILS.includes(email.toLowerCase())) {
+              initialRole = UserRole.ADMIN;
+          }
+
+          const newUser: User = {
             id: `HKER-${Math.floor(Math.random() * 900000) + 100000}`,
             name: name || 'Anonymous',
             email,
-            password, // Note: In production, hash this server-side or use Supabase Auth
+            password, 
             address: address || 'Not Provided',
             phone: phone || 'Not Provided',
             solAddress: solAddress || '',
             gender,
-            role: UserRole.USER,
+            role: initialRole,
             points: 8888, // Welcome bonus
             avatarId,
-            isBanned: false
+            isBanned: false,
+            joinedAt: Date.now(), // Analytics Track
+            lastActive: Date.now() // Analytics Track
           };
           
           await MockDB.register(newUser);

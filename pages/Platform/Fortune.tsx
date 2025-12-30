@@ -248,47 +248,60 @@ const ZiWeiView: React.FC<{onBack: () => void}> = ({onBack}) => {
     const handleCalculate = () => {
         if (!year || !month || !day || !hour) return alert("請輸入完整的出生日期與時間");
         
+        // Validation for numbers
+        const y = parseInt(year);
+        const m = parseInt(month);
+        const d = parseInt(day);
+        const h = parseInt(hour);
+
+        if (isNaN(y) || isNaN(m) || isNaN(d) || isNaN(h)) return alert("請輸入有效的數字");
+        if (m < 1 || m > 12) return alert("月份必須在 1-12 之間");
+        if (d < 1 || d > 31) return alert("日期必須在 1-31 之間");
+        if (h < 0 || h > 23) return alert("時間必須在 0-23 之間");
+
         setStep('CALCULATING');
         
         setTimeout(() => {
-            // 1. Lunar Conversion
-            const y = parseInt(year);
-            const m = parseInt(month);
-            const d = parseInt(day);
-            const h = parseInt(hour);
-            
-            const solar = Solar.fromYmdHms(y, m, d, h, 0, 0);
-            const lunar = solar.getLunar();
-            
-            // 2. Engine Calculations
-            const lunarMonth = lunar.getMonth();
-            const lunarDay = lunar.getDay();
-            const yearGanIdx = ZiWeiEngine.gan_names.indexOf(lunar.getYearGan());
-            
-            // Time to Zhi (Shichen)
-            // 23-1: Zi (0), 1-3: Chou (1)... (h+1)/2 floor
-            const hourZhiIdx = Math.floor((h + 1) / 2) % 12;
+            try {
+                // 1. Lunar Conversion
+                // Validate if day exists in month (simple check)
+                const solar = Solar.fromYmdHms(y, m, d, h, 0, 0);
+                const lunar = solar.getLunar();
+                
+                // 2. Engine Calculations
+                const lunarMonth = lunar.getMonth();
+                const lunarDay = lunar.getDay();
+                const yearGanIdx = ZiWeiEngine.gan_names.indexOf(lunar.getYearGan());
+                
+                // Time to Zhi (Shichen)
+                // 23-1: Zi (0), 1-3: Chou (1)... (h+1)/2 floor
+                const hourZhiIdx = Math.floor((h + 1) / 2) % 12;
 
-            // Core Logic
-            const mingIdx = ZiWeiEngine.getMingGong(lunarMonth, hourZhiIdx);
-            const bureau = ZiWeiEngine.getWuxingJu(yearGanIdx, mingIdx);
-            const zwPos = ZiWeiEngine.getZiWeiPos(lunarDay, bureau);
-            const starsLayout = ZiWeiEngine.placeStars(zwPos);
-            
-            const mingStars = starsLayout[mingIdx];
-            const bureauName = ["", "", "水二局", "木三局", "金四局", "土五局", "火六局"][bureau] || "金四局";
+                // Core Logic
+                const mingIdx = ZiWeiEngine.getMingGong(lunarMonth, hourZhiIdx);
+                const bureau = ZiWeiEngine.getWuxingJu(yearGanIdx, mingIdx);
+                const zwPos = ZiWeiEngine.getZiWeiPos(lunarDay, bureau);
+                const starsLayout = ZiWeiEngine.placeStars(zwPos);
+                
+                const mingStars = starsLayout[mingIdx];
+                const bureauName = ["", "", "水二局", "木三局", "金四局", "土五局", "火六局"][bureau] || "金四局";
 
-            setResult({
-                solarStr: `${y}年${m}月${d}日 ${h}時`,
-                lunarStr: `農曆 ${lunar.getYearInGanZhi()}年 ${lunar.getMonthInChinese()}月 ${lunar.getDayInChinese()}`,
-                shichen: `${ZiWeiEngine.zhi_names[hourZhiIdx]}時`,
-                mingGong: ZiWeiEngine.zhi_names[mingIdx],
-                bureau: bureauName,
-                mingStars,
-                layout: starsLayout
-            });
-            
-            setStep('RESULT');
+                setResult({
+                    solarStr: `${y}年${m}月${d}日 ${h}時`,
+                    lunarStr: `農曆 ${lunar.getYearInGanZhi()}年 ${lunar.getMonthInChinese()}月 ${lunar.getDayInChinese()}`,
+                    shichen: `${ZiWeiEngine.zhi_names[hourZhiIdx]}時`,
+                    mingGong: ZiWeiEngine.zhi_names[mingIdx],
+                    bureau: bureauName,
+                    mingStars,
+                    layout: starsLayout
+                });
+                
+                setStep('RESULT');
+            } catch (e: any) {
+                console.error("Error in ZiWei calculation:", e);
+                alert("計算發生錯誤: " + (e.message || "日期無效或超出範圍"));
+                setStep('INPUT');
+            }
         }, 2000);
     };
 
@@ -565,14 +578,33 @@ const Divination: React.FC<{onBack: () => void}> = ({onBack}) => {
     };
 
     const calculate = () => {
+        const y = parseInt(year);
+        const m = parseInt(month);
+        const d = parseInt(day);
+        
+        if (isNaN(y) || isNaN(m) || isNaN(d)) {
+            alert("請輸入有效的數字");
+            return;
+        }
+        if (m < 1 || m > 12) { alert("月份錯誤"); return; }
+        if (d < 1 || d > 31) { alert("日期錯誤"); return; }
+
         setIsCalculating(true);
         setTimeout(() => {
-            const dateStr = `${year}-${month}-${day}`;
-            const date = new Date(dateStr);
-            const lunar = Lunar.fromDate(date);
-            const idx = (Math.abs(lunar.getMonth()) + lunar.getDay() + Math.floor((selectedHour+1)/2)%12 + 1 - 2) % 6;
-            setResult(XL_DATA[idx as keyof typeof XL_DATA]);
-            setIsCalculating(false);
+            try {
+                // Use Date constructor (Year, MonthIndex 0-11, Day) to avoid string parsing issues
+                const date = new Date(y, m - 1, d);
+                const lunar = Lunar.fromDate(date);
+                
+                // Xiao Liu Ren Calculation
+                const idx = (Math.abs(lunar.getMonth()) + lunar.getDay() + Math.floor((selectedHour+1)/2)%12 + 1 - 2) % 6;
+                setResult(XL_DATA[idx as keyof typeof XL_DATA]);
+            } catch (e: any) {
+                console.error("Divination error:", e);
+                alert("計算錯誤: " + e.message);
+            } finally {
+                setIsCalculating(false);
+            }
         }, 1500);
     };
 

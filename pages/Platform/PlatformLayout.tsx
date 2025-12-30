@@ -15,8 +15,14 @@ export const PlatformLayout: React.FC = () => {
   const [lang, setLang] = useState<'en' | 'cn'>('cn');
 
   useEffect(() => {
+    // 1. Check User
     const currentUser = MockDB.getCurrentUser();
     setUser(currentUser);
+    
+    // 2. Record Visit Logic (Analytics)
+    MockDB.recordVisit(!!currentUser);
+
+    // 3. User Sync Polling
     const interval = setInterval(() => {
         const u = MockDB.getCurrentUser();
         if (u) setUser(u);
