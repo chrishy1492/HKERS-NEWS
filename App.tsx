@@ -1,37 +1,21 @@
-import React from 'react';
-import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
-import SplitScreen from './pages/SplitScreen';
-import TokenPage from './pages/TokenPage';
-import { PlatformLayout } from './pages/Platform/PlatformLayout';
-import { NewsFeed } from './pages/Platform/NewsFeed';
-import { Games } from './pages/Platform/Games';
-import { Admin } from './pages/Platform/Admin';
-import { Auth } from './pages/Platform/Auth';
-import { Profile } from './pages/Platform/Profile';
-import { Fortune } from './pages/Platform/Fortune';
+import React, { useState } from 'react';
+import { DataProvider } from './contexts/DataContext';
+import { LandingPage } from './components/LandingPage';
+import { TokenPage } from './components/TokenPage';
+import { ForumPage } from './components/ForumPage';
+import { ViewState } from './types';
 
 const App: React.FC = () => {
-  return (
-    <HashRouter>
-      <Routes>
-        <Route path="/" element={<SplitScreen />} />
-        
-        {/* Left Side */}
-        <Route path="/token" element={<TokenPage />} />
-        
-        {/* Right Side */}
-        <Route path="/platform" element={<PlatformLayout />}>
-          <Route index element={<NewsFeed />} />
-          <Route path="games" element={<Games />} />
-          <Route path="fortune" element={<Fortune />} />
-          <Route path="admin" element={<Admin />} />
-          <Route path="login" element={<Auth />} />
-          <Route path="profile" element={<Profile />} />
-        </Route>
+  const [currentView, setCurrentView] = useState<ViewState>('landing');
 
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </HashRouter>
+  return (
+    <DataProvider>
+      <div className="font-sans antialiased text-gray-900 bg-gray-100 min-h-screen">
+        {currentView === 'landing' && <LandingPage onSelect={setCurrentView} />}
+        {currentView === 'token' && <TokenPage onBack={() => setCurrentView('landing')} />}
+        {currentView === 'forum' && <ForumPage onBack={() => setCurrentView('landing')} />}
+      </div>
+    </DataProvider>
   );
 };
 
