@@ -1,5 +1,8 @@
+
 {
   "name": "HKER Forum & Token",
   "description": "A community platform for Hongkongers featuring a forum, Web3 token integration simulation, and game center.",
-  "requestFramePermissions": []
+  "requestFramePermissions": [
+    "geolocation"
+  ]
 }

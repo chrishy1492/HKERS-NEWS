@@ -2,7 +2,7 @@
 export type UserRole = 'user' | 'moderator' | 'admin';
 
 export interface User {
-  id: string;
+  id: string; // 格式: HKER-XXXXXX
   name: string;
   email: string;
   password?: string;
@@ -33,11 +33,8 @@ export interface Post {
   content: string;
   region: string;
   topic: string;
-  
-  // Interaction: Store user IDs. Multiple occurrences allowed for 3x limit.
   likes: string[]; 
   loves: string[]; 
-  
   createdAt: string;
   replies: Reply[];
 
@@ -46,22 +43,13 @@ export interface Post {
   sourceUrl?: string;
   sourceName?: string;
   originalLang?: 'zh' | 'en';
-  isTranslated?: boolean; // UI toggle state
-  summary?: string; // The AI generated summary
-  
-  // Pre-generated translation content (e.g., if original is EN, this holds ZH)
+  isTranslated?: boolean;
   translation?: {
     title: string;
     content: string;
   };
 }
 
-export interface Game {
-  id: string;
-  name: string;
-}
-
-// Analytics Structure: Year -> Month -> Day -> Hour -> Count
 export interface VisitorLog {
   [year: string]: {
     [month: string]: {
