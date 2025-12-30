@@ -26,23 +26,24 @@ const SOURCE_DOMAINS: Record<string, string> = {
 };
 
 // =========================================================
-// NEWS TEMPLATES (Summary Generation Logic)
+// NEWS TEMPLATES (Summary Generation Logic - Enhanced V2)
 // =========================================================
 interface NewsTemplate {
     titleEN: string;
     titleCN: string;
+    // Updated signature to support longer context generation
     summaryEN: (region: string, source: string) => string;
     summaryCN: (region: string, source: string) => string;
     category: string;
 }
 
-// Helper to create safe summaries
-const createSafeSummaryEN = (topic: string, source: string) => {
-    return `(AI Summary) According to ${source}, ${topic}.\n\nThis is a brief excerpt. Please visit the original link below for full details.`;
+// Helper to create longer, synthesized summaries (2-3x length)
+const createSynthesizedSummaryEN = (topic: string, detail: string, source: string) => {
+    return `(AI Synthesis) Reports from ${source} highlight a significant development: ${topic}. \n\nDetailed Analysis:\nAccording to the latest data released this week, ${detail}. Experts suggest that this trend may have broader implications for the local economy and community stability. While initial reactions have been mixed, the long-term impact remains to be seen. \n\nDisclaimer: This summary is synthesized by AI for reference only. Please click the link below to view the original article and verify all details.`;
 };
 
-const createSafeSummaryCN = (topic: string, source: string) => {
-    return `(AI 重點摘要) 根據《${source}》報導，${topic}。\n\n以上僅為新聞重點，完整內容請點擊下方連結閱讀原文。`;
+const createSynthesizedSummaryCN = (topic: string, detail: string, source: string) => {
+    return `(AI 綜合摘要) 綜合《${source}》及多方消息報導，${topic}。\n\n詳細分析：\n據最新發布的數據顯示，${detail}。分析人士認為，這一趨勢可能會對當地的經濟結構和社區穩定產生深遠影響。雖然目前的市場反應不一，但長遠來看，相關政策的落實將是關鍵。\n\n免責聲明：本內容由 AI 系統摘錄重點並重新編寫，僅供參考資訊，並非完整原文。請點擊下方連結閱讀原始報導以獲取最準確資訊。`;
 };
 
 const NEWS_TEMPLATES: NewsTemplate[] = [
@@ -50,29 +51,61 @@ const NEWS_TEMPLATES: NewsTemplate[] = [
         category: 'Finance',
         titleEN: "Market Alert: Tech Stocks Rally",
         titleCN: "市場快訊：科技股反彈",
-        summaryEN: (region, source) => createSafeSummaryEN(`major indices in ${region} hit record highs today driven by semiconductor gains`, source),
-        summaryCN: (region, source) => createSafeSummaryCN(`${region} 主要指數今日在半導體板塊帶動下創出新高`, source)
+        summaryEN: (region, source) => createSynthesizedSummaryEN(
+            `major indices in ${region} hit record highs today driven by semiconductor gains`,
+            `trading volume surged by 20% compared to the previous quarter, with AI-related stocks leading the charge. Analysts attribute this bullish sentiment to easing inflation concerns and strong corporate earnings reports from key industry players`,
+            source
+        ),
+        summaryCN: (region, source) => createSynthesizedSummaryCN(
+            `${region} 主要指數今日在半導體板塊帶動下創出新高`,
+            `與上一季相比，今日的交易量激增了 20%，其中 AI 概念股領漲大市。分析師將這種樂觀情緒歸因於通脹擔憂的緩解，以及主要行業巨頭發布的強勁企業財報，顯示出市場信心正在逐步恢復`,
+            source
+        )
     },
     {
         category: 'Real Estate',
         titleEN: "Luxury Property Market Trends",
         titleCN: "豪宅市場最新趨勢",
-        summaryEN: (region, source) => createSafeSummaryEN(`transaction volumes for luxury properties in ${region} have increased by 15% this quarter`, source),
-        summaryCN: (region, source) => createSafeSummaryCN(`${region} 豪宅市場本季交易量意外增長了 15%`, source)
+        summaryEN: (region, source) => createSynthesizedSummaryEN(
+            `transaction volumes for luxury properties in ${region} have unexpectedly increased by 15% this quarter`,
+            `despite high interest rates, wealthy investors are seeking safe-haven assets. The demand is particularly strong for waterfront properties and penthouses in the central business district, signaling a potential decoupling from the mass residential market`,
+            source
+        ),
+        summaryCN: (region, source) => createSynthesizedSummaryCN(
+            `${region} 豪宅市場本季交易量意外增長了 15%`,
+            `儘管目前利率維持高位，但富裕投資者仍積極尋求避險資產。數據顯示，對於核心商業區的海景物業及頂層特色戶的需求尤為強勁，這表明豪宅市場可能正與大眾住宅市場走勢脫鉤`,
+            source
+        )
     },
     {
         category: 'Current Affairs',
         titleEN: "New Infrastructure Bill Passed",
         titleCN: "新基建法案正式通過",
-        summaryEN: (region, source) => createSafeSummaryEN(`the local government in ${region} approved a new bill to modernize public transport networks`, source),
-        summaryCN: (region, source) => createSafeSummaryCN(`${region} 當地政府已批准一項旨在現代化公共交通網絡的新法案`, source)
+        summaryEN: (region, source) => createSynthesizedSummaryEN(
+            `the local government in ${region} approved a new bill to modernize public transport networks`,
+            `the comprehensive plan includes expanding the subway system, introducing eco-friendly electric buses, and upgrading digital ticketing systems. Officials stated that this initiative aims to reduce carbon emissions by 10% over the next five years while improving commute efficiency`,
+            source
+        ),
+        summaryCN: (region, source) => createSynthesizedSummaryCN(
+            `${region} 當地政府已批准一項旨在現代化公共交通網絡的新法案`,
+            `這項綜合計劃包括擴建地鐵系統、引進環保電動巴士以及升級數位票務系統。官員表示，此舉旨在未來五年內將碳排放量減少 10%，同時大幅提升市民的通勤效率，解決長期以來的交通擁堵問題`,
+            source
+        )
     },
     {
         category: 'Weather',
         titleEN: "Severe Weather Warning Issued",
         titleCN: "惡劣天氣警告生效",
-        summaryEN: (region, source) => createSafeSummaryEN(`meteorologists in ${region} warn of heavy rainfall and potential flooding in coastal areas`, source),
-        summaryCN: (region, source) => createSafeSummaryCN(`${region} 氣象部門警告沿海地區可能出現暴雨及水浸風險`, source)
+        summaryEN: (region, source) => createSynthesizedSummaryEN(
+            `meteorologists in ${region} warn of heavy rainfall and potential flooding in coastal areas`,
+            `a low-pressure system is moving rapidly across the territory, expected to bring sustained winds of up to 80 km/h. Emergency services have been placed on high alert, and residents in low-lying areas are advised to take immediate precautions to protect their property`,
+            source
+        ),
+        summaryCN: (region, source) => createSynthesizedSummaryCN(
+            `${region} 氣象部門警告沿海地區可能出現暴雨及水浸風險`,
+            `一道低壓槽正快速橫過該地區，預計將帶來每小時高達 80 公里的持續風速。緊急服務部門已處於高度戒備狀態，當局呼籲低窪地區的居民應立即採取預防措施，以保護生命和財產安全`,
+            source
+        )
     }
 ];
 
@@ -228,6 +261,15 @@ export const MockDB = {
     }
   },
 
+  // Admin delete function
+  deleteUser: async (id: string): Promise<void> => {
+      const { error } = await supabase.from('users').delete().eq('id', id);
+      if (error) {
+          const users = getLocalUsers().filter(u => u.id !== id);
+          localStorage.setItem(KEY_LOCAL_USERS, JSON.stringify(users));
+      }
+  },
+
   updateUserPoints: async (userId: string, delta: number): Promise<number> => {
     // 1. Try Cloud
     const { data: user, error: fetchError } = await supabase.from('users').select('points').eq('id', userId).single();
@@ -239,7 +281,9 @@ export const MockDB = {
         const localUser = localUsers.find(u => u.id === userId);
         if (localUser) {
             const newPoints = Math.max(0, localUser.points + delta);
-            if (delta < 0 && (localUser.points + delta < 0)) return -1;
+            // Prevent negative balance for deductions
+            if (delta < 0 && localUser.points + delta < 0) return -1;
+            
             localUser.points = newPoints;
             saveLocalUser(localUser);
             
@@ -255,7 +299,8 @@ export const MockDB = {
     }
 
     const newPoints = Math.max(0, user.points + delta);
-    if (delta < 0 && (user.points + delta < 0)) return -1;
+    // Prevent negative balance
+    if (delta < 0 && user.points + delta < 0) return -1;
 
     const { error: updateError } = await supabase.from('users').update({ points: newPoints }).eq('id', userId);
     if (!updateError) {

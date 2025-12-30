@@ -56,9 +56,15 @@ export const Admin: React.FC = () => {
   };
 
   const handleDeleteUser = async (id: string) => {
-    // Currently MockDB doesn't have deleteUser implemented for Supabase in this snippet
-    // But logically we would handle it here. 
-    alert("Delete not implemented in this version for safety.");
+    if (id === user?.id) {
+        alert("Cannot delete your own admin account!");
+        return;
+    }
+    if (confirm("Are you sure you want to permanently delete this user and all their data?")) {
+        await MockDB.deleteUser(id);
+        refreshData();
+        alert("User deleted.");
+    }
   };
 
   const handleDeletePost = async (id: string) => {

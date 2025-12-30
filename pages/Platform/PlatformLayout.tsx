@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { 
-  Home, Gamepad2, User, Settings, LogOut, Menu, X, Globe, DollarSign, ShieldAlert, Sparkles, Lock
+  Home, Gamepad2, User, Settings, LogOut, Menu, X, Globe, DollarSign, ShieldAlert, Sparkles, Lock, Share2
 } from 'lucide-react';
 import { MockDB } from '../../services/mockDatabase';
 import { User as UserType, UserRole } from '../../types';
@@ -28,6 +28,12 @@ export const PlatformLayout: React.FC = () => {
     MockDB.logout();
     setUser(null);
     navigate('/platform/login');
+  };
+
+  const handleSharePlatform = () => {
+      const url = window.location.origin + '/#/platform';
+      navigator.clipboard.writeText(url);
+      alert(lang === 'cn' ? '論壇網址已複製！' : 'Forum URL Copied!');
   };
 
   const menuItems = [
@@ -63,6 +69,14 @@ export const PlatformLayout: React.FC = () => {
               <span className="font-medium">{item.label}</span>
             </button>
           ))}
+          {/* Share Button (Desktop) */}
+          <button 
+            onClick={handleSharePlatform}
+            className="w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors text-gray-600 hover:bg-green-50 hover:text-green-600"
+          >
+              <Share2 size={20} />
+              <span className="font-medium">{lang === 'cn' ? '分享論壇' : 'Share Forum'}</span>
+          </button>
         </nav>
 
         <div className="p-4 border-t border-gray-100">
@@ -135,6 +149,12 @@ export const PlatformLayout: React.FC = () => {
                   {item.icon} {item.label}
                 </button>
               ))}
+              
+              {/* Share Button (Mobile) */}
+              <button onClick={handleSharePlatform} className="w-full flex items-center gap-3 py-3 border-b text-lg font-medium text-green-600">
+                  <Share2 size={20} /> {lang === 'cn' ? '分享論壇' : 'Share Forum'}
+              </button>
+
               <button onClick={toggleLang} className="w-full py-3 text-left font-bold border-b flex items-center gap-2">
                  <Globe size={16} /> {lang === 'cn' ? '切換語言 (Switch to English)' : 'Switch Language (切換中文)'}
               </button>
