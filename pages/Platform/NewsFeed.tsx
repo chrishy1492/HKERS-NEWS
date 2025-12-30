@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useOutletContext, useNavigate } from 'react-router-dom';
-import { Heart, ThumbsUp, Share2, AlertTriangle, Search, Filter, Clock, MessageSquare, Bot, ChevronLeft, ChevronRight, Languages, Trash2, Send, X, Gift } from 'lucide-react';
+import { Heart, ThumbsUp, Share2, AlertTriangle, Search, Filter, Clock, MessageSquare, Bot, ChevronLeft, ChevronRight, Languages, Trash2, Send, X, Gift, CloudLightning, ExternalLink, Link2 } from 'lucide-react';
 import { MockDB } from '../../services/mockDatabase';
 import { Post, User, REGIONS, CATEGORIES, REGIONS_CN, CATEGORIES_CN, UserRole, Comment } from '../../types';
 
@@ -21,28 +21,29 @@ export const NewsFeed: React.FC = () => {
   
   const [translatedPosts, setTranslatedPosts] = useState<Set<string>>(new Set());
   const [currentPage, setCurrentPage] = useState(1);
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  const fetchData = async () => {
+      setIsSyncing(true);
+      const data = await MockDB.getPosts();
+      setPosts(data);
+      setIsSyncing(false);
+  };
 
   // Initial Load & Real-time Sync
   useEffect(() => {
-    // Catch up if app was closed
-    MockDB.runCatchUpRoutine();
+    fetchData(); // Initial
 
-    // Initial fetch
-    setPosts(MockDB.getPosts());
-
-    // 1. DATA SYNC POLLING (Crucial for Mobile/Web sync in local env)
+    // 1. DATA SYNC POLLING (Supabase)
     const syncInterval = setInterval(() => {
-        setPosts(MockDB.getPosts());
-    }, 2000); // Check every 2 seconds for new updates
+        fetchData(); // Updates every 5 seconds for read-heavy feed
+    }, 5000);
 
-    // 2. ROBOT AUTOMATION (Simulated 24/7)
-    const robotInterval = setInterval(() => {
-        const batchSize = Math.floor(Math.random() * 2) + 1; 
-        for(let i=0; i<batchSize; i++) {
-            MockDB.triggerRobotPost();
-        }
-        // State update handled by syncInterval
-    }, 15000); // 15 seconds
+    // 2. ROBOT AUTOMATION (Distributed Check)
+    const robotInterval = setInterval(async () => {
+        // All clients try, but DB ensures only one posts via timestamp check
+        await MockDB.triggerRobotPost();
+    }, 20000); 
 
     return () => {
         clearInterval(syncInterval);
@@ -50,7 +51,7 @@ export const NewsFeed: React.FC = () => {
     };
   }, []);
 
-  const handleInteraction = (postId: string, type: 'like' | 'heart' | 'view') => {
+  const handleInteraction = async (postId: string, type: 'like' | 'heart' | 'view') => {
     if (!user) {
       if (type !== 'view') {
           if(confirm(lang === 'cn' ? '請先登入以進行互動並賺取積分！' : 'Please login to interact and earn points!')) navigate('/platform/login');
@@ -83,8 +84,8 @@ export const NewsFeed: React.FC = () => {
         post.hearts++;
     }
     
-    // Save to DB
-    MockDB.savePost(post);
+    // Save to Cloud
+    await MockDB.savePost(post);
     
     // Optimistic UI Update
     const newPosts = [...posts];
@@ -93,58 +94,62 @@ export const NewsFeed: React.FC = () => {
 
     // Points Logic
     let pointsAwarded = 0;
-    if (type === 'view') pointsAwarded = 5; // Reduced view points to prevent spam
+    if (type === 'view') pointsAwarded = 5; 
     
-    // Robot Post Special Reward (150 pts)
     if (post.isRobot && (type === 'like' || type === 'heart')) {
         pointsAwarded = 150;
     } else if (type === 'like' || type === 'heart') {
-        pointsAwarded = 50; // Standard reward for user posts
+        pointsAwarded = 50; 
     }
 
     if (pointsAwarded > 0) {
-        MockDB.updateUserPoints(user.id, pointsAwarded);
+        await MockDB.updateUserPoints(user.id, pointsAwarded);
     }
   };
 
-  const handleSubmitComment = (postId: string) => {
+  const handleSubmitComment = async (postId: string) => {
       if (!user) return alert(lang === 'cn' ? "請先登入" : "Please login");
       if (!commentInput.trim()) return;
 
       const post = posts.find(p => p.id === postId);
-      // Robot Post Restriction
       if (post?.isRobot) {
           return alert(lang === 'cn' ? "機械人貼文不可留言。" : "Comments disabled for robot posts.");
       }
 
-      MockDB.addComment(postId, user, commentInput);
+      await MockDB.addComment(postId, user, commentInput);
       setCommentInput('');
-      
-      // Points for commenting
-      MockDB.updateUserPoints(user.id, 200); 
-      
-      // Force refresh
-      setPosts(MockDB.getPosts());
+      await MockDB.updateUserPoints(user.id, 200); 
+      fetchData(); // Refresh to show comment
   };
 
-  const handleDeletePost = (postId: string) => {
+  const handleDeletePost = async (postId: string) => {
       if (confirm(lang === 'cn' ? "確定刪除此貼文？" : "Delete this post?")) {
-          MockDB.deletePost(postId);
-          setPosts(prev => prev.filter(p => p.id !== postId));
+          await MockDB.deletePost(postId);
+          fetchData();
       }
   };
 
-  const handleDeleteComment = (postId: string, commentId: string) => {
+  const handleDeleteComment = async (postId: string, commentId: string) => {
       if (confirm(lang === 'cn' ? "確定刪除此留言？" : "Delete this comment?")) {
-          MockDB.deleteComment(postId, commentId);
-          setPosts(MockDB.getPosts());
+          await MockDB.deleteComment(postId, commentId);
+          fetchData();
       }
   };
 
-  const handleShare = (postId: string) => {
-    const url = `${window.location.origin}/#/platform?post=${postId}`;
+  const handleShare = (post: Post) => {
+    // UPDATED LOGIC: If Robot, copy Source URL. If User, copy App Link.
+    let url = `${window.location.origin}/#/platform?post=${post.id}`;
+    let msg = lang === 'cn' ? `連結已複製！\n${url}` : `Link Copied!\n${url}`;
+
+    if (post.isRobot && post.sourceUrl) {
+        url = post.sourceUrl;
+        msg = lang === 'cn' 
+            ? `已複製原始新聞連結！(支持原創)\n${url}` 
+            : `Original Source Link Copied! (Support Original)\n${url}`;
+    }
+
     navigator.clipboard.writeText(url);
-    alert(lang === 'cn' ? `連結已複製！\n${url}` : `Link Copied!\n${url}`);
+    alert(msg);
   };
 
   const handleReport = (postId: string) => {
@@ -199,6 +204,13 @@ export const NewsFeed: React.FC = () => {
     <div className="max-w-4xl mx-auto">
       {/* Search Bar & Filters */}
       <div className="bg-white p-4 rounded-xl shadow-sm mb-6 sticky top-0 z-10 border border-gray-100">
+        <div className="flex justify-between items-center mb-2">
+            <div className="text-xs text-gray-400 font-bold flex items-center gap-1">
+                {isSyncing ? <CloudLightning size={12} className="text-blue-500 animate-pulse"/> : <CloudLightning size={12}/>}
+                {isSyncing ? (lang === 'cn' ? '雲端同步中...' : 'Syncing Cloud...') : (lang === 'cn' ? '已連接雲端' : 'Cloud Connected')}
+            </div>
+            <div className="text-xs text-gray-300">v4.0 Live</div>
+        </div>
         <div className="flex gap-2 mb-4">
             <div className="flex-1 flex items-center bg-gray-100 rounded-lg px-3">
                 <Search className="text-gray-400" size={18} />
@@ -322,10 +334,24 @@ export const NewsFeed: React.FC = () => {
                     {post.source && (
                         <div className="bg-amber-50 p-3 rounded-lg border border-amber-100 text-xs mb-4">
                             <div className="flex justify-between items-center mb-1">
-                                <span className="font-bold text-amber-700">{lang === 'cn' ? '新聞來源: ' : 'Source: '}{post.source}</span>
+                                <div className="flex items-center gap-2">
+                                    <span className="font-bold text-amber-700">{lang === 'cn' ? '新聞來源: ' : 'Source: '}{post.source}</span>
+                                    {/* Added clickable Link for Original Source */}
+                                    {post.sourceUrl && (
+                                        <a 
+                                            href={post.sourceUrl} 
+                                            target="_blank" 
+                                            rel="noopener noreferrer" 
+                                            className="flex items-center gap-1 text-blue-600 hover:underline cursor-pointer"
+                                        >
+                                            <ExternalLink size={10} />
+                                            {lang === 'cn' ? '閱讀原文' : 'Read Original'}
+                                        </a>
+                                    )}
+                                </div>
                                 <span className="text-amber-600 italic">{lang === 'cn' ? '只供參考' : 'For Reference Only'}</span>
                             </div>
-                            <p className="text-amber-800/70">{lang === 'cn' ? '內容由自動化區域機械人生成。' : 'Content generated by automated regional bot.'}</p>
+                            <p className="text-amber-800/70">{lang === 'cn' ? '內容由自動化區域機械人摘要生成。' : 'Summary generated by automated regional bot.'}</p>
                         </div>
                     )}
 
@@ -352,8 +378,11 @@ export const NewsFeed: React.FC = () => {
                                 <div className="p-1.5 rounded-full group-hover:bg-purple-50"><MessageSquare size={18} /></div>
                                 <span className="text-xs font-medium">{post.replies?.length || 0}</span>
                             </button>
-                            <button onClick={() => handleShare(post.id)} className="group flex items-center gap-1.5 text-gray-500 hover:text-green-500 transition">
-                                <div className="p-1.5 rounded-full group-hover:bg-green-50"><Share2 size={18} /></div>
+                            {/* Updated Share Button */}
+                            <button onClick={() => handleShare(post)} className="group flex items-center gap-1.5 text-gray-500 hover:text-green-500 transition" title={post.isRobot ? "Copy Source Link" : "Copy Post Link"}>
+                                <div className="p-1.5 rounded-full group-hover:bg-green-50">
+                                    {post.isRobot ? <Link2 size={18} /> : <Share2 size={18} />}
+                                </div>
                             </button>
                         </div>
                         

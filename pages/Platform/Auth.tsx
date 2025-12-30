@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { useNavigate, useOutletContext } from 'react-router-dom';
 import { MockDB } from '../../services/mockDatabase';
@@ -6,7 +7,6 @@ import { UserRole, User } from '../../types';
 export const Auth: React.FC = () => {
   const navigate = useNavigate();
   const context = useOutletContext<{ user: User | null, lang: 'en' | 'cn' }>();
-  // Handle case where context might be null (though unlikely in current layout setup)
   const lang = context?.lang || 'cn';
   
   const [isLogin, setIsLogin] = useState(true);
@@ -21,12 +21,14 @@ export const Auth: React.FC = () => {
   const [gender, setGender] = useState('Male');
   const [avatarId, setAvatarId] = useState(1);
   const [confirmEmail, setConfirmEmail] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setIsLoading(true);
     try {
         if (isLogin) {
-          const user = MockDB.login(email);
+          const user = await MockDB.login(email);
           if (user) {
             navigate('/platform');
           } else {
@@ -36,6 +38,7 @@ export const Auth: React.FC = () => {
           // Registration Logic
           if (!confirmEmail) {
             alert(lang === 'cn' ? '請確認您的電郵地址正確。' : "Please confirm your email address is correct.");
+            setIsLoading(false);
             return;
           }
           
@@ -43,22 +46,25 @@ export const Auth: React.FC = () => {
             id: `HKER-${Math.floor(Math.random() * 900000) + 100000}`,
             name: name || 'Anonymous',
             email,
-            password, // In real app, hash this!
+            password, // Note: In production, hash this server-side or use Supabase Auth
             address: address || 'Not Provided',
             phone: phone || 'Not Provided',
             solAddress: solAddress || '',
             gender,
             role: UserRole.USER,
-            points: 8888, // Welcome bonus Requirement #37
+            points: 8888, // Welcome bonus
             avatarId,
             isBanned: false
           };
-          MockDB.register(newUser);
+          
+          await MockDB.register(newUser);
           alert(lang === 'cn' ? '註冊成功！獲得迎新獎勵：8888 積分。' : 'Registration Successful! Welcome Bonus: 8888 Points awarded.');
           navigate('/platform');
         }
     } catch (err: any) {
         alert(err.message);
+    } finally {
+        setIsLoading(false);
     }
   };
 
@@ -110,8 +116,8 @@ export const Auth: React.FC = () => {
              </div>
           )}
 
-          <button type="submit" className="w-full bg-hker-red text-white font-bold py-3 rounded-lg hover:bg-red-700 transition shadow-lg">
-            {isLogin ? (lang === 'cn' ? '登入' : 'Login') : (lang === 'cn' ? '註冊' : 'Register')}
+          <button type="submit" disabled={isLoading} className="w-full bg-hker-red text-white font-bold py-3 rounded-lg hover:bg-red-700 transition shadow-lg disabled:opacity-50">
+            {isLoading ? '...' : (isLogin ? (lang === 'cn' ? '登入' : 'Login') : (lang === 'cn' ? '註冊' : 'Register'))}
           </button>
         </form>
 

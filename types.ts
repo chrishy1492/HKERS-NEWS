@@ -46,6 +46,7 @@ export interface Post {
   hearts: number;
   views: number;
   source?: string;
+  sourceUrl?: string; // NEW: Stores the original external news link
   botId?: string;
   replies: Comment[]; // New: Comments array
   // New: Track user interactions { userId: { likes: 0-3, hearts: 0-3 } }

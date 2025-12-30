@@ -236,19 +236,27 @@ const ZiWeiEngine = {
 // ==========================================
 const ZiWeiView: React.FC<{onBack: () => void}> = ({onBack}) => {
     const [step, setStep] = useState<'INTRO' | 'INPUT' | 'CALCULATING' | 'RESULT'>('INTRO');
-    const [date, setDate] = useState('');
-    const [time, setTime] = useState('');
+    
+    // UPDATED: Split inputs for Year, Month, Day, Hour
+    const [year, setYear] = useState('');
+    const [month, setMonth] = useState('');
+    const [day, setDay] = useState('');
+    const [hour, setHour] = useState('');
+    
     const [result, setResult] = useState<any>(null);
 
     const handleCalculate = () => {
-        if (!date || !time) return alert("請輸入完整的出生日期與時間");
+        if (!year || !month || !day || !hour) return alert("請輸入完整的出生日期與時間");
         
         setStep('CALCULATING');
         
         setTimeout(() => {
             // 1. Lunar Conversion
-            const [y, m, d] = date.split('-').map(Number);
-            const [h] = time.split(':').map(Number);
+            const y = parseInt(year);
+            const m = parseInt(month);
+            const d = parseInt(day);
+            const h = parseInt(hour);
+            
             const solar = Solar.fromYmdHms(y, m, d, h, 0, 0);
             const lunar = solar.getLunar();
             
@@ -322,11 +330,20 @@ const ZiWeiView: React.FC<{onBack: () => void}> = ({onBack}) => {
                         <div className="space-y-4">
                             <div>
                                 <label className="block text-xs font-bold text-purple-300 mb-2 uppercase">出生日期 (西曆)</label>
-                                <input type="date" value={date} onChange={e => setDate(e.target.value)} className="w-full bg-black/50 border border-purple-500/30 rounded-lg p-3 text-white focus:border-purple-400 outline-none" />
+                                <div className="flex gap-2">
+                                    <input type="number" placeholder="YYYY" value={year} onChange={e => setYear(e.target.value)} className="w-24 bg-black/50 border border-purple-500/30 rounded-lg p-3 text-white text-center focus:border-purple-400 outline-none" />
+                                    <span className="text-purple-500 self-center">/</span>
+                                    <input type="number" placeholder="MM" max="12" value={month} onChange={e => setMonth(e.target.value)} className="flex-1 bg-black/50 border border-purple-500/30 rounded-lg p-3 text-white text-center focus:border-purple-400 outline-none" />
+                                    <span className="text-purple-500 self-center">/</span>
+                                    <input type="number" placeholder="DD" max="31" value={day} onChange={e => setDay(e.target.value)} className="flex-1 bg-black/50 border border-purple-500/30 rounded-lg p-3 text-white text-center focus:border-purple-400 outline-none" />
+                                </div>
                             </div>
                             <div>
                                 <label className="block text-xs font-bold text-purple-300 mb-2 uppercase">出生時間 (24小時制)</label>
-                                <input type="time" value={time} onChange={e => setTime(e.target.value)} className="w-full bg-black/50 border border-purple-500/30 rounded-lg p-3 text-white focus:border-purple-400 outline-none" />
+                                <div className="relative">
+                                    <input type="number" placeholder="0-23" min="0" max="23" value={hour} onChange={e => setHour(e.target.value)} className="w-full bg-black/50 border border-purple-500/30 rounded-lg p-3 text-white text-center focus:border-purple-400 outline-none" />
+                                    <span className="absolute right-4 top-3 text-gray-500 text-sm">時 (Hour)</span>
+                                </div>
                             </div>
                             <div className="bg-purple-900/20 p-3 rounded text-xs text-center text-purple-200 flex items-center justify-center gap-2">
                                 <Volume2 size={12}/> 建議開啟背景音樂以獲得最佳體驗
@@ -422,7 +439,12 @@ const ZiWeiView: React.FC<{onBack: () => void}> = ({onBack}) => {
 const AiAnalysisView: React.FC<{ type: 'daily' | 'love' | 'career' | 'wealth', onBack: () => void }> = ({ type, onBack }) => {
     // ... [Logic remains same as previous version] ...
     const [status, setStatus] = useState<'INPUT' | 'PROCESSING' | 'RESULT'>('INPUT');
-    const [birthDate, setBirthDate] = useState('');
+    
+    // UPDATED: Split inputs
+    const [year, setYear] = useState('');
+    const [month, setMonth] = useState('');
+    const [day, setDay] = useState('');
+
     const [processStep, setProcessStep] = useState(0);
     const [resultData, setResultData] = useState<any>(null);
 
@@ -434,7 +456,7 @@ const AiAnalysisView: React.FC<{ type: 'daily' | 'love' | 'career' | 'wealth', o
     }[type];
 
     const startAnalysis = () => {
-        if(!birthDate) return alert("請輸入出生日期以進行精準分析");
+        if(!year || !month || !day) return alert("請輸入出生日期以進行精準分析");
         setStatus('PROCESSING');
         let step = 0;
         const interval = setInterval(() => {
@@ -469,7 +491,13 @@ const AiAnalysisView: React.FC<{ type: 'daily' | 'love' | 'career' | 'wealth', o
                         <div className="bg-white/5 p-6 rounded-xl border border-white/10 space-y-4">
                             <div>
                                 <label className="block text-xs font-bold text-gray-400 mb-1 uppercase tracking-wider">Date of Birth</label>
-                                <input type="date" value={birthDate} onChange={e => setBirthDate(e.target.value)} className="w-full bg-black/50 border border-white/20 rounded-lg p-3 text-white focus:border-white/50 outline-none transition" />
+                                <div className="flex gap-2">
+                                    <input type="number" placeholder="YYYY" value={year} onChange={e => setYear(e.target.value)} className="w-24 bg-black/50 border border-white/20 rounded-lg p-3 text-white text-center focus:border-white/50 outline-none transition" />
+                                    <span className="text-white/30 self-center">/</span>
+                                    <input type="number" placeholder="MM" max="12" value={month} onChange={e => setMonth(e.target.value)} className="flex-1 bg-black/50 border border-white/20 rounded-lg p-3 text-white text-center focus:border-white/50 outline-none transition" />
+                                    <span className="text-white/30 self-center">/</span>
+                                    <input type="number" placeholder="DD" max="31" value={day} onChange={e => setDay(e.target.value)} className="flex-1 bg-black/50 border border-white/20 rounded-lg p-3 text-white text-center focus:border-white/50 outline-none transition" />
+                                </div>
                             </div>
                             <button onClick={startAnalysis} className={`w-full py-4 rounded-lg font-bold text-black text-lg shadow-lg hover:scale-[1.02] transition-transform ${type === 'love' ? 'bg-pink-500' : type === 'wealth' ? 'bg-yellow-500' : type === 'career' ? 'bg-blue-500' : 'bg-orange-500'}`}>開始分析 (Start Analysis)</button>
                         </div>
@@ -518,9 +546,12 @@ const AiAnalysisView: React.FC<{ type: 'daily' | 'love' | 'career' | 'wealth', o
 // SUB-COMPONENT: DIVINATION (Xiao Liu Ren)
 // ==========================================
 const Divination: React.FC<{onBack: () => void}> = ({onBack}) => {
-    // ... [Logic remains same] ...
-    const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+    // UPDATED: Split inputs
+    const [year, setYear] = useState(new Date().getFullYear().toString());
+    const [month, setMonth] = useState((new Date().getMonth() + 1).toString());
+    const [day, setDay] = useState(new Date().getDate().toString());
     const [selectedHour, setSelectedHour] = useState(new Date().getHours());
+
     const [result, setResult] = useState<any>(null);
     const [isCalculating, setIsCalculating] = useState(false);
 
@@ -536,7 +567,8 @@ const Divination: React.FC<{onBack: () => void}> = ({onBack}) => {
     const calculate = () => {
         setIsCalculating(true);
         setTimeout(() => {
-            const date = new Date(selectedDate);
+            const dateStr = `${year}-${month}-${day}`;
+            const date = new Date(dateStr);
             const lunar = Lunar.fromDate(date);
             const idx = (Math.abs(lunar.getMonth()) + lunar.getDay() + Math.floor((selectedHour+1)/2)%12 + 1 - 2) % 6;
             setResult(XL_DATA[idx as keyof typeof XL_DATA]);
@@ -552,9 +584,16 @@ const Divination: React.FC<{onBack: () => void}> = ({onBack}) => {
                  <div className="w-6"></div>
             </div>
             <div className="p-8 space-y-6">
-                <div className="grid grid-cols-2 gap-4">
-                     <input type="date" value={selectedDate} onChange={e=>setSelectedDate(e.target.value)} className="p-3 border rounded-xl bg-gray-50"/>
-                     <input type="number" min="0" max="23" value={selectedHour} onChange={e=>setSelectedHour(parseInt(e.target.value))} className="p-3 border rounded-xl bg-gray-50"/>
+                <div className="space-y-4">
+                     <label className="block text-xs font-bold text-gray-500 uppercase">選擇日期 (Date)</label>
+                     <div className="flex gap-2">
+                        <input type="number" placeholder="YYYY" value={year} onChange={e => setYear(e.target.value)} className="w-24 p-3 border rounded-xl bg-gray-50 text-center" />
+                        <input type="number" placeholder="MM" max="12" value={month} onChange={e => setMonth(e.target.value)} className="flex-1 p-3 border rounded-xl bg-gray-50 text-center" />
+                        <input type="number" placeholder="DD" max="31" value={day} onChange={e => setDay(e.target.value)} className="flex-1 p-3 border rounded-xl bg-gray-50 text-center" />
+                     </div>
+                     
+                     <label className="block text-xs font-bold text-gray-500 uppercase mt-4">選擇時間 (Hour 0-23)</label>
+                     <input type="number" min="0" max="23" value={selectedHour} onChange={e=>setSelectedHour(parseInt(e.target.value))} className="w-full p-3 border rounded-xl bg-gray-50 text-center text-lg font-bold"/>
                 </div>
                 <button onClick={calculate} disabled={isCalculating} className="w-full bg-purple-600 text-white py-4 rounded-xl font-bold text-lg shadow-lg hover:bg-purple-700 transition">
                     {isCalculating ? "推算中..." : "開始占卜"}
@@ -562,7 +601,7 @@ const Divination: React.FC<{onBack: () => void}> = ({onBack}) => {
                 {result && (
                     <div className="mt-8 text-center animate-fade-in-up p-6 bg-purple-50 rounded-xl border border-purple-100">
                         <div className="text-xs text-gray-500 mb-4 bg-white/50 inline-block px-3 py-1 rounded-full border border-purple-100">
-                            卜卦時間: {selectedDate} {selectedHour}:00
+                            卜卦時間: {year}/{month}/{day} {selectedHour}:00
                         </div>
                         <div className={`text-5xl font-black mb-4 ${result.color}`}>{result.name}</div>
                         <div className="text-xl font-bold text-gray-800 mb-4">{result.meaning}</div>

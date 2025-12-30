@@ -13,7 +13,8 @@
     "lucide-react": "^0.562.0",
     "react-dom": "^19.2.3",
     "react": "^19.2.3",
-    "lunar-javascript": "1.6.12"
+    "lunar-javascript": "1.6.12",
+    "@supabase/supabase-js": "2.39.3"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
