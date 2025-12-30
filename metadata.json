@@ -1,8 +1,5 @@
-
 {
-  "name": "HKER Forum & Token",
-  "description": "A community platform for Hongkongers featuring a forum, Web3 token integration simulation, and game center.",
-  "requestFramePermissions": [
-    "geolocation"
-  ]
+  "name": "HKER Platform",
+  "description": "A dual-portal application featuring the HKER Token information site and a comprehensive News & Social Platform with gamification and community features.",
+  "requestFramePermissions": []
 }
