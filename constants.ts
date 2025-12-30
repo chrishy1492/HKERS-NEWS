@@ -8,12 +8,12 @@ export const ADMIN_EMAILS = [
   "niceleung@gmail.com"
 ];
 
-// Updated Regions per Requirement 13a
+// Updated Regions per Requirement
 export const REGIONS = [
   "中國香港", "台灣", "英國", "美國", "加拿大", "澳洲", "歐洲"
 ];
 
-// Updated Topics per Requirement 13b
+// Updated Topics per Requirement (Removed duplicate '地產')
 export const TOPICS = [
   "地產", "時事", "財經", "娛樂", "旅遊", "數碼", "汽車", "宗教", "優惠", "校園", "天氣", "社區活動"
 ];
