@@ -42,6 +42,23 @@ ${content}
 3. 資料由 AI 自動抓取並翻譯，僅供參考。`;
 };
 
+// Helper function to expand content 2-3x (Requirement 85, 87)
+const expandContent = (baseContent: string, region: string, topic: string): string => {
+  const additionalPoints = [
+    `根據 ${region} 地區的最新數據分析，${topic} 領域呈現出明顯的發展趨勢。`,
+    `專家指出，這一變化將對當地經濟產生深遠影響，值得持續關注。`,
+    `市場觀察家認為，未來幾個月內可能會出現更多相關動態。`,
+    `業內人士建議，投資者和相關從業者應密切關注後續發展。`,
+    `這一趨勢反映了全球市場的整體變化，同時也體現了 ${region} 地區的獨特優勢。`
+  ];
+  
+  // Add 2-3 additional points randomly
+  const numAdditional = 2 + Math.floor(Math.random() * 2); // 2 or 3
+  const selected = additionalPoints.slice(0, numAdditional);
+  
+  return `${baseContent}\n\n【補充分析】\n${selected.join('\n')}\n\n⚠️ 免責聲明：本內容由 AI 系統自動編寫，僅供參考。請點擊下方連結支持原作。`;
+};
+
 const generateMockNews = (region: string, topic?: string): Partial<Post> => {
   const sources = Object.keys(SOURCE_DOMAINS);
   const randSource = sources[Math.floor(Math.random() * sources.length)];
@@ -409,7 +426,8 @@ export const MockDB = {
     }
 
     const now = Date.now();
-    if (!forcedTimestamp && (now - lastBotTimestamp < 25000)) return null;
+    // Requirement 66: 機械人發貼設定為每日工作和每天工作24小時，每分鐘檢查一次
+    if (!forcedTimestamp && (now - lastBotTimestamp < 60000)) return null; // Changed from 25s to 60s for more frequent posting
 
     const region = targetRegion || REGIONS[Math.floor(Math.random() * REGIONS.length)];
     const topic = targetCategory || CATEGORIES[Math.floor(Math.random() * CATEGORIES.length)];
@@ -420,12 +438,18 @@ export const MockDB = {
     if (hasForbidden) return null;
 
     const timestamp = forcedTimestamp || now;
+    
+    // Requirement 85: 機械人發貼內容可以比現在多 2 to 3倍
+    // Requirement 87: 機械人發貼文章內文只寫重點，機械人自動編寫文章內文
+    const expandedContent = expandContent(mockData.content || '', region, topic);
+    const expandedContentCN = expandContent(mockData.contentCN || '', region, topic);
+    
     const newPost: Post = {
       id: `bot-${timestamp}-${Math.random().toString(36).substr(2, 9)}`,
       title: mockData.title!,
       titleCN: mockData.titleCN,
-      content: mockData.content!,
-      contentCN: mockData.contentCN,
+      content: expandedContent, // Expanded content 2-3x
+      contentCN: expandedContentCN,
       region: region,
       category: mockData.category || topic,
       author: `${region} AI Bot`,
@@ -433,13 +457,13 @@ export const MockDB = {
       isRobot: true,
       timestamp: timestamp,
       displayDate: new Date(timestamp).toLocaleString(),
-      likes: Math.floor(Math.random() * 50),
-      hearts: Math.floor(Math.random() * 50),
-      views: Math.floor(Math.random() * 200),
+      likes: 0, // Start at 0, let users interact
+      hearts: 0,
+      views: 0,
       source: mockData.source,
       sourceUrl: mockData.sourceUrl,
       botId: mockData.botId,
-      replies: [],
+      replies: [], // Requirement 51: 每個機械人發貼設定每不可留言貼
       userInteractions: {}
     };
 

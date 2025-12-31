@@ -22,7 +22,7 @@ export const UserProfile: React.FC = () => {
       alert("個人資料更新成功！");
   };
 
-  const handleWithdraw = () => {
+  const handleWithdraw = async () => {
     const amountStr = prompt("請輸入提幣數量 (最少 1,000,000 HKER):");
     if (!amountStr) return;
     const amount = parseInt(amountStr);
@@ -31,13 +31,45 @@ export const UserProfile: React.FC = () => {
     if (currentUser.points < amount) return alert("錯誤：積分不足以完成提幣。");
     if (!currentUser.solAddress) return alert("錯誤：請先在下方設定 SOL Wallet 地址。");
 
-    // Requirement 12, 68, 79: Automatic Deduction
+    // Requirement 11, 12, 68, 79: Automatic Deduction + Email Notification
     updatePoints(currentUser.id, -amount);
+    
+    // Send email notification via Supabase (stored in withdrawals table)
+    try {
+      const { supabase } = await import('../lib/supabaseClient');
+      await supabase.from('withdrawals').insert({
+        userId: currentUser.id,
+        userEmail: currentUser.email,
+        userName: currentUser.name,
+        solAddress: currentUser.solAddress,
+        amount: amount,
+        timestamp: Date.now(),
+        status: 'pending'
+      });
+      
+      // Also send via mailto link as fallback
+      const subject = encodeURIComponent(`HKER Token 提幣申請 - ${currentUser.name}`);
+      const body = encodeURIComponent(
+        `用戶提幣申請詳情：\n\n` +
+        `用戶編號: ${currentUser.id}\n` +
+        `用戶姓名: ${currentUser.name}\n` +
+        `用戶電郵: ${currentUser.email}\n` +
+        `SOL Address: ${currentUser.solAddress}\n` +
+        `提幣數量: ${amount.toLocaleString()} HKER Token\n` +
+        `申請時間: ${new Date().toLocaleString()}\n\n` +
+        `系統已自動扣除用戶積分。`
+      );
+      window.open(`mailto:hkerstoken@gmail.com?subject=${subject}&body=${body}`, '_blank');
+    } catch (error) {
+      console.error('Failed to log withdrawal:', error);
+    }
     
     alert(
       `提幣申請已提交！系統已自動扣除積分。\n` + 
       `提幣數量: ${amount.toLocaleString()} HKER\n` +
+      `SOL Address: ${currentUser.solAddress}\n` +
       `標明: 1 HKER 積分 = 1 HKER Token\n` +
+      `最少提幣數量為 1,000,000 粒\n` +
       `如有任何提幣問題請聯繫: hkerstoken@gmail.com`
     );
   };

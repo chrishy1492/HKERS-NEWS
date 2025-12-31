@@ -50,15 +50,18 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   useEffect(() => {
     const fetchData = async () => {
       const { data: uData } = await supabase.from('users').select('*');
-      const { data: pData } = await supabase.from('posts').select('*').order('createdAt', { ascending: false });
+      const { data: pData } = await supabase.from('posts').select('*').order('timestamp', { ascending: false }).limit(100);
       
       const localUsers = JSON.parse(localStorage.getItem(STORAGE_KEYS.USERS) || '[]');
       const localPosts = JSON.parse(localStorage.getItem(STORAGE_KEYS.POSTS) || '[]');
       const localLogs = JSON.parse(localStorage.getItem(STORAGE_KEYS.LOGS) || '{}');
 
-      const mergedUsers = uData || localUsers;
+      // Merge cloud and local data, prioritizing cloud
+      const mergedUsers = uData && uData.length > 0 ? uData : localUsers;
+      const mergedPosts = pData && pData.length > 0 ? pData : localPosts;
+      
       setUsers(mergedUsers);
-      setPosts(pData || localPosts);
+      setPosts(mergedPosts);
       setVisitorLogs(localLogs);
 
       const session = localStorage.getItem(STORAGE_KEYS.SESSION);
@@ -87,8 +90,14 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           localStorage.setItem(STORAGE_KEYS.SESSION, JSON.stringify(updated));
         }
       })
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'posts' }, payload => {
-        setPosts(prev => [payload.new as Post, ...prev]);
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'posts' }, payload => {
+        if (payload.eventType === 'INSERT') {
+          setPosts(prev => [payload.new as Post, ...prev]);
+        } else if (payload.eventType === 'UPDATE') {
+          setPosts(prev => prev.map(p => p.id === payload.new.id ? payload.new as Post : p));
+        } else if (payload.eventType === 'DELETE') {
+          setPosts(prev => prev.filter(p => p.id !== payload.old.id));
+        }
       })
       .subscribe();
 
@@ -182,21 +191,26 @@ AI 合規聲明：本內容為全球數據流的原創綜合，由 HKER 情報�
     `.trim();
 
     const newPost: Post = {
-      id: Date.now(),
-      authorId: 'AI-BOT-ENGINE',
-      authorName: 'AI Intel Robot',
+      id: `bot-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      authorId: 'system-bot',
+      author: 'AI Intel Robot',
       title: enTitle,
+      titleCN: zhTitle,
       content: enContent,
-      region, topic,
-      likes: [], loves: [],
-      createdAt: new Date().toISOString(),
-      replies: [], 
-      isBot: true,
-      sourceName: source.name,
+      contentCN: zhContent,
+      region: region,
+      category: topic,
+      isRobot: true,
+      timestamp: Date.now(),
+      displayDate: new Date().toLocaleString(),
+      likes: 0,
+      hearts: 0,
+      views: 0,
+      source: source.name,
       sourceUrl: source.url,
-      originalLang: 'en',
-      isTranslated: false,
-      translation: { title: zhTitle, content: zhContent }
+      botId: `${region}_BOT_${Math.floor(Math.random() * 9) + 1}`,
+      replies: [],
+      userInteractions: {}
     };
 
     setPosts(prev => [newPost, ...prev]);
@@ -210,23 +224,38 @@ AI 合規聲明：本內容為全球數據流的原創綜合，由 HKER 情報�
       name: userData.name || 'User',
       email: userData.email || '',
       password: userData.password,
-      points: 8888, 
-      role: ADMIN_EMAILS.includes(userData.email || '') ? 'admin' : 'user',
-      starLevel: 1,
-      joinedAt: new Date().toISOString(),
-      avatar: AVATARS[Math.floor(Math.random() * AVATARS.length)],
-      solAddress: userData.solAddress,
-      phone: userData.phone,
-      address: userData.address,
-      gender: userData.gender
+      points: 8888, // Requirement 70: 完成註冊後，各帳戶可送8888hker token 積分
+      role: ADMIN_EMAILS.includes((userData.email || '').toLowerCase()) ? UserRole.ADMIN : UserRole.USER,
+      avatarId: Math.floor(Math.random() * 88) + 1,
+      joinedAt: Date.now(), // Use timestamp for better analytics
+      solAddress: userData.solAddress || '',
+      phone: userData.phone || '',
+      address: userData.address || '',
+      gender: userData.gender || 'M',
+      lastActive: Date.now()
     };
     
+    // Update local state immediately for instant feedback
     setUsers(prev => [newUser, ...prev]);
     setCurrentUser(newUser);
     localStorage.setItem(STORAGE_KEYS.SESSION, JSON.stringify(newUser));
+    localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify([...users, newUser]));
     logActivity('member');
 
-    try { await supabase.from('users').insert(newUser); } catch (e) {}
+    // Sync to Supabase for real-time sync across devices (web and mobile)
+    try { 
+      const { error } = await supabase.from('users').insert(newUser);
+      if (error) {
+        console.error('Registration sync error:', error);
+        // Still keep local data even if cloud sync fails
+      } else {
+        // Force refresh to ensure sync across all devices
+        const { data } = await supabase.from('users').select('*');
+        if (data) setUsers(data as User[]);
+      }
+    } catch (e) {
+      console.error('Registration error:', e);
+    }
   };
 
   const login = (email: string, password: string) => {
@@ -257,9 +286,44 @@ AI 合規聲明：本內容為全球數據流的原創綜合，由 HKER 情報�
 
   const updatePoints = async (userId: string, amount: number) => {
     const user = users.find(u => u.id === userId);
-    if (!user) return;
+    if (!user) {
+      // Try to fetch from Supabase if not in local state
+      const { data } = await supabase.from('users').select('*').eq('id', userId).single();
+      if (data) {
+        const newPoints = Math.max(0, (data as User).points + amount);
+        await supabase.from('users').update({ points: newPoints }).eq('id', userId);
+        // Update local state
+        setUsers(prev => {
+          const exists = prev.find(u => u.id === userId);
+          if (exists) {
+            return prev.map(u => u.id === userId ? { ...u, points: newPoints } : u);
+          }
+          return [...prev, { ...data, points: newPoints } as User];
+        });
+        // Update current user if it's them
+        if (currentUser?.id === userId) {
+          setCurrentUser({ ...data, points: newPoints } as User);
+          localStorage.setItem(STORAGE_KEYS.SESSION, JSON.stringify({ ...data, points: newPoints }));
+        }
+      }
+      return;
+    }
     const newPoints = Math.max(0, user.points + amount);
-    adminUpdateUser(userId, { points: newPoints });
+    
+    // Update local state immediately for instant feedback
+    setUsers(prev => prev.map(u => u.id === userId ? { ...u, points: newPoints } : u));
+    if (currentUser?.id === userId) {
+      const updatedUser = { ...currentUser, points: newPoints };
+      setCurrentUser(updatedUser);
+      localStorage.setItem(STORAGE_KEYS.SESSION, JSON.stringify(updatedUser));
+    }
+    
+    // Sync to Supabase for real-time sync across devices
+    try {
+      await supabase.from('users').update({ points: newPoints }).eq('id', userId);
+    } catch (e) {
+      console.error('Points update sync error:', e);
+    }
   };
 
   const toggleTranslation = (postId: number) => {
@@ -278,12 +342,40 @@ AI 合規聲明：本內容為全球數據流的原創綜合，由 HKER 情報�
         if (!currentUser) return false;
         const post = posts.find(p => p.id === id);
         if (!post) return false;
-        const list = type === 'like' ? [...post.likes] : [...post.loves];
-        if (list.filter(uid => uid === currentUser.id).length >= 3) return false;
-        list.push(currentUser.id);
-        const updates = type === 'like' ? { likes: list } : { loves: list };
+        
+        // Requirement 52: 每個帳戶對每個貼只能給3次心和3次讚
+        if (!post.userInteractions) post.userInteractions = {};
+        if (!post.userInteractions[currentUser.id]) {
+          post.userInteractions[currentUser.id] = { likes: 0, hearts: 0 };
+        }
+        
+        const userInteractions = post.userInteractions[currentUser.id];
+        const interactionType = type === 'like' ? 'likes' : 'hearts';
+        
+        if (userInteractions[interactionType] >= 3) {
+          alert(type === 'like' ? '每個帳戶對每個貼文只能給讚 3 次。' : '每個帳戶對每個貼文只能給心 3 次。');
+          return false;
+        }
+        
+        // Update interactions
+        userInteractions[interactionType]++;
+        const newLikes = post.likes + (type === 'like' ? 1 : 0);
+        const newHearts = post.hearts + (type === 'heart' ? 1 : 0);
+        
+        const updates = {
+          likes: newLikes,
+          hearts: newHearts,
+          userInteractions: { ...post.userInteractions }
+        };
+        
+        // Update local state
         setPosts(prev => prev.map(p => p.id === id ? { ...p, ...updates } : p));
-        updatePoints(currentUser.id, 150);
+        
+        // Award points: Requirement 54 - 機械人貼文比心獎150，比讚獎150
+        const pointsAward = post.isRobot ? 150 : 50;
+        updatePoints(currentUser.id, pointsAward);
+        
+        // Sync to Supabase
         supabase.from('posts').update(updates).eq('id', id).then();
         return true;
       },

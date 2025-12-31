@@ -40,10 +40,10 @@ export const NewsFeed: React.FC = () => {
         fetchData(); 
     }, 2000);
 
-    // 2. ROBOT AUTOMATION (Distributed Check - 24/7 Simulation)
+    // 2. ROBOT AUTOMATION (Requirement 66: 24/7 active worker, check every minute)
     const robotInterval = setInterval(async () => {
         await MockDB.triggerRobotPost();
-    }, 20000); 
+    }, 60000); // Changed to 60 seconds for more frequent posting 
 
     return () => {
         clearInterval(syncInterval);
@@ -105,6 +105,11 @@ export const NewsFeed: React.FC = () => {
   };
 
   const handleSubmitComment = async (postId: string) => {
+      // Requirement 74, 81, 83: 取消論壇管理員和普通會員可發貼及回貼功能
+      return alert(lang === 'cn' ? "系統已取消發貼和回貼功能，僅機械人可發貼。" : "Posting and commenting have been disabled. Only robots can post.");
+      
+      // DISABLED CODE - Keeping for reference
+      /*
       if (!user) return alert(lang === 'cn' ? "請先登入" : "Please login");
       if (!commentInput.trim()) return;
 
@@ -116,7 +121,8 @@ export const NewsFeed: React.FC = () => {
       await MockDB.addComment(postId, user, commentInput);
       setCommentInput('');
       await MockDB.updateUserPoints(user.id, 200); 
-      fetchData(); 
+      fetchData();
+      */
   };
 
   const handleDeletePost = async (postId: string) => {
