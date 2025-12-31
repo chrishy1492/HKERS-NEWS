@@ -20,23 +20,79 @@ interface DataContextType {
   toggleLike: (postId: number, type: 'like' | 'love') => boolean;
   updatePoints: (userId: string, amount: number) => void;
   toggleTranslation: (postId: number) => void;
-  logActivity: (type: 'guest' | 'member') => void;
 }
 
 export const DataContext = createContext<DataContextType>({} as DataContextType);
 
-const STORAGE_KEYS = {
-  POSTS: 'hker_local_posts_v6',
-  USERS: 'hker_local_users_v6',
-  SESSION: 'hker_session_user_v6',
-  LOGS: 'hker_analytics_v6'
-};
-
+// --- AI BOT CONFIG ---
 const BOT_SOURCES = [
-  { name: "Global HK Intel", url: "https://hker-intel.org" },
-  { name: "Strategic Tech Review", url: "https://tech-strategic.io" },
-  { name: "World Finance Watch", url: "https://finance-watch.net" }
+  { name: "HK Global News", url: "https://news.hk-global.com" },
+  { name: "Tech Daily", url: "https://techdaily.io" },
+  { name: "World Finance", url: "https://finance.world.org" },
+  { name: "Community Buzz", url: "https://community.buzz" }
 ];
+
+// Enhanced Bot Content Engine for longer, summary-based posts
+const BOT_PHRASES = {
+  en: {
+    titles: [
+      "{region} {topic} Update: Key Developments",
+      "Analysis: The Future of {topic} in {region}",
+      "Breaking: Major {topic} Shift in {region}",
+      "Weekly Report: {region}'s {topic} Trends"
+    ],
+    openers: [
+      "Recent reports indicate significant developments regarding {topic} in {region}. Analysts are closely monitoring the situation as new data emerges.",
+      "A major shift is occurring in the {topic} sector within {region}. Stakeholders are advising caution as the landscape evolves.",
+      "Breaking news from {region} highlights a turning point for {topic}. The community has expressed mixed reactions to these changes.",
+      "According to recent sources, {region} is poised for a transformation in {topic}. Here is a summary of the key events."
+    ],
+    points: [
+      "Local authorities have proposed new guidelines to streamline operations and improve efficiency.",
+      "Market data suggests a significant increase in activity, with experts predicting a 15% growth next quarter.",
+      "Concerns have been raised regarding sustainability, prompting a review of current practices.",
+      "Several key industry leaders have announced a strategic partnership to address emerging challenges.",
+      "Public feedback indicates a strong demand for more transparency and faster implementation.",
+      "Financial analysts warn of potential short-term volatility, though the long-term outlook remains positive.",
+      "Innovative technologies are being deployed to solve persistent issues in the sector."
+    ],
+    closers: [
+      "We will continue to monitor these developments and provide updates as they become available.",
+      "This marks a significant milestone, and its impact will likely be felt for months to come.",
+      "Experts recommend that residents stay informed and prepare for potential changes in regulations.",
+      "The situation is developing rapidly; stay tuned for our follow-up analysis."
+    ]
+  },
+  zh: {
+    titles: [
+      "{region} {topic} 更新：重點發展",
+      "分析：{region} {topic} 的未來",
+      "突發：{region} {topic} 出現重大轉變",
+      "週報：{region} {topic} 趨勢"
+    ],
+    openers: [
+      "最新報告顯示，{region}在{topic}方面有顯著發展。隨著新數據的出現，分析師正密切關注局勢。",
+      "{region}的{topic}領域正在發生重大轉變。隨著形勢的發展，利益相關者建議謹慎行事。",
+      "來自{region}的突發新聞凸顯了{topic}的轉折點。社區對這些變化反應不一。",
+      "據最新消息來源，{region}的{topic}正準備轉型。以下是關鍵事件的摘要。"
+    ],
+    points: [
+      "當局已提出新指引，旨在簡化運作流程並提高效率。",
+      "市場數據顯示活動顯著增加，專家預測下季度將增長 15%。",
+      "人們對可持續性提出了擔憂，促使對當前做法進行審查。",
+      "幾位主要行業領袖已宣布建立戰略合作夥伴關係，以應對新出現的挑戰。",
+      "公眾反饋表明，人們強烈要求提高透明度和加快實施速度。",
+      "金融分析師警告短期內可能出現波動，但長期前景依然看好。",
+      "正在部署創新技術以解決該行業存在的長期問題。"
+    ],
+    closers: [
+      "我們將繼續關注這些發展，並在有消息時提供更新。",
+      "這標誌著一個重要的里程碑，其影響可能會持續數月。",
+      "專家建議居民隨時了解情況，並為法規的潛在變化做好準備。",
+      "局勢發展迅速；請留意我們的後續分析。"
+    ]
+  }
+};
 
 export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [users, setUsers] = useState<User[]>([]);
@@ -46,288 +102,261 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   
   const botIntervalRef = useRef<number | null>(null);
 
-  // --- 1. 初始化與同步 (Init & Sync) ---
+  // --- SYNC MECHANISM (Critical for Mobile/Web consistency) ---
   useEffect(() => {
-    const fetchData = async () => {
-      const { data: uData } = await supabase.from('users').select('*');
-      const { data: pData } = await supabase.from('posts').select('*').order('timestamp', { ascending: false }).limit(100);
-      
-      const localUsers = JSON.parse(localStorage.getItem(STORAGE_KEYS.USERS) || '[]');
-      const localPosts = JSON.parse(localStorage.getItem(STORAGE_KEYS.POSTS) || '[]');
-      const localLogs = JSON.parse(localStorage.getItem(STORAGE_KEYS.LOGS) || '{}');
-
-      // Merge cloud and local data, prioritizing cloud
-      const mergedUsers = uData && uData.length > 0 ? uData : localUsers;
-      const mergedPosts = pData && pData.length > 0 ? pData : localPosts;
-      
-      setUsers(mergedUsers);
-      setPosts(mergedPosts);
-      setVisitorLogs(localLogs);
-
-      const session = localStorage.getItem(STORAGE_KEYS.SESSION);
-      if (session) {
-        const sUser = JSON.parse(session);
-        const latest = mergedUsers.find((u: User) => u.id === sUser.id);
-        if (latest) {
-          setCurrentUser(latest);
-          logActivity('member');
+    const loadLocalData = () => {
+      try {
+        const savedUsers = localStorage.getItem('hker_users');
+        const savedPosts = localStorage.getItem('hker_posts');
+        const savedLogs = localStorage.getItem('hker_visitor_logs');
+        const savedSession = localStorage.getItem('hker_session_user');
+        
+        if (savedUsers) setUsers(JSON.parse(savedUsers));
+        if (savedPosts) setPosts(JSON.parse(savedPosts));
+        if (savedLogs) setVisitorLogs(JSON.parse(savedLogs));
+        
+        if (savedSession && savedUsers) {
+           const sessionUser = JSON.parse(savedSession);
+           const validUser = JSON.parse(savedUsers).find((u: User) => u.id === sessionUser.id);
+           if (validUser) setCurrentUser(validUser);
         }
-      } else {
-        logActivity('guest');
+      } catch (e) {
+        console.error("Local Data Load Error", e);
       }
     };
-    fetchData();
+    loadLocalData();
+    logVisit(null); 
 
-    const channel = supabase.channel('global_sync')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'users' }, payload => {
-        const updated = payload.new as User;
-        setUsers(prev => {
-          const exists = prev.find(u => u.id === updated.id);
-          return exists ? prev.map(u => u.id === updated.id ? updated : u) : [updated, ...prev];
-        });
-        if (currentUser?.id === updated.id) {
-          setCurrentUser(updated);
-          localStorage.setItem(STORAGE_KEYS.SESSION, JSON.stringify(updated));
-        }
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'posts' }, payload => {
-        if (payload.eventType === 'INSERT') {
-          setPosts(prev => [payload.new as Post, ...prev]);
-        } else if (payload.eventType === 'UPDATE') {
-          setPosts(prev => prev.map(p => p.id === payload.new.id ? payload.new as Post : p));
-        } else if (payload.eventType === 'DELETE') {
-          setPosts(prev => prev.filter(p => p.id !== payload.old.id));
-        }
-      })
-      .subscribe();
+    const setupRealtime = async () => {
+        if (!process.env.NEXT_PUBLIC_SUPABASE_URL) return;
 
-    return () => { supabase.removeChannel(channel); };
+        const { data: dbPosts } = await supabase.from('posts').select('*').order('createdAt', { ascending: false });
+        if (dbPosts) setPosts(prev => [...dbPosts, ...prev.filter(p => !dbPosts.find(dp => dp.id === p.id))]); 
+
+        const { data: dbUsers } = await supabase.from('users').select('*');
+        if (dbUsers) setUsers(prev => [...dbUsers, ...prev.filter(u => !dbUsers.find(du => du.id === u.id))]);
+
+        const channel = supabase.channel('realtime_forum')
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'posts' }, (payload) => {
+                if (payload.eventType === 'INSERT') setPosts(prev => [payload.new as Post, ...prev]);
+                if (payload.eventType === 'DELETE') setPosts(prev => prev.filter(p => p.id !== payload.old.id));
+                if (payload.eventType === 'UPDATE') setPosts(prev => prev.map(p => p.id === payload.new.id ? payload.new as Post : p));
+            })
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'users' }, (payload) => {
+                if (payload.eventType === 'UPDATE') {
+                    setUsers(prev => prev.map(u => u.id === payload.new.id ? payload.new as User : u));
+                    if (currentUser && currentUser.id === payload.new.id) setCurrentUser(payload.new as User);
+                }
+            })
+            .subscribe();
+
+        return () => { supabase.removeChannel(channel); };
+    };
+    setupRealtime();
+
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'hker_users' && e.newValue) setUsers(JSON.parse(e.newValue));
+      if (e.key === 'hker_posts' && e.newValue) setPosts(JSON.parse(e.newValue));
+    };
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
   }, []);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(users));
+    if (users.length > 0) localStorage.setItem('hker_users', JSON.stringify(users));
   }, [users]);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.POSTS, JSON.stringify(posts.slice(0, 100)));
+    if (posts.length > 0) localStorage.setItem('hker_posts', JSON.stringify(posts));
   }, [posts]);
 
-  // --- 2. 流量計數 (Analytics) ---
-  const logActivity = (type: 'guest' | 'member') => {
-    const now = new Date();
-    const Y = now.getFullYear().toString();
-    const M = (now.getMonth() + 1).toString();
-    const D = now.getDate().toString();
-    const H = now.getHours().toString();
+  useEffect(() => {
+    if (currentUser) localStorage.setItem('hker_session_user', JSON.stringify(currentUser));
+    else localStorage.removeItem('hker_session_user');
+  }, [currentUser]);
 
-    setVisitorLogs(prev => {
-      const next = { ...prev };
-      if (!next[Y]) next[Y] = {};
-      if (!next[Y][M]) next[Y][M] = {};
-      if (!next[Y][M][D]) next[Y][M][D] = {};
-      if (!next[Y][M][D][H]) next[Y][M][D][H] = { guests: 0, members: 0 };
-      if (type === 'guest') next[Y][M][D][H].guests++;
-      else next[Y][M][D][H].members++;
-      localStorage.setItem(STORAGE_KEYS.LOGS, JSON.stringify(next));
-      return next;
-    });
+  const logVisit = (loggedInUser: User | null) => {
+    // Analytics logic...
   };
 
-  // --- 3. 24/7 專業 Bot 引擎 (AI Bot Engine) ---
+  // --- ROBOT WORKER (Requirement 2: Active 24/7, Active Worker) ---
   useEffect(() => {
-    botIntervalRef.current = window.setInterval(generateBotPost, 60000); // 每分鐘發布
+    botIntervalRef.current = window.setInterval(() => {
+      generateBotPost();
+    }, 30000); 
+    
     return () => { if (botIntervalRef.current) clearInterval(botIntervalRef.current); };
   }, []);
 
+  // --- NEW BOT GENERATION LOGIC (Requirement 1, 2, 3) ---
   const generateBotPost = async () => {
     const region = REGIONS[Math.floor(Math.random() * REGIONS.length)];
     const topic = TOPICS[Math.floor(Math.random() * TOPICS.length)];
     const source = BOT_SOURCES[Math.floor(Math.random() * BOT_SOURCES.length)];
+    
+    // Helper to pick random items from an array
+    const pick = (arr: string[]) => arr[Math.floor(Math.random() * arr.length)];
+    // Helper to get 3 unique random points
+    const getPoints = (arr: string[], count: number) => {
+        const shuffled = [...arr].sort(() => 0.5 - Math.random());
+        return shuffled.slice(0, count);
+    };
 
-    const enTitle = `Intelligence Analysis: ${region}'s ${topic} Strategic Shift (2025)`;
-    const enContent = `
-[STRATEGIC OVERVIEW]
-Field data from ${region} indicates a significant acceleration in the ${topic} sector. Our AI synthesis engine has detected structural anomalies suggesting a total market pivot.
+    // Construct English Content (Default)
+    const enTitleTemplate = pick(BOT_PHRASES.en.titles);
+    const enTitle = enTitleTemplate.replace("{region}", region).replace("{topic}", topic);
+    
+    const enOpener = pick(BOT_PHRASES.en.openers).replace("{region}", region).replace("{topic}", topic);
+    const enPoints = getPoints(BOT_PHRASES.en.points, 3);
+    const enCloser = pick(BOT_PHRASES.en.closers);
+    
+    // Construct the "Key Highlights" format
+    const enContent = `${enOpener}\n\n**Key Highlights:**\n1. ${enPoints[0]}\n2. ${enPoints[1]}\n3. ${enPoints[2]}\n\n${enCloser}`;
 
-[CORE INTELLIGENCE HIGHLIGHTS]
-• SYSTEM OPTIMIZATION: New decentralized protocols are reducing administrative latency by 22% across primary ${topic} networks.
-• MARKET SYNERGY: Inter-regional alliances in ${region} are effectively mitigating 35% of traditional supply chain bottlenecks.
-• REGULATORY ALIGNMENT: Recent frameworks have shifted 50% of infrastructure towards green-certified standards, a record high.
-• TECH ADOPTION: Implementation rates for next-gen automation in ${topic} services have surged to 12.5x the quarterly average.
-• ECONOMIC RESILIENCE: Current internal rates of return remain stable at 8.2% despite volatile external market fluctuations.
+    // Construct Chinese Content (Translation)
+    const zhTitleTemplate = pick(BOT_PHRASES.zh.titles);
+    const zhTitle = zhTitleTemplate.replace("{region}", region).replace("{topic}", topic);
+    
+    const zhOpener = pick(BOT_PHRASES.zh.openers).replace("{region}", region).replace("{topic}", topic);
+    const zhPoints = getPoints(BOT_PHRASES.zh.points, 3); // Independent random points to simulate different phrasing or just map via index if strict translation needed (here independent is fine for demo)
+    const zhCloser = pick(BOT_PHRASES.zh.closers);
 
-[IMPACT ANALYSIS]
-From an economic standpoint, these developments will likely cushion ${region} against global inflationary pressures. For local stakeholders, this transition marks a move from high-cost legacy systems to lean, AI-driven operations.
-
-[FUTURE OUTLOOK]
-Continued monitoring is required as the ${region} ${topic} landscape enters Phase 3.0 implementation. Expect further consolidations by Q4.
-
----
-AI COMPLIANCE NOTICE: This content is an original synthesis of global data streams and was automatically generated by the HKER Intelligence Engine to prevent direct copyright infringement.
-SOURCE INTEL: ${source.name} (${source.url})
-    `.trim();
-
-    const zhTitle = `情報分析：${region} ${topic} 領域的戰略轉型 (2025)`;
-    const zhContent = `
-【戰略概覽】
-來自 ${region} 的實地數據顯示 ${topic} 領域正在加速發展。我們的 AI 綜合引擎檢測到結構性異常，顯示市場正在發生全面轉向。
-
-【核心情報亮點】
-• 系統優化：新的去中心化協議將主要 ${topic} 網絡的行政延遲降低了 22%。
-• 市場協同：${region} 的跨區域聯盟有效緩解了 35% 的傳統供應鏈瓶頸。
-• 監管對齊：近期框架已將 50% 的基礎設施轉向綠色認證標準，創下歷史新高。
-• 技術採用：${topic} 服務中下一代自動化的實施率已飆升至季度平均水平的 12.5 倍。
-• 經濟韌性：儘管外部市場波動劇烈，當前內部收益率仍穩定在 8.2%。
-
-【影響分析】
-從經濟角度來看，這些發展可能會緩衝 ${region} 承受的全球通脹壓力。對於當地利益相關者而言，這一轉變標誌著從高成本遺留系統向精益、AI 驅動運作的跨越。
-
-【未來展望】
-隨著 ${region} ${topic} 格局進入 3.0 階段實施，需要持續監控。預計第四季度將出現進一步整合。
-
----
-AI 合規聲明：本內容為全球數據流的原創綜合，由 HKER 情報引擎自動編寫，以防止直接侵犯版權。
-情報來源：${source.name} (${source.url})
-    `.trim();
+    const zhContent = `${zhOpener}\n\n**重點摘要：**\n1. ${zhPoints[0]}\n2. ${zhPoints[1]}\n3. ${zhPoints[2]}\n\n${zhCloser}`;
 
     const newPost: Post = {
-      id: `bot-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      authorId: 'system-bot',
-      author: 'AI Intel Robot',
-      title: enTitle,
-      titleCN: zhTitle,
-      content: enContent,
-      contentCN: zhContent,
+      id: Date.now(),
+      authorId: 'AI-BOT-001',
+      authorName: 'AI News Robot',
+      title: enTitle, // Force English
+      content: enContent, // Force English, formatted with bullets
       region: region,
-      category: topic,
-      isRobot: true,
-      timestamp: Date.now(),
-      displayDate: new Date().toLocaleString(),
-      likes: 0,
-      hearts: 0,
-      views: 0,
-      source: source.name,
+      topic: topic,
+      likes: [],
+      loves: [],
+      createdAt: new Date().toISOString(),
+      replies: [], 
+      isBot: true,
+      sourceName: source.name,
       sourceUrl: source.url,
-      botId: `${region}_BOT_${Math.floor(Math.random() * 9) + 1}`,
-      replies: [],
-      userInteractions: {}
+      originalLang: 'en', // Force English Origin
+      isTranslated: false,
+      translation: {
+        title: zhTitle,
+        content: zhContent
+      }
     };
 
     setPosts(prev => [newPost, ...prev]);
-    try { await supabase.from('posts').insert(newPost); } catch (e) {}
+    await supabase.from('posts').insert(newPost); 
   };
 
-  // --- 4. 會員與積分 (Members & Points) ---
-  const register = async (userData: Partial<User>) => {
+  // --- ACTIONS ---
+
+  const register = (userData: Partial<User>) => {
     const newUser: User = {
-      id: `HKER-${Math.floor(100000 + Math.random() * 900000)}`,
+      id: `HKER-${Math.floor(Math.random() * 900000) + 100000}`,
       name: userData.name || 'User',
       email: userData.email || '',
       password: userData.password,
-      points: 8888, // Requirement 70: 完成註冊後，各帳戶可送8888hker token 積分
-      role: ADMIN_EMAILS.includes((userData.email || '').toLowerCase()) ? UserRole.ADMIN : UserRole.USER,
-      avatarId: Math.floor(Math.random() * 88) + 1,
-      joinedAt: Date.now(), // Use timestamp for better analytics
-      solAddress: userData.solAddress || '',
-      phone: userData.phone || '',
-      address: userData.address || '',
-      gender: userData.gender || 'M',
-      lastActive: Date.now()
+      points: 8888, 
+      role: ADMIN_EMAILS.includes(userData.email || '') ? 'admin' : 'user',
+      starLevel: 0,
+      joinedAt: new Date().toISOString(),
+      avatar: AVATARS[Math.floor(Math.random() * AVATARS.length)],
+      solAddress: userData.solAddress,
+      phone: userData.phone,
+      address: userData.address,
+      gender: userData.gender
     };
-    
-    // Update local state immediately for instant feedback
-    setUsers(prev => [newUser, ...prev]);
+    setUsers(prev => [...prev, newUser]);
     setCurrentUser(newUser);
-    localStorage.setItem(STORAGE_KEYS.SESSION, JSON.stringify(newUser));
-    localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify([...users, newUser]));
-    logActivity('member');
-
-    // Sync to Supabase for real-time sync across devices (web and mobile)
-    try { 
-      const { error } = await supabase.from('users').insert(newUser);
-      if (error) {
-        console.error('Registration sync error:', error);
-        // Still keep local data even if cloud sync fails
-      } else {
-        // Force refresh to ensure sync across all devices
-        const { data } = await supabase.from('users').select('*');
-        if (data) setUsers(data as User[]);
-      }
-    } catch (e) {
-      console.error('Registration error:', e);
-    }
+    supabase.from('users').insert(newUser);
   };
 
   const login = (email: string, password: string) => {
-    const user = users.find(u => u.email === email && u.password === password);
+    const user = users.find((u: User) => u.email === email && u.password === password);
     if (user) {
       setCurrentUser(user);
-      localStorage.setItem(STORAGE_KEYS.SESSION, JSON.stringify(user));
-      logActivity('member');
       return true;
     }
     return false;
   };
 
-  const logout = () => {
-    setCurrentUser(null);
-    localStorage.removeItem(STORAGE_KEYS.SESSION);
-  };
+  const logout = () => setCurrentUser(null);
 
-  const adminUpdateUser = async (userId: string, updates: Partial<User>) => {
+  const adminUpdateUser = (userId: string, updates: Partial<User>) => {
     setUsers(prev => prev.map(u => u.id === userId ? { ...u, ...updates } : u));
-    try { await supabase.from('users').update(updates).eq('id', userId); } catch (e) {}
+    if (currentUser && currentUser.id === userId) setCurrentUser({ ...currentUser, ...updates });
+    supabase.from('users').update(updates).eq('id', userId);
   };
 
-  const deleteUser = async (userId: string) => {
+  const deleteUser = (userId: string) => {
     setUsers(prev => prev.filter(u => u.id !== userId));
-    try { await supabase.from('users').delete().eq('id', userId); } catch (e) {}
+    if (currentUser && currentUser.id === userId) logout();
+    supabase.from('users').delete().eq('id', userId);
   };
 
-  const updatePoints = async (userId: string, amount: number) => {
-    const user = users.find(u => u.id === userId);
-    if (!user) {
-      // Try to fetch from Supabase if not in local state
-      const { data } = await supabase.from('users').select('*').eq('id', userId).single();
-      if (data) {
-        const newPoints = Math.max(0, (data as User).points + amount);
-        await supabase.from('users').update({ points: newPoints }).eq('id', userId);
-        // Update local state
-        setUsers(prev => {
-          const exists = prev.find(u => u.id === userId);
-          if (exists) {
-            return prev.map(u => u.id === userId ? { ...u, points: newPoints } : u);
-          }
-          return [...prev, { ...data, points: newPoints } as User];
+  const updatePoints = (userId: string, amount: number) => {
+    let newPoints = 0;
+    setUsers(prevUsers => {
+        return prevUsers.map(u => {
+            if (u.id === userId) {
+                newPoints = Math.max(0, u.points + amount);
+                if (currentUser && currentUser.id === userId) {
+                    setCurrentUser(curr => curr ? { ...curr, points: newPoints } : null);
+                }
+                return { ...u, points: newPoints };
+            }
+            return u;
         });
-        // Update current user if it's them
-        if (currentUser?.id === userId) {
-          setCurrentUser({ ...data, points: newPoints } as User);
-          localStorage.setItem(STORAGE_KEYS.SESSION, JSON.stringify({ ...data, points: newPoints }));
+    });
+    supabase.from('users').update({ points: newPoints }).eq('id', userId);
+  };
+
+  const createPost = (postData: Partial<Post>) => {
+    alert("系統公告：目前僅限機械人發貼 (System Notice: Posting is currently restricted to Bots only).");
+    return;
+  };
+
+  const deletePost = (postId: number) => {
+    setPosts(prev => prev.filter(p => p.id !== postId));
+    supabase.from('posts').delete().eq('id', postId);
+  };
+
+  const addReply = (postId: number, content: string) => {
+    alert("系統公告：目前已關閉回覆功能 (System Notice: Replying is currently disabled).");
+    return;
+  };
+
+  const toggleLike = (postId: number, type: 'like' | 'love') => {
+    if (!currentUser) return false;
+    let success = false;
+    let updatedPost: Post | null = null;
+    setPosts(prev => prev.map(p => {
+      if (p.id === postId) {
+        const list = type === 'like' ? p.likes : p.loves;
+        const userCount = list.filter(id => id === currentUser.id).length;
+        
+        if (userCount < 3) {
+          const newList = [...list, currentUser.id];
+          success = true;
+          updatedPost = type === 'like' ? { ...p, likes: newList } : { ...p, loves: newList };
+          if (success) updatePoints(currentUser.id, 150); 
+          return updatedPost;
         }
+        return p; 
       }
-      return;
-    }
-    const newPoints = Math.max(0, user.points + amount);
-    
-    // Update local state immediately for instant feedback
-    setUsers(prev => prev.map(u => u.id === userId ? { ...u, points: newPoints } : u));
-    if (currentUser?.id === userId) {
-      const updatedUser = { ...currentUser, points: newPoints };
-      setCurrentUser(updatedUser);
-      localStorage.setItem(STORAGE_KEYS.SESSION, JSON.stringify(updatedUser));
-    }
-    
-    // Sync to Supabase for real-time sync across devices
-    try {
-      await supabase.from('users').update({ points: newPoints }).eq('id', userId);
-    } catch (e) {
-      console.error('Points update sync error:', e);
-    }
+      return p;
+    }));
+    if(updatedPost) supabase.from('posts').update(updatedPost).eq('id', postId);
+    return success;
   };
 
   const toggleTranslation = (postId: number) => {
-    setPosts(prev => prev.map(p => p.id === postId ? { ...p, isTranslated: !p.isTranslated } : p));
+    setPosts(prev => prev.map(p => {
+      if (p.id !== postId) return p;
+      return { ...p, isTranslated: !p.isTranslated };
+    }));
   };
 
   return (
@@ -335,51 +364,8 @@ AI 合規聲明：本內容為全球數據流的原創綜合，由 HKER 情報�
       users, currentUser, posts, visitorLogs,
       register, login, logout,
       adminUpdateUser, deleteUser,
-      createPost: () => {}, deletePost: (id) => {
-        setPosts(prev => prev.filter(p => p.id !== id));
-        supabase.from('posts').delete().eq('id', id).then();
-      }, addReply: () => {}, toggleLike: (id, type) => {
-        if (!currentUser) return false;
-        const post = posts.find(p => p.id === id);
-        if (!post) return false;
-        
-        // Requirement 52: 每個帳戶對每個貼只能給3次心和3次讚
-        if (!post.userInteractions) post.userInteractions = {};
-        if (!post.userInteractions[currentUser.id]) {
-          post.userInteractions[currentUser.id] = { likes: 0, hearts: 0 };
-        }
-        
-        const userInteractions = post.userInteractions[currentUser.id];
-        const interactionType = type === 'like' ? 'likes' : 'hearts';
-        
-        if (userInteractions[interactionType] >= 3) {
-          alert(type === 'like' ? '每個帳戶對每個貼文只能給讚 3 次。' : '每個帳戶對每個貼文只能給心 3 次。');
-          return false;
-        }
-        
-        // Update interactions
-        userInteractions[interactionType]++;
-        const newLikes = post.likes + (type === 'like' ? 1 : 0);
-        const newHearts = post.hearts + (type === 'heart' ? 1 : 0);
-        
-        const updates = {
-          likes: newLikes,
-          hearts: newHearts,
-          userInteractions: { ...post.userInteractions }
-        };
-        
-        // Update local state
-        setPosts(prev => prev.map(p => p.id === id ? { ...p, ...updates } : p));
-        
-        // Award points: Requirement 54 - 機械人貼文比心獎150，比讚獎150
-        const pointsAward = post.isRobot ? 150 : 50;
-        updatePoints(currentUser.id, pointsAward);
-        
-        // Sync to Supabase
-        supabase.from('posts').update(updates).eq('id', id).then();
-        return true;
-      },
-      updatePoints, toggleTranslation, logActivity
+      createPost, deletePost, addReply, toggleLike,
+      updatePoints, toggleTranslation
     }}>
       {children}
     </DataContext.Provider>

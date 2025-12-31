@@ -1,9 +1,6 @@
-
 import React, { useState, useRef } from 'react';
 import { Brain, Cpu, Sparkles, Activity, Layout, Terminal, RefreshCw } from 'lucide-react';
 import { TAROT_CONTEXTS, TAROT_CARDS } from '../constants';
-// Import GoogleGenAI to enable real AI interpretations
-import { GoogleGenAI } from "@google/genai";
 
 type GameState = 'SETUP' | 'PROCESSING' | 'RESULT';
 
@@ -14,13 +11,11 @@ export const TarotGame: React.FC = () => {
   const [progress, setProgress] = useState(0);
   const [resultCard, setResultCard] = useState<typeof TAROT_CARDS[0] | null>(null);
   const [isUpright, setIsUpright] = useState(true);
-  const [aiInterpretation, setAiInterpretation] = useState<string>('');
 
   const startReading = async () => {
     if (!selectedContext) return;
     
     setGameState('PROCESSING');
-    setAiInterpretation('');
     
     const steps = [
       "正在初始化量子隨機數矩陣...",
@@ -33,7 +28,8 @@ export const TarotGame: React.FC = () => {
     for (let i = 0; i < steps.length; i++) {
       setLoadingStep(steps[i]);
       setProgress(((i + 1) / steps.length) * 100);
-      await new Promise(r => setTimeout(r, 600));
+      // Simulate "computation" time
+      await new Promise(r => setTimeout(r, 800));
     }
 
     // Generate Result
@@ -41,32 +37,13 @@ export const TarotGame: React.FC = () => {
     const orientation = Math.random() > 0.3; // 70% Upright
     setResultCard(randomCard);
     setIsUpright(orientation);
-
-    // Integrate real Gemini API for personalized reading
-    try {
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-      const prompt = `你是一位專業的科技塔羅牌占卜師。請為用戶解讀以下結果：
-      問題維度：${selectedContext}
-      抽中卡片：${randomCard.name}
-      位置：${orientation ? '正位' : '逆位'}
-      
-      請提供約 100 字的深度分析，口吻要專業、帶有一點工程師的科技感（例如使用連線、通訊協定、架構優化等比喻）。請使用繁體中文。`;
-
-      const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
-        contents: prompt,
-      });
-      
-      setAiInterpretation(response.text || '');
-    } catch (error) {
-      console.error("AI Reading Error:", error);
-      setAiInterpretation(getInterpretation(randomCard.name, selectedContext, orientation));
-    }
-
     setGameState('RESULT');
   };
 
   const getInterpretation = (cardName: string, context: string, upright: boolean): string => {
+    // A simplified logic to generate "Engineer style" interpretation
+    // In a real AI app, this would call an LLM. Here we use algorithmic sentence construction.
+    
     const tone = upright ? "系統偵測到正向能量流動。" : "系統偵測到潛在的阻抗與雜訊。";
     const action = upright ? "建議保持當前架構並優化效率。" : "建議重新審視核心代碼與邏輯。";
     
@@ -84,7 +61,6 @@ export const TarotGame: React.FC = () => {
     setSelectedContext('');
     setResultCard(null);
     setProgress(0);
-    setAiInterpretation('');
   };
 
   return (
@@ -186,6 +162,7 @@ export const TarotGame: React.FC = () => {
                      relative w-full h-full duration-700 transform-style-3d transition-transform
                      ${isUpright ? '' : 'rotate-180'}
                   `}>
+                     {/* Using a static representation for reliability */}
                      <div className={`
                         w-full h-full bg-slate-800 border-4 rounded-2xl flex flex-col items-center justify-center p-6 shadow-2xl
                         ${isUpright ? 'border-blue-500' : 'border-red-500'}
@@ -221,10 +198,10 @@ export const TarotGame: React.FC = () => {
                      <p>
                         {resultCard.desc}
                      </p>
-                     <div className="mt-4 pt-4 border-t border-slate-700 italic text-slate-400">
-                        <span className="block font-bold text-blue-400 mb-2">AI 綜合運算結論：</span>
-                        {aiInterpretation || getInterpretation(resultCard.name, selectedContext, isUpright)}
-                     </div>
+                     <p className="mt-4 pt-4 border-t border-slate-700 italic text-slate-400">
+                        AI 綜合運算結論：<br/>
+                        {getInterpretation(resultCard.name, selectedContext, isUpright)}
+                     </p>
                   </div>
                </div>
 
