@@ -1,4 +1,3 @@
-
 import React, { createContext, useState, useEffect, ReactNode, useRef } from 'react';
 import { User, Post, UserRole, VisitorLog } from '../types';
 import { ADMIN_EMAILS, AVATARS, REGIONS, TOPICS } from '../constants';
@@ -32,7 +31,6 @@ const BOT_SOURCES = [
   { name: "Community Buzz", url: "https://community.buzz" }
 ];
 
-// Enhanced Bot Content Engine for longer, summary-based posts
 const BOT_PHRASES = {
   en: {
     titles: [
@@ -102,7 +100,6 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   
   const botIntervalRef = useRef<number | null>(null);
 
-  // --- SYNC MECHANISM (Critical for Mobile/Web consistency) ---
   useEffect(() => {
     const loadLocalData = () => {
       try {
@@ -125,7 +122,6 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
     };
     loadLocalData();
-    logVisit(null); 
 
     const setupRealtime = async () => {
         if (!process.env.NEXT_PUBLIC_SUPABASE_URL) return;
@@ -175,11 +171,6 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     else localStorage.removeItem('hker_session_user');
   }, [currentUser]);
 
-  const logVisit = (loggedInUser: User | null) => {
-    // Analytics logic...
-  };
-
-  // --- ROBOT WORKER (Requirement 2: Active 24/7, Active Worker) ---
   useEffect(() => {
     botIntervalRef.current = window.setInterval(() => {
       generateBotPost();
@@ -188,47 +179,37 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     return () => { if (botIntervalRef.current) clearInterval(botIntervalRef.current); };
   }, []);
 
-  // --- NEW BOT GENERATION LOGIC (Requirement 1, 2, 3) ---
   const generateBotPost = async () => {
     const region = REGIONS[Math.floor(Math.random() * REGIONS.length)];
     const topic = TOPICS[Math.floor(Math.random() * TOPICS.length)];
     const source = BOT_SOURCES[Math.floor(Math.random() * BOT_SOURCES.length)];
     
-    // Helper to pick random items from an array
     const pick = (arr: string[]) => arr[Math.floor(Math.random() * arr.length)];
-    // Helper to get 3 unique random points
     const getPoints = (arr: string[], count: number) => {
         const shuffled = [...arr].sort(() => 0.5 - Math.random());
         return shuffled.slice(0, count);
     };
 
-    // Construct English Content (Default)
     const enTitleTemplate = pick(BOT_PHRASES.en.titles);
     const enTitle = enTitleTemplate.replace("{region}", region).replace("{topic}", topic);
-    
     const enOpener = pick(BOT_PHRASES.en.openers).replace("{region}", region).replace("{topic}", topic);
     const enPoints = getPoints(BOT_PHRASES.en.points, 3);
     const enCloser = pick(BOT_PHRASES.en.closers);
-    
-    // Construct the "Key Highlights" format
     const enContent = `${enOpener}\n\n**Key Highlights:**\n1. ${enPoints[0]}\n2. ${enPoints[1]}\n3. ${enPoints[2]}\n\n${enCloser}`;
 
-    // Construct Chinese Content (Translation)
     const zhTitleTemplate = pick(BOT_PHRASES.zh.titles);
     const zhTitle = zhTitleTemplate.replace("{region}", region).replace("{topic}", topic);
-    
     const zhOpener = pick(BOT_PHRASES.zh.openers).replace("{region}", region).replace("{topic}", topic);
-    const zhPoints = getPoints(BOT_PHRASES.zh.points, 3); // Independent random points to simulate different phrasing or just map via index if strict translation needed (here independent is fine for demo)
+    const zhPoints = getPoints(BOT_PHRASES.zh.points, 3); 
     const zhCloser = pick(BOT_PHRASES.zh.closers);
-
     const zhContent = `${zhOpener}\n\n**重點摘要：**\n1. ${zhPoints[0]}\n2. ${zhPoints[1]}\n3. ${zhPoints[2]}\n\n${zhCloser}`;
 
     const newPost: Post = {
       id: Date.now(),
       authorId: 'AI-BOT-001',
       authorName: 'AI News Robot',
-      title: enTitle, // Force English
-      content: enContent, // Force English, formatted with bullets
+      title: enTitle,
+      content: enContent,
       region: region,
       topic: topic,
       likes: [],
@@ -238,7 +219,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       isBot: true,
       sourceName: source.name,
       sourceUrl: source.url,
-      originalLang: 'en', // Force English Origin
+      originalLang: 'en',
       isTranslated: false,
       translation: {
         title: zhTitle,
@@ -249,8 +230,6 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setPosts(prev => [newPost, ...prev]);
     await supabase.from('posts').insert(newPost); 
   };
-
-  // --- ACTIONS ---
 
   const register = (userData: Partial<User>) => {
     const newUser: User = {
@@ -302,14 +281,15 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         return prevUsers.map(u => {
             if (u.id === userId) {
                 newPoints = Math.max(0, u.points + amount);
-                if (currentUser && currentUser.id === userId) {
-                    setCurrentUser(curr => curr ? { ...curr, points: newPoints } : null);
-                }
                 return { ...u, points: newPoints };
             }
             return u;
         });
     });
+    // 同步更新當前登入用戶的 points 顯示
+    if (currentUser && currentUser.id === userId) {
+        setCurrentUser(prev => prev ? { ...prev, points: prev.points + amount } : null);
+    }
     supabase.from('users').update({ points: newPoints }).eq('id', userId);
   };
 
@@ -328,28 +308,29 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     return;
   };
 
+  // 修改後的核心邏輯：取消 3 次限制
   const toggleLike = (postId: number, type: 'like' | 'love') => {
     if (!currentUser) return false;
-    let success = false;
+    
     let updatedPost: Post | null = null;
+    
     setPosts(prev => prev.map(p => {
       if (p.id === postId) {
         const list = type === 'like' ? p.likes : p.loves;
-        const userCount = list.filter(id => id === currentUser.id).length;
         
-        if (userCount < 3) {
-          const newList = [...list, currentUser.id];
-          success = true;
-          updatedPost = type === 'like' ? { ...p, likes: newList } : { ...p, loves: newList };
-          if (success) updatePoints(currentUser.id, 150); 
-          return updatedPost;
-        }
-        return p; 
+        // 直接添加用戶 ID，不再檢查 count < 3
+        const newList = [...list, currentUser.id];
+        updatedPost = type === 'like' ? { ...p, likes: newList } : { ...p, loves: newList };
+        
+        // 每次點擊都增加 150 積分
+        updatePoints(currentUser.id, 150);
+        return updatedPost;
       }
       return p;
     }));
+
     if(updatedPost) supabase.from('posts').update(updatedPost).eq('id', postId);
-    return success;
+    return true;
   };
 
   const toggleTranslation = (postId: number) => {
