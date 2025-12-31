@@ -1,4 +1,3 @@
-
 import React, { useState, useContext } from 'react';
 import { 
   Search, Settings, LogOut, Layout, Shield, User as UserIcon,
@@ -43,12 +42,11 @@ export const ForumPage: React.FC<ForumPageProps> = ({ onBack }) => {
     return matchRegion && matchTopic && matchSearch;
   });
 
+  // 修改後的核心邏輯：移除了次數限制的 Alert 視窗
   const handleInteraction = (postId: number, type: 'like' | 'love') => {
     if (!currentUser) return alert("請先登入 (Please Login First)");
-    const success = toggleLike(postId, type);
-    if (!success) {
-      alert("每個帳戶對每個貼只能給 3 次心和 3 次讚！(Max 3 interactions limit)");
-    }
+    // 執行 toggleLike，不檢查是否成功，也不會再跳出限制視窗
+    toggleLike(postId, type);
   };
 
   const handleSharePost = (post: Post) => {
@@ -186,21 +184,21 @@ export const ForumPage: React.FC<ForumPageProps> = ({ onBack }) => {
                 
                 {/* Filters */}
                 <div className="bg-white p-3 rounded-xl shadow-sm border border-gray-200 overflow-x-auto">
-                   <div className="flex flex-col gap-2">
-                      <div className="flex items-center gap-2 whitespace-nowrap">
-                         <span className="text-[10px] font-bold text-gray-400 bg-gray-100 px-2 py-1 rounded">地區</span>
-                         <button onClick={() => setSelectedRegion(null)} className={`px-2 py-0.5 rounded text-xs ${!selectedRegion ? 'bg-blue-600 text-white' : 'text-gray-600'}`}>全部</button>
-                         {REGIONS.map(r => (
-                           <button key={r} onClick={() => setSelectedRegion(r)} className={`px-2 py-0.5 rounded text-xs ${selectedRegion === r ? 'bg-blue-600 text-white' : 'text-gray-600'}`}>{r}</button>
-                         ))}
-                      </div>
-                      <div className="flex items-center gap-2 whitespace-nowrap overflow-x-auto no-scrollbar">
-                         <span className="text-[10px] font-bold text-gray-400 bg-gray-100 px-2 py-1 rounded">主題</span>
-                         {TOPICS.map(t => (
-                            <button key={t} onClick={() => setSelectedTopic(t === selectedTopic ? null : t)} className={`px-2 py-0.5 rounded text-xs border ${selectedTopic === t ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-200 text-gray-600'}`}>{t}</button>
-                         ))}
-                      </div>
-                   </div>
+                    <div className="flex flex-col gap-2">
+                       <div className="flex items-center gap-2 whitespace-nowrap">
+                          <span className="text-[10px] font-bold text-gray-400 bg-gray-100 px-2 py-1 rounded">地區</span>
+                          <button onClick={() => setSelectedRegion(null)} className={`px-2 py-0.5 rounded text-xs ${!selectedRegion ? 'bg-blue-600 text-white' : 'text-gray-600'}`}>全部</button>
+                          {REGIONS.map(r => (
+                            <button key={r} onClick={() => setSelectedRegion(r)} className={`px-2 py-0.5 rounded text-xs ${selectedRegion === r ? 'bg-blue-600 text-white' : 'text-gray-600'}`}>{r}</button>
+                          ))}
+                       </div>
+                       <div className="flex items-center gap-2 whitespace-nowrap overflow-x-auto no-scrollbar">
+                          <span className="text-[10px] font-bold text-gray-400 bg-gray-100 px-2 py-1 rounded">主題</span>
+                          {TOPICS.map(t => (
+                             <button key={t} onClick={() => setSelectedTopic(t === selectedTopic ? null : t)} className={`px-2 py-0.5 rounded text-xs border ${selectedTopic === t ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-200 text-gray-600'}`}>{t}</button>
+                          ))}
+                       </div>
+                    </div>
                 </div>
 
                 {/* Post List */}
@@ -277,12 +275,12 @@ export const ForumPage: React.FC<ForumPageProps> = ({ onBack }) => {
                         {/* Existing Replies Display (ReadOnly) */}
                         {post.replies.length > 0 && (
                            <div className="bg-gray-50 mt-3 p-3 rounded-lg text-xs">
-                              {post.replies.map(reply => (
+                             {post.replies.map(reply => (
                                  <div key={reply.id} className="mb-2 pb-2 border-b last:border-0 flex justify-between">
-                                    <span><span className="font-bold text-blue-700">{reply.authorName}</span>: {reply.content}</span>
-                                    {isMod && <button onClick={()=>alert("刪除回覆 (Admin)")} className="text-red-300 hover:text-red-500">x</button>}
+                                   <span><span className="font-bold text-blue-700">{reply.authorName}</span>: {reply.content}</span>
+                                   {isMod && <button onClick={()=>alert("刪除回覆 (Admin)")} className="text-red-300 hover:text-red-500">x</button>}
                                  </div>
-                              ))}
+                             ))}
                            </div>
                         )}
                         
