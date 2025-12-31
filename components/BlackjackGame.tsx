@@ -275,9 +275,9 @@ export const BlackjackGame: React.FC = () => {
           <button onClick={() => setShowRules(true)} className="hover:text-cyan-400 transition-colors">
             <Info size={24} />
           </button>
-          <div className="hidden md:flex items-center space-x-2 bg-slate-800 px-4 py-1 rounded-full border border-slate-700">
+          <div className="flex items-center space-x-2 bg-slate-800 px-3 md:px-4 py-1 rounded-full border border-slate-700">
             <DollarSign size={16} className="text-green-400" />
-            <span className="font-mono text-xl text-green-400 font-bold">{currentUser.points.toLocaleString()}</span>
+            <span className="font-mono text-sm md:text-xl text-green-400 font-bold">{currentUser.points.toLocaleString()}</span>
           </div>
         </div>
       </div>
