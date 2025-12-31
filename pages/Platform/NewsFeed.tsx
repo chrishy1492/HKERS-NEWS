@@ -35,45 +35,21 @@ export const NewsFeed: React.FC = () => {
   useEffect(() => {
     fetchData(); // Initial
 
-    // CRITICAL FIX: Real-time sync via Supabase subscriptions + polling
-    // 1. Supabase real-time subscription for instant updates across all devices
-    const { supabase } = require('../../lib/supabaseClient');
-    const channel = supabase.channel('newsfeed_sync')
-      .on('postgres_changes',
-        { event: '*', schema: 'public', table: 'posts' },
-        (payload) => {
-          console.log('Post changed, refreshing:', payload);
-          fetchData(); // Refresh when any post changes
-        }
-      )
-      .on('postgres_changes',
-        { event: '*', schema: 'public', table: 'users' },
-        (payload) => {
-          console.log('User changed, refreshing:', payload);
-          // Refresh user data if current user changed
-          if (user && payload.new && (payload.new as any).id === user.id) {
-            fetchData();
-          }
-        }
-      )
-      .subscribe();
-
-    // 2. DATA SYNC POLLING (Backup polling every 2s for "Instant" feel)
+    // 1. DATA SYNC POLLING (Increased frequency to 2s for "Instant" feel)
     const syncInterval = setInterval(() => {
         fetchData(); 
     }, 2000);
 
-    // 3. ROBOT AUTOMATION (Requirement 10, 66: 24/7 active worker, check every minute)
+    // 2. ROBOT AUTOMATION (Requirement 66: 24/7 active worker, check every minute)
     const robotInterval = setInterval(async () => {
         await MockDB.triggerRobotPost();
-    }, 60000); // Every 60 seconds
+    }, 60000); // Changed to 60 seconds for more frequent posting 
 
     return () => {
         clearInterval(syncInterval);
         clearInterval(robotInterval);
-        supabase.removeChannel(channel);
     };
-  }, [user]);
+  }, []);
 
   const handleInteraction = async (postId: string, type: 'like' | 'heart' | 'view') => {
     if (!user) {
@@ -111,28 +87,20 @@ export const NewsFeed: React.FC = () => {
     newPosts[postIndex] = post;
     setPosts(newPosts);
 
-    // CRITICAL FIX: Save to Supabase FIRST for real-time sync
+    // Background Sync
     await MockDB.savePost(post);
     
-    // Calculate points award
     let pointsAwarded = 0;
-    if (type === 'view') {
-        pointsAwarded = 5; 
-    } else if (post.isRobot && (type === 'like' || type === 'heart')) {
-        pointsAwarded = 150; // Requirement: 機械人貼文比心/比讚各150分
+    if (type === 'view') pointsAwarded = 5; 
+    
+    if (post.isRobot && (type === 'like' || type === 'heart')) {
+        pointsAwarded = 150; 
     } else if (type === 'like' || type === 'heart') {
         pointsAwarded = 50; 
     }
 
-    // CRITICAL FIX: Update points and ensure sync across all devices
     if (pointsAwarded > 0) {
-        const newPoints = await MockDB.updateUserPoints(user.id, pointsAwarded);
-        // Update local user state immediately for UI feedback
-        if (user) {
-            user.points = newPoints;
-            // Trigger a refresh to ensure UI updates
-            fetchData();
-        }
+        await MockDB.updateUserPoints(user.id, pointsAwarded);
     }
   };
 
@@ -171,8 +139,8 @@ export const NewsFeed: React.FC = () => {
       }
   };
 
-  // Requirement 7: Enhanced share function with copy button
-  const handleShare = async (post: Post) => {
+  // SMART SHARE FUNCTION
+  const handleShare = (post: Post) => {
     let url = `${window.location.origin}/#/platform?post=${post.id}`;
     let msg = lang === 'cn' ? `連結已複製！\n${url}` : `Link Copied!\n${url}`;
 
@@ -183,39 +151,13 @@ export const NewsFeed: React.FC = () => {
             : `Original Source Link Copied! (Support Original)\n${url}`;
     }
 
-    try {
-      await navigator.clipboard.writeText(url);
-      alert(msg);
-    } catch (err) {
-      // Fallback for older browsers
-      const textArea = document.createElement('textarea');
-      textArea.value = url;
-      textArea.style.position = 'fixed';
-      textArea.style.opacity = '0';
-      document.body.appendChild(textArea);
-      textArea.select();
-      document.execCommand('copy');
-      document.body.removeChild(textArea);
-      alert(msg);
-    }
+    navigator.clipboard.writeText(url);
+    alert(msg);
   };
 
-  const handleSharePlatform = async () => {
-      try {
-        await navigator.clipboard.writeText(FORUM_URL);
-        alert(lang === 'cn' ? `✅ 論壇網址已複製！\n\n快分享給朋友：\n${FORUM_URL}` : `✅ Forum URL Copied!\n\nShare with friends:\n${FORUM_URL}`);
-      } catch (err) {
-        // Fallback for older browsers
-        const textArea = document.createElement('textarea');
-        textArea.value = FORUM_URL;
-        textArea.style.position = 'fixed';
-        textArea.style.opacity = '0';
-        document.body.appendChild(textArea);
-        textArea.select();
-        document.execCommand('copy');
-        document.body.removeChild(textArea);
-        alert(lang === 'cn' ? `✅ 論壇網址已複製！\n\n快分享給朋友：\n${FORUM_URL}` : `✅ Forum URL Copied!\n\nShare with friends:\n${FORUM_URL}`);
-      }
+  const handleSharePlatform = () => {
+      navigator.clipboard.writeText(FORUM_URL);
+      alert(lang === 'cn' ? `論壇網址已複製！快分享給朋友：\n${FORUM_URL}` : `Forum URL Copied! Share with friends:\n${FORUM_URL}`);
   };
 
   const handleReport = (postId: string) => {
@@ -404,7 +346,7 @@ export const NewsFeed: React.FC = () => {
                     <h3 className="text-lg font-bold mb-4 text-gray-900 leading-tight">{displayTitle}</h3>
                     <p className="text-gray-700 text-sm leading-7 mb-4 whitespace-pre-line font-serif">{displayContent}</p>
                     
-                    {post.isRobot && (
+                    {post.isRobot && post.source && (
                         <div className="bg-amber-50 p-4 rounded-lg border border-amber-100 text-xs mb-4">
                             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-2 gap-2">
                                 <div className="flex items-center gap-2">

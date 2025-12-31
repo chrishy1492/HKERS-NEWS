@@ -3,7 +3,6 @@ import React, { useState, useEffect } from 'react';
 import { useOutletContext, useNavigate } from 'react-router-dom';
 import { User, UserRole, Post, RobotLog } from '../../types';
 import { MockDB } from '../../services/mockDatabase';
-import { supabase } from '../../lib/supabaseClient';
 import { Trash2, Edit, Save, Search, RefreshCw, AlertOctagon, Bot, Activity, Clock, Users, UserPlus, Eye, Shield, BarChart3 } from 'lucide-react';
 
 export const Admin: React.FC = () => {
@@ -31,83 +30,25 @@ export const Admin: React.FC = () => {
       return;
     }
     refreshData();
-    
-    // CRITICAL FIX: Real-time sync via Supabase subscriptions + polling
-    // 1. Supabase real-time subscription for instant updates
-    const channel = supabase.channel('admin_sync')
-      .on('postgres_changes', 
-        { event: '*', schema: 'public', table: 'users' }, 
-        (payload) => {
-          console.log('User data changed:', payload);
-          refreshData(); // Refresh when any user data changes
-        }
-      )
-      .on('postgres_changes',
-        { event: '*', schema: 'public', table: 'posts' },
-        (payload) => {
-          console.log('Post data changed:', payload);
-          refreshData(); // Refresh when any post changes
-        }
-      )
-      .subscribe();
-    
-    // 2. Fast Polling for Real-time Analytics (2s) as backup
+    // Fast Polling for Real-time Analytics (2s)
     const interval = setInterval(refreshData, 2000);
-    
-    return () => {
-      clearInterval(interval);
-      supabase.removeChannel(channel);
-    };
+    return () => clearInterval(interval);
   }, [user]);
 
   const refreshData = async () => {
-    // CRITICAL FIX: Always fetch from Supabase for real-time sync (mobile & web)
-    try {
-      // 1. Fetch ALL users from Supabase (not just local cache)
-      const { data: usersData, error: usersError } = await supabase
-        .from('users')
-        .select('*')
-        .order('joinedAt', { ascending: false });
-      
-      if (!usersError && usersData) {
-        setUsers(usersData as User[]);
-        // Also update local cache
-        localStorage.setItem('hker_local_users_fallback', JSON.stringify(usersData));
-      } else {
-        // Fallback to MockDB
-        const allUsers = await MockDB.getUsers();
-        setUsers(allUsers);
-      }
-      
-      // 2. Fetch ALL posts from Supabase
-      const { data: postsData, error: postsError } = await supabase
-        .from('posts')
-        .select('*')
-        .order('timestamp', { ascending: false })
-        .limit(100);
-      
-      if (!postsError && postsData) {
-        setPosts(postsData as Post[]);
-      } else {
-        const allPosts = await MockDB.getPosts();
-        setPosts(allPosts);
-      }
-      
-      // 3. Fetch robot logs
-      const logs = await MockDB.getRobotLogs();
-      setRobotLogs(logs);
+    // 1. Fetch Cloud Data
+    const allUsers = await MockDB.getUsers();
+    setUsers(allUsers);
+    
+    const allPosts = await MockDB.getPosts();
+    setPosts(allPosts);
+    
+    const logs = await MockDB.getRobotLogs();
+    setRobotLogs(logs);
 
-      // 4. Calculate Analytics from fresh data
-      const stats = await MockDB.getAnalytics();
-      setAnalytics(stats);
-    } catch (error) {
-      console.error('Error refreshing admin data:', error);
-      // Fallback to MockDB
-      const allUsers = await MockDB.getUsers();
-      const allPosts = await MockDB.getPosts();
-      setUsers(allUsers);
-      setPosts(allPosts);
-    }
+    // 2. Fetch Calculated Analytics
+    const stats = await MockDB.getAnalytics();
+    setAnalytics(stats);
   };
 
   const handleManualSync = async () => {
