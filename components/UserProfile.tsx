@@ -27,9 +27,18 @@ export const UserProfile: React.FC = () => {
     if (!amountStr) return;
     const amount = parseInt(amountStr);
     
-    if (isNaN(amount) || amount < 1000000) return alert("錯誤：最少提幣數量為 1,000,000 粒！");
-    if (currentUser.points < amount) return alert("錯誤：積分不足以完成提幣。");
-    if (!currentUser.solAddress) return alert("錯誤：請先在下方設定 SOL Wallet 地址。");
+    // Requirement 8: Enhanced validation with clear error messages
+    if (isNaN(amount) || amount < 1000000) {
+      return alert("❌ 提幣申請失敗！\n\n可能原因：\n• 提幣數量不足（最少需要 1,000,000 HKER Token）\n\n請確認提幣數量後再試。");
+    }
+    
+    if (currentUser.points < amount) {
+      return alert("❌ 提幣申請失敗！\n\n可能原因：\n• 帳戶積分不足（當前積分：" + currentUser.points.toLocaleString() + "，需要：" + amount.toLocaleString() + "）\n\n請確認帳戶積分後再試。");
+    }
+    
+    if (!currentUser.solAddress || currentUser.solAddress.trim() === '') {
+      return alert("❌ 提幣申請失敗！\n\n可能原因：\n• 帳戶無提供 SOL Address\n\n請先在個人資料中設定 SOL Wallet 地址後再申請提幣。");
+    }
 
     // Requirement 11, 12, 68, 79: Automatic Deduction + Email Notification
     updatePoints(currentUser.id, -amount);

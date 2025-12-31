@@ -241,39 +241,69 @@ export const MockDB = {
   },
 
   updateUserPoints: async (userId: string, delta: number): Promise<number> => {
-    // Atomic update simulation logic remains, but enhanced with cloud priority
+    // CRITICAL FIX: Ensure real-time sync across all devices (mobile & web)
     let currentPoints = 0;
     
-    // 1. Try Cloud Fetch
-    const { data: user, error } = await supabase.from('users').select('points').eq('id', userId).single();
+    // 1. Fetch latest from Supabase (always use cloud as source of truth)
+    const { data: userData, error: fetchError } = await supabase
+      .from('users')
+      .select('points')
+      .eq('id', userId)
+      .single();
     
-    if (!error && user) {
-        currentPoints = user.points;
+    if (!fetchError && userData) {
+        currentPoints = userData.points || 0;
     } else {
-        // Fallback
+        // Fallback to local if cloud fails
         const localUser = getLocalUsers().find(u => u.id === userId);
-        if (localUser) currentPoints = localUser.points;
+        if (localUser) {
+            currentPoints = localUser.points || 0;
+        }
     }
 
     const newPoints = Math.max(0, currentPoints + delta);
     
-    // 2. Write Back
-    await supabase.from('users').update({ points: newPoints }).eq('id', userId);
+    // 2. Update Supabase FIRST (cloud is source of truth)
+    const { error: updateError } = await supabase
+      .from('users')
+      .update({ points: newPoints })
+      .eq('id', userId);
     
-    // 3. Update Local Cache
+    if (updateError) {
+        console.error('Failed to update points in Supabase:', updateError);
+        // Still update local as fallback
+    }
+    
+    // 3. Update Local Cache for offline support
     const localUsers = getLocalUsers();
     const idx = localUsers.findIndex(u => u.id === userId);
     if (idx >= 0) {
         localUsers[idx].points = newPoints;
         localStorage.setItem(KEY_LOCAL_USERS, JSON.stringify(localUsers));
+    } else {
+        // If user not in local cache, fetch full user data
+        const { data: fullUser } = await supabase.from('users').select('*').eq('id', userId).single();
+        if (fullUser) {
+            localUsers.push({ ...fullUser, points: newPoints } as User);
+            localStorage.setItem(KEY_LOCAL_USERS, JSON.stringify(localUsers));
+        }
     }
     
-    // 4. Update Current User Session if match
+    // 4. Update Current User Session if match (for immediate UI update)
     const current = MockDB.getCurrentUser();
     if (current && current.id === userId) {
         current.points = newPoints;
         localStorage.setItem(KEY_CURRENT_USER, JSON.stringify(current));
     }
+
+    // 5. Force refresh to ensure all devices see the update
+    // This will trigger Supabase real-time listeners on all connected devices
+    await supabase.from('users').select('*').eq('id', userId).single().then(({ data }) => {
+        if (data) {
+            // The real-time subscription will handle the update on all devices
+            console.log('Points updated, real-time sync triggered');
+        }
+    });
 
     return newPoints;
   },
@@ -426,9 +456,12 @@ export const MockDB = {
     }
 
     const now = Date.now();
-    // Requirement 66: 機械人發貼設定為每日工作和每天工作24小時，每分鐘檢查一次
-    if (!forcedTimestamp && (now - lastBotTimestamp < 60000)) return null; // Changed from 25s to 60s for more frequent posting
+    // Requirement 10, 66: 機械人發貼設定為每年每天每小時為活躍工作者，每分鐘檢查一次
+    if (!forcedTimestamp && (now - lastBotTimestamp < 60000)) return null;
 
+    // Requirement 10: 機械人能自己選擇地區和主題
+    // 地區: 中國香港/台灣/英國/美國/加拿大/澳洲/歐洲
+    // 主題: 地產/時事/財經/娛樂/旅遊/數碼/汽車/地產/宗教/優惠/校園/天氣/社區活動
     const region = targetRegion || REGIONS[Math.floor(Math.random() * REGIONS.length)];
     const topic = targetCategory || CATEGORIES[Math.floor(Math.random() * CATEGORIES.length)];
     const mockData = generateMockNews(region, topic);

@@ -285,45 +285,73 @@ AI 合規聲明：本內容為全球數據流的原創綜合，由 HKER 情報�
   };
 
   const updatePoints = async (userId: string, amount: number) => {
-    const user = users.find(u => u.id === userId);
-    if (!user) {
-      // Try to fetch from Supabase if not in local state
-      const { data } = await supabase.from('users').select('*').eq('id', userId).single();
-      if (data) {
-        const newPoints = Math.max(0, (data as User).points + amount);
-        await supabase.from('users').update({ points: newPoints }).eq('id', userId);
-        // Update local state
-        setUsers(prev => {
-          const exists = prev.find(u => u.id === userId);
-          if (exists) {
-            return prev.map(u => u.id === userId ? { ...u, points: newPoints } : u);
-          }
-          return [...prev, { ...data, points: newPoints } as User];
-        });
-        // Update current user if it's them
-        if (currentUser?.id === userId) {
-          setCurrentUser({ ...data, points: newPoints } as User);
-          localStorage.setItem(STORAGE_KEYS.SESSION, JSON.stringify({ ...data, points: newPoints }));
-        }
-      }
-      return;
-    }
-    const newPoints = Math.max(0, user.points + amount);
+    // CRITICAL FIX: Always fetch latest from Supabase first for accurate points
+    let currentPoints = 0;
+    let userData: User | null = null;
     
-    // Update local state immediately for instant feedback
-    setUsers(prev => prev.map(u => u.id === userId ? { ...u, points: newPoints } : u));
+    // 1. Fetch latest user data from Supabase (source of truth)
+    const { data: supabaseUser, error: fetchError } = await supabase
+      .from('users')
+      .select('*')
+      .eq('id', userId)
+      .single();
+    
+    if (!fetchError && supabaseUser) {
+      userData = supabaseUser as User;
+      currentPoints = userData.points || 0;
+    } else {
+      // Fallback to local state
+      const localUser = users.find(u => u.id === userId);
+      if (localUser) {
+        userData = localUser;
+        currentPoints = localUser.points || 0;
+      } else {
+        console.error('User not found:', userId);
+        return;
+      }
+    }
+    
+    const newPoints = Math.max(0, currentPoints + amount);
+    
+    // 2. Update Supabase FIRST (cloud is source of truth for multi-device sync)
+    const { error: updateError } = await supabase
+      .from('users')
+      .update({ points: newPoints })
+      .eq('id', userId);
+    
+    if (updateError) {
+      console.error('Failed to update points in Supabase:', updateError);
+      // Still update local as fallback
+    }
+    
+    // 3. Update local state for immediate UI feedback
+    const updatedUser = { ...userData, points: newPoints };
+    setUsers(prev => {
+      const exists = prev.find(u => u.id === userId);
+      if (exists) {
+        return prev.map(u => u.id === userId ? updatedUser : u);
+      }
+      return [...prev, updatedUser];
+    });
+    
+    // 4. Update current user session if match
     if (currentUser?.id === userId) {
-      const updatedUser = { ...currentUser, points: newPoints };
       setCurrentUser(updatedUser);
       localStorage.setItem(STORAGE_KEYS.SESSION, JSON.stringify(updatedUser));
     }
     
-    // Sync to Supabase for real-time sync across devices
-    try {
-      await supabase.from('users').update({ points: newPoints }).eq('id', userId);
-    } catch (e) {
-      console.error('Points update sync error:', e);
+    // 5. Update local cache
+    const localUsers = JSON.parse(localStorage.getItem(STORAGE_KEYS.USERS) || '[]');
+    const localIdx = localUsers.findIndex((u: User) => u.id === userId);
+    if (localIdx >= 0) {
+      localUsers[localIdx] = updatedUser;
+    } else {
+      localUsers.push(updatedUser);
     }
+    localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(localUsers));
+    
+    // 6. The Supabase real-time subscription will automatically update all connected devices
+    console.log(`Points updated: ${userId} ${amount > 0 ? '+' : ''}${amount} = ${newPoints}`);
   };
 
   const toggleTranslation = (postId: number) => {
