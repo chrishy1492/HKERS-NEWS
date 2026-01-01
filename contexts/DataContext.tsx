@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { supabase } from '../lib/supabaseClient'; // 請確保路徑正確指向您的 supabaseClient
+import { supabase } from '../lib/supabaseClient'; 
 
-// 定義資料類型
+// 1. 定義資料結構（必須與 Supabase 欄位完全對應）
 interface User {
   id: string;
   name: string;
@@ -9,8 +9,9 @@ interface User {
   points: number;
   role: string;
   joinedAt: string;
-  lastActive?: string;
   avatar?: string;
+  phone?: string;
+  address?: string;
 }
 
 interface Post {
@@ -37,61 +38,58 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // 1. 從 Supabase 抓取所有資料的函數
+  // 2. 從 Supabase 雲端抓取資料 (解決手機看不到人的問題)
   const fetchData = async () => {
     try {
       setLoading(true);
       
-      // 抓取會員資料 (解決管理員看不到人的問題)
+      // 抓取雲端會員名單
       const { data: userData, error: userError } = await supabase
         .from('users')
         .select('*')
         .order('joinedAt', { ascending: false });
-
       if (userError) throw userError;
       if (userData) setUsers(userData as User[]);
 
-      // 抓取貼文資料
+      // 抓取雲端貼文名單
       const { data: postData, error: postError } = await supabase
         .from('posts')
         .select('*')
         .order('createdAt', { ascending: false });
-
       if (postError) throw postError;
       if (postData) setPosts(postData as Post[]);
 
     } catch (error) {
-      console.error('Error fetching data from Supabase:', error);
+      console.error('Supabase 連線失敗:', error);
     } finally {
       setLoading(false);
     }
   };
 
-  // 2. 初始化與實時監聽 (Realtime)
+  // 3. 核心功能：實時監聽 (解決手機電腦不互通、不更新的問題)
   useEffect(() => {
     fetchData();
 
-    // 設定實時監聽：當雲端資料庫有任何變動，立即更新 App 畫面 (解決同步問題)
-    const userChannel = supabase
-      .channel('public:users')
+    // 監聽 Users 表格變動
+    const userSubscription = supabase
+      .channel('realtime-users')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'users' }, () => {
-        console.log('Users table changed, refreshing...');
-        fetchData();
+        console.log('雲端會員資料已更新，正在同步 App...');
+        fetchData(); // 只要有人在電腦註冊，手機會立刻收到訊號並重新抓取
       })
       .subscribe();
 
-    const postChannel = supabase
-      .channel('public:posts')
+    // 監聽 Posts 表格變動
+    const postSubscription = supabase
+      .channel('realtime-posts')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'posts' }, () => {
-        console.log('Posts table changed, refreshing...');
         fetchData();
       })
       .subscribe();
 
-    // 清除監聽器
     return () => {
-      supabase.removeChannel(userChannel);
-      supabase.removeChannel(postChannel);
+      supabase.removeChannel(userSubscription);
+      supabase.removeChannel(postSubscription);
     };
   }, []);
 
@@ -104,8 +102,6 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
 export const useData = () => {
   const context = useContext(DataContext);
-  if (context === undefined) {
-    throw new Error('useData must be used within a DataProvider');
-  }
+  if (context === undefined) throw new Error('useData 必須在 DataProvider 內使用');
   return context;
 };
