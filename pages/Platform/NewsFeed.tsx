@@ -9,7 +9,7 @@ const ITEMS_PER_PAGE = 10;
 const FORUM_URL = 'https://hkers-news-mmzi.vercel.app';
 
 export const NewsFeed: React.FC = () => {
-  const { user, lang, setUser } = useOutletContext<{ user: User | null, setUser?: (u: User) => void, lang: 'en' | 'cn' }>();
+  const { user, lang } = useOutletContext<{ user: User | null, lang: 'en' | 'cn' }>();
   const navigate = useNavigate();
   const [posts, setPosts] = useState<Post[]>([]);
   const [selectedRegion, setSelectedRegion] = useState('All');
@@ -40,10 +40,10 @@ export const NewsFeed: React.FC = () => {
         fetchData(); 
     }, 2000);
 
-    // 2. ROBOT AUTOMATION (Requirement 10, 14: 24/7 active worker, more frequent posting)
+    // 2. ROBOT AUTOMATION (Distributed Check - 24/7 Simulation)
     const robotInterval = setInterval(async () => {
         await MockDB.triggerRobotPost();
-    }, 30000); // 30 seconds for more frequent posting 
+    }, 20000); 
 
     return () => {
         clearInterval(syncInterval);
@@ -68,13 +68,15 @@ export const NewsFeed: React.FC = () => {
 
     if (type === 'like') {
         if (post.userInteractions[user.id].likes >= 3) {
-            return; // Silently return, no alert
+            alert(lang === 'cn' ? "每個帳戶對每個貼文只能給讚 3 次。" : "Max 3 likes per post allowed.");
+            return;
         }
         post.userInteractions[user.id].likes++;
         post.likes++;
     } else if (type === 'heart') {
         if (post.userInteractions[user.id].hearts >= 3) {
-            return; // Silently return, no alert
+            alert(lang === 'cn' ? "每個帳戶對每個貼文只能給心 3 次。" : "Max 3 hearts per post allowed.");
+            return;
         }
         post.userInteractions[user.id].hearts++;
         post.hearts++;
@@ -91,36 +93,18 @@ export const NewsFeed: React.FC = () => {
     let pointsAwarded = 0;
     if (type === 'view') pointsAwarded = 5; 
     
-    // Requirement: 每次比讚比心獲得150分
-    if (type === 'like' || type === 'heart') {
+    if (post.isRobot && (type === 'like' || type === 'heart')) {
         pointsAwarded = 150; 
+    } else if (type === 'like' || type === 'heart') {
+        pointsAwarded = 50; 
     }
 
     if (pointsAwarded > 0) {
         await MockDB.updateUserPoints(user.id, pointsAwarded);
-        // Refresh user data to show updated points (sync with cloud)
-        const updatedUser = MockDB.getCurrentUser();
-        if (updatedUser) {
-            // Update local state if setUser is available
-            if (setUser) {
-                setUser(updatedUser);
-            }
-            // Also fetch fresh data from cloud to ensure sync
-            const allUsers = await MockDB.getUsers();
-            const cloudUser = allUsers.find(u => u.id === user.id);
-            if (cloudUser && setUser) {
-                setUser(cloudUser);
-            }
-        }
     }
   };
 
   const handleSubmitComment = async (postId: string) => {
-      // Requirement 74, 81, 83: 取消論壇管理員和普通會員可發貼及回貼功能
-      return alert(lang === 'cn' ? "系統已取消發貼和回貼功能，僅機械人可發貼。" : "Posting and commenting have been disabled. Only robots can post.");
-      
-      // DISABLED CODE - Keeping for reference
-      /*
       if (!user) return alert(lang === 'cn' ? "請先登入" : "Please login");
       if (!commentInput.trim()) return;
 
@@ -132,8 +116,7 @@ export const NewsFeed: React.FC = () => {
       await MockDB.addComment(postId, user, commentInput);
       setCommentInput('');
       await MockDB.updateUserPoints(user.id, 200); 
-      fetchData();
-      */
+      fetchData(); 
   };
 
   const handleDeletePost = async (postId: string) => {
@@ -150,23 +133,20 @@ export const NewsFeed: React.FC = () => {
       }
   };
 
-  // SMART SHARE FUNCTION with Copy Button
-  const [copiedPostId, setCopiedPostId] = useState<string | null>(null);
-  
-  const handleShare = async (post: Post) => {
+  // SMART SHARE FUNCTION
+  const handleShare = (post: Post) => {
     let url = `${window.location.origin}/#/platform?post=${post.id}`;
+    let msg = lang === 'cn' ? `連結已複製！\n${url}` : `Link Copied!\n${url}`;
 
     if (post.isRobot && post.sourceUrl) {
         url = post.sourceUrl;
+        msg = lang === 'cn' 
+            ? `已複製原始新聞連結！(支持原創)\n${url}` 
+            : `Original Source Link Copied! (Support Original)\n${url}`;
     }
 
-    try {
-        await navigator.clipboard.writeText(url);
-        setCopiedPostId(post.id);
-        setTimeout(() => setCopiedPostId(null), 2000);
-    } catch (err) {
-        console.error('Failed to copy:', err);
-    }
+    navigator.clipboard.writeText(url);
+    alert(msg);
   };
 
   const handleSharePlatform = () => {
@@ -412,12 +392,11 @@ export const NewsFeed: React.FC = () => {
                                     <span className="text-xs font-medium">{post.replies?.length || 0}</span>
                                 </button>
                             )}
-                            <button onClick={() => handleShare(post)} className="group flex items-center gap-1.5 text-gray-500 hover:text-green-500 transition relative" title={post.isRobot ? (lang === 'cn' ? '複製新聞原連結' : 'Copy Original News Link') : (lang === 'cn' ? '複製貼文連結' : 'Copy Post Link')}>
+                            <button onClick={() => handleShare(post)} className="group flex items-center gap-1.5 text-gray-500 hover:text-green-500 transition" title={post.isRobot ? (lang === 'cn' ? '複製新聞原連結' : 'Copy Original News Link') : (lang === 'cn' ? '複製貼文連結' : 'Copy Post Link')}>
                                 <div className="p-1.5 rounded-full group-hover:bg-green-50">
-                                    {copiedPostId === post.id ? <Copy size={18} className="text-green-600" /> : (post.isRobot ? <Link2 size={18} /> : <Share2 size={18} />)}
+                                    {post.isRobot ? <Link2 size={18} /> : <Share2 size={18} />}
                                 </div>
-                                {copiedPostId === post.id && <span className="text-[10px] font-bold text-green-600">{lang === 'cn' ? '已複製' : 'Copied'}</span>}
-                                {post.isRobot && copiedPostId !== post.id && <span className="text-[10px] font-bold text-green-600 hidden sm:inline">{lang === 'cn' ? '分享連結' : 'Share Link'}</span>}
+                                {post.isRobot && <span className="text-[10px] font-bold text-green-600 hidden sm:inline">{lang === 'cn' ? '分享連結' : 'Share Link'}</span>}
                             </button>
                         </div>
                         

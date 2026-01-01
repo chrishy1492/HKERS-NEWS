@@ -201,10 +201,10 @@ export const PlatformLayout: React.FC = () => {
                           : 'Games provided are for entertainment only. All points are virtual and have no monetary value. Not for gambling.'}</p>
                   </div>
                   <div>
-                      <h5 className="font-bold mb-1">{lang === 'cn' ? '三、 積分獎勵與派發 (Requirement 55)' : '3. Point Rewards (Requirement 55)'}</h5>
+                      <h5 className="font-bold mb-1">{lang === 'cn' ? '三、 積分獎勵與派發' : '3. Point Rewards'}</h5>
                       <p>{lang === 'cn'
-                          ? '送完即止：所有 HKER Token 積分活動（包含機械人貼文互動獎勵、比心獎150 HKER、比讚獎150 HKER）均為推廣性質，送完即止。當積分池耗盡後，用戶將無法獲取額外積分，用戶不得對此追究或投訴。所有HKER Token積分送完即止，送完後不能獲取用帳不能追究及投訴！'
-                          : 'While stocks last: All HKER Token point rewards (including robot post interactions: Heart +150 HKER, Like +150 HKER) are promotional and finite. Once depleted, no further points will be issued. Users cannot complain or claim against this. All HKER Token points are limited and once exhausted, users cannot obtain more and cannot pursue complaints!'}</p>
+                          ? '送完即止：所有 HKER Token 積分活動（包含機械人貼文互動獎勵）均為推廣性質，送完即止。當積分池耗盡後，用戶將無法獲取額外積分，用戶不得對此追究或投訴。'
+                          : 'While stocks last: All HKER Token point rewards are promotional and finite. Once depleted, no further points will be issued. Users cannot complain or claim against this.'}</p>
                   </div>
                   <div>
                       <h5 className="font-bold mb-1">{lang === 'cn' ? '四、 聯絡我們' : '4. Contact Us'}</h5>
