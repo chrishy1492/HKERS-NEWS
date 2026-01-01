@@ -27,47 +27,53 @@ const App = () => {
   const [profiles, setProfiles] = useState<any[]>([]);
   const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
   const [message, setMessage] = useState<{text: string, type: 'error' | 'success' | ''}>({ text: '', type: '' });
-  const isInitializing = useRef(false);
+  const isScriptInjected = useRef(false);
 
   // 1. 安全加載 Supabase SDK
   useEffect(() => {
-    const loadSupabase = () => {
+    const initClient = () => {
       // @ts-ignore
-      if (window.supabase) {
+      if (window.supabase && typeof window.supabase.createClient === 'function') {
         try {
           // @ts-ignore
           const client = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-          // 確保 client 真的有 auth 方法
           if (client && client.auth) {
             setSupabase(client);
-          } else {
-            setTimeout(loadSupabase, 500);
+            return true;
           }
         } catch (e) {
-          console.error("Supabase Client Error:", e);
-        }
-      } else {
-        if (!isInitializing.current) {
-          isInitializing.current = true;
-          const script = document.createElement('script');
-          script.src = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2";
-          script.async = true;
-          script.onload = loadSupabase;
-          document.head.appendChild(script);
-        } else {
-          setTimeout(loadSupabase, 500);
+          console.error("Supabase Init Error:", e);
         }
       }
+      return false;
     };
-    loadSupabase();
+
+    const poll = () => {
+      if (!initClient()) {
+        setTimeout(poll, 300);
+      }
+    };
+
+    if (!isScriptInjected.current) {
+      isScriptInjected.current = true;
+      const script = document.createElement('script');
+      script.src = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2";
+      script.async = true;
+      script.onload = poll;
+      document.head.appendChild(script);
+    } else {
+      poll();
+    }
   }, []);
 
-  // 2. 處理資料同步與 Session
+  // 2. 處理驗證與資料監聽
   useEffect(() => {
-    // 嚴格檢查 supabase.auth 是否存在
+    // 關鍵修復：嚴格檢查 supabase.auth 及其方法是否存在
     if (!supabase || !supabase.auth || typeof supabase.auth.onAuthStateChanged !== 'function') {
       return;
     }
+
+    let mounted = true;
 
     const fetchData = async () => {
       try {
@@ -75,16 +81,16 @@ const App = () => {
           .from('profiles')
           .select('*')
           .order('updated_at', { ascending: false });
-        if (!error && data) {
-          setProfiles(data);
+        if (mounted && !error && data) {
+          setProfiles(Array.isArray(data) ? data : []);
         }
       } catch (err) {
-        console.error("Fetch Error:", err);
+        console.error("Data Fetch Error:", err);
       }
     };
 
     const syncUser = async (user: any) => {
-      if (!user) return;
+      if (!user || !mounted) return;
       try {
         await supabase.from('profiles').upsert({
           id: user.id,
@@ -93,30 +99,42 @@ const App = () => {
         });
         await fetchData();
       } catch (err) {
-        console.error("Sync User Error:", err);
+        console.error("Sync Error:", err);
       }
     };
 
-    // 獲取當前 Session
-    supabase.auth.getSession().then(({ data: { session: s } }: any) => {
-      setSession(s);
-      if (s) syncUser(s.user);
-      setLoading(false);
-    });
+    // 初始 Session 檢查
+    const getInitialSession = async () => {
+      try {
+        const { data: { session: s } } = await supabase.auth.getSession();
+        if (mounted) {
+          setSession(s);
+          if (s) syncUser(s.user);
+          setLoading(false);
+        }
+      } catch (e) {
+        if (mounted) setLoading(false);
+      }
+    };
 
-    // 監聽 Auth 變化
-    const { data: { subscription } } = supabase.auth.onAuthStateChanged((_event: any, s: any) => {
-      setSession(s);
-      if (s) {
-        syncUser(s.user);
-      } else {
-        setProfiles([]);
+    getInitialSession();
+
+    // 監聽狀態變化
+    const { data: authListener } = supabase.auth.onAuthStateChanged((_event: any, s: any) => {
+      if (mounted) {
+        setSession(s);
+        if (s) {
+          syncUser(s.user);
+        } else {
+          setProfiles([]);
+        }
       }
     });
 
     return () => {
-      if (subscription && typeof subscription.unsubscribe === 'function') {
-        subscription.unsubscribe();
+      mounted = false;
+      if (authListener && authListener.subscription) {
+        authListener.subscription.unsubscribe();
       }
     };
   }, [supabase]);
@@ -131,14 +149,14 @@ const App = () => {
       let result;
       if (authMode === 'signup') {
         result = await supabase.auth.signUp({ email, password });
-        if (!result.error) setMessage({ text: '註冊成功，請前往信箱查收驗證信。', type: 'success' });
+        if (!result.error) setMessage({ text: '註冊指令已發送，請檢查信箱。', type: 'success' });
       } else {
         result = await supabase.auth.signInWithPassword({ email, password });
       }
       
       if (result?.error) setMessage({ text: result.error.message, type: 'error' });
     } catch (err) {
-      setMessage({ text: '發生未知連線錯誤', type: 'error' });
+      setMessage({ text: '網路連線異常，請重試。', type: 'error' });
     } finally {
       setLoading(false);
     }
@@ -148,7 +166,7 @@ const App = () => {
     return (
       <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-amber-500 font-mono">
         <Icons.RefreshCw className="animate-spin mb-4" />
-        <p className="animate-pulse">HKER_SYSTEM_BOOTING...</p>
+        <p className="tracking-widest animate-pulse">CONNECTING_TO_ENCRYPTED_DATABASE...</p>
       </div>
     );
   }
@@ -158,18 +176,21 @@ const App = () => {
       <div className="max-w-4xl mx-auto">
         <header className="flex justify-between items-center mb-10 border-b border-slate-800 pb-6">
           <div className="flex items-center gap-4">
-            <div className="p-3 bg-amber-500 rounded-lg text-slate-950 shadow-[0_0_15px_rgba(245,158,11,0.5)]">
+            <div className="p-3 bg-amber-600 rounded-lg text-white shadow-[0_0_20px_rgba(217,119,6,0.2)]">
               <Icons.Users />
             </div>
             <div>
-              <h1 className="text-xl font-bold text-white tracking-tight">HKER_CLOUD_CENTRAL</h1>
-              <p className="text-[10px] text-amber-500 font-bold uppercase tracking-widest">Protocol_V2.6_Stable</p>
+              <h1 className="text-xl font-black text-white tracking-tighter italic">HKER_CLOUD_NODE</h1>
+              <div className="flex items-center gap-2">
+                <span className="w-1.5 h-1.5 rounded-full bg-green-500 shadow-[0_0_5px_#22c55e]"></span>
+                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Signal_Stable</p>
+              </div>
             </div>
           </div>
           {session && (
             <button 
               onClick={() => supabase.auth.signOut()}
-              className="px-4 py-2 border border-slate-700 rounded-lg text-xs font-bold hover:bg-slate-800 transition-colors"
+              className="px-4 py-1.5 bg-slate-900 border border-slate-700 rounded text-[10px] font-black hover:bg-red-600 hover:text-white transition-all"
             >
               DISCONNECT
             </button>
@@ -177,65 +198,63 @@ const App = () => {
         </header>
 
         {message.text && (
-          <div className={`mb-6 p-4 rounded-lg border text-xs font-bold ${
-            message.type === 'error' ? 'bg-red-500/10 border-red-500/50 text-red-400' : 'bg-green-500/10 border-green-500/50 text-green-400'
+          <div className={`mb-6 p-4 rounded border text-xs font-mono font-bold ${
+            message.type === 'error' ? 'bg-red-950/30 border-red-800 text-red-400' : 'bg-green-950/30 border-green-800 text-green-400'
           }`}>
-            {message.text}
+            {"> "} {message.text}
           </div>
         )}
 
         {!session ? (
-          <div className="max-w-sm mx-auto bg-slate-900 border border-slate-800 p-8 rounded-2xl shadow-2xl animate-in fade-in zoom-in duration-300">
-            <div className="flex gap-2 mb-6 bg-black/40 p-1 rounded-xl">
+          <div className="max-w-sm mx-auto bg-slate-900 border border-slate-800 p-8 rounded-xl shadow-2xl relative overflow-hidden">
+            <div className="absolute top-0 left-0 w-full h-1 bg-amber-500"></div>
+            <div className="flex gap-2 mb-8 bg-black/40 p-1 rounded">
               <button 
                 onClick={() => setAuthMode('login')} 
-                className={`flex-1 py-2 rounded-lg text-[10px] font-bold transition-all ${authMode === 'login' ? 'bg-slate-700 text-white shadow' : 'text-slate-500 hover:text-slate-300'}`}
+                className={`flex-1 py-2 rounded text-[10px] font-black transition-all ${authMode === 'login' ? 'bg-amber-600 text-white' : 'text-slate-500 hover:text-slate-300'}`}
               >
-                LOGIN
+                ACCESS_PORTAL
               </button>
               <button 
                 onClick={() => setAuthMode('signup')} 
-                className={`flex-1 py-2 rounded-lg text-[10px] font-bold transition-all ${authMode === 'signup' ? 'bg-slate-700 text-white shadow' : 'text-slate-500 hover:text-slate-300'}`}
+                className={`flex-1 py-2 rounded text-[10px] font-black transition-all ${authMode === 'signup' ? 'bg-amber-600 text-white' : 'text-slate-500 hover:text-slate-300'}`}
               >
-                SIGNUP
+                NEW_REGISTER
               </button>
             </div>
-            <form onSubmit={handleAuth} className="space-y-4">
+            <form onSubmit={handleAuth} className="space-y-5">
               <div className="space-y-1">
-                <label className="text-[10px] font-bold text-slate-500 ml-1 uppercase">Email Address</label>
-                <input type="email" placeholder="name@domain.com" value={email} onChange={e => setEmail(e.target.value)} className="w-full bg-slate-950 border border-slate-800 p-3 rounded-lg text-sm outline-none focus:border-amber-500 transition-colors" required />
+                <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Credential_ID</label>
+                <input type="email" placeholder="IDENTITY@HKER.LOCAL" value={email} onChange={e => setEmail(e.target.value)} className="w-full bg-slate-950 border border-slate-800 p-3 rounded text-sm font-mono outline-none focus:border-amber-600 transition-colors" required />
               </div>
               <div className="space-y-1">
-                <label className="text-[10px] font-bold text-slate-500 ml-1 uppercase">Password</label>
-                <input type="password" placeholder="••••••••" value={password} onChange={e => setPassword(e.target.value)} className="w-full bg-slate-950 border border-slate-800 p-3 rounded-lg text-sm outline-none focus:border-amber-500 transition-colors" required />
+                <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Secure_Key</label>
+                <input type="password" placeholder="••••••••" value={password} onChange={e => setPassword(e.target.value)} className="w-full bg-slate-950 border border-slate-800 p-3 rounded text-sm font-mono outline-none focus:border-amber-600 transition-colors" required />
               </div>
-              <button type="submit" disabled={loading} className="w-full bg-amber-500 text-slate-950 font-black py-3 rounded-lg hover:bg-amber-400 disabled:opacity-50 transition-all transform active:scale-[0.98]">
-                {authMode === 'login' ? 'AUTHENTICATE' : 'CREATE_ACCOUNT'}
+              <button type="submit" disabled={loading} className="w-full bg-slate-100 text-slate-950 font-black py-4 rounded hover:bg-amber-500 transition-all transform active:scale-[0.98]">
+                {authMode === 'login' ? 'INITIALIZE_AUTH' : 'CREATE_NODE'}
               </button>
             </form>
           </div>
         ) : (
-          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+          <div className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="bg-slate-900 border border-slate-800 p-5 rounded-xl">
-                <p className="text-slate-500 text-[10px] font-bold uppercase mb-1">Current Node</p>
-                <p className="text-sm font-bold text-white truncate">{session.user.email}</p>
-                <div className="mt-2 flex items-center gap-2">
-                  <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
-                  <span className="text-[10px] text-green-500 font-bold uppercase">Active_Connection</span>
-                </div>
+              <div className="bg-slate-900 border border-slate-800 p-6 rounded-xl">
+                <p className="text-slate-500 text-[9px] font-black uppercase tracking-widest mb-2">Connected_Node</p>
+                <p className="text-sm font-mono font-bold text-white truncate">{session.user.email}</p>
               </div>
-              <div className="bg-slate-900 border border-slate-800 p-5 rounded-xl">
-                <p className="text-slate-500 text-[10px] font-bold uppercase mb-1">Registered Nodes</p>
-                <p className="text-3xl font-black text-amber-500">{profiles.length}</p>
+              <div className="bg-slate-900 border border-slate-800 p-6 rounded-xl">
+                <p className="text-slate-500 text-[9px] font-black uppercase tracking-widest mb-2">Active_Profiles</p>
+                <p className="text-4xl font-black text-amber-600 tabular-nums">{profiles.length}</p>
               </div>
             </div>
 
-            <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-xl">
-              <div className="p-4 border-b border-slate-800 flex justify-between items-center bg-black/20">
-                <span className="text-xs font-black tracking-widest flex items-center gap-2">
-                  <Icons.LayoutDashboard /> NETWORK_REGISTRY
-                </span>
+            <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-2xl">
+              <div className="p-5 border-b border-slate-800 flex justify-between items-center bg-black/20">
+                <div className="flex items-center gap-3">
+                  <Icons.LayoutDashboard />
+                  <span className="text-xs font-black tracking-widest uppercase italic">Node_Registry</span>
+                </div>
                 <button 
                   onClick={async () => {
                     if (supabase) {
@@ -243,34 +262,34 @@ const App = () => {
                       if (data) setProfiles(data);
                     }
                   }} 
-                  className="p-2 text-slate-500 hover:text-white hover:bg-slate-800 rounded-lg transition-all"
+                  className="p-2 text-slate-400 hover:text-amber-500 transition-all"
                 >
                   <Icons.RefreshCw />
                 </button>
               </div>
               <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-950 text-slate-500 font-bold uppercase tracking-wider">
+                <table className="w-full text-left text-[11px]">
+                  <thead className="bg-slate-950 text-slate-500 font-black uppercase tracking-widest border-b border-slate-800">
                     <tr>
-                      <th className="px-6 py-4">Node_Hash</th>
-                      <th className="px-6 py-4">Identity</th>
-                      <th className="px-6 py-4 text-right">Last_Sync</th>
+                      <th className="px-6 py-4">Hash_ID</th>
+                      <th className="px-6 py-4">Node_Email</th>
+                      <th className="px-6 py-4 text-right">Timestamp</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-800">
+                  <tbody className="divide-y divide-slate-800/40">
                     {profiles.map((p, idx) => (
-                      <tr key={p.id || idx} className="hover:bg-slate-800/50 transition-colors group">
-                        <td className="px-6 py-4 font-mono text-slate-500 group-hover:text-amber-500/50">{p.id ? p.id.slice(0, 8) : 'unknown'}</td>
-                        <td className="px-6 py-4 text-white font-medium">{p.email}</td>
-                        <td className="px-6 py-4 text-slate-500 text-right">
-                          {p.updated_at ? new Date(p.updated_at).toLocaleTimeString() : 'N/A'}
+                      <tr key={p.id || idx} className="hover:bg-slate-800/30 transition-colors">
+                        <td className="px-6 py-4 font-mono text-slate-500">{p.id ? p.id.slice(0, 10) : '---'}</td>
+                        <td className="px-6 py-4 text-slate-200 font-bold">{p.email || 'N/A'}</td>
+                        <td className="px-6 py-4 text-slate-500 text-right font-mono">
+                          {p.updated_at ? new Date(p.updated_at).toLocaleTimeString() : 'offline'}
                         </td>
                       </tr>
                     ))}
                     {profiles.length === 0 && (
                       <tr>
-                        <td colSpan={3} className="px-6 py-10 text-center text-slate-500 italic">
-                          No nodes detected in registry...
+                        <td colSpan={3} className="px-6 py-12 text-center text-slate-600 font-mono text-xs italic">
+                          {"//"} EMPTY_CLUSTER_DATA
                         </td>
                       </tr>
                     )}
