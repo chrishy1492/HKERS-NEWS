@@ -1,5 +1,5 @@
 {
-  "name": "hker-forum---premium-web3-community",
+  "name": "hker-forum-&-token",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -12,7 +12,8 @@
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
     "lucide-react": "^0.562.0",
-    "@google/genai": "^1.34.0"
+    "lunar-javascript": "1.6.12",
+    "@supabase/supabase-js": "^2.89.0"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
