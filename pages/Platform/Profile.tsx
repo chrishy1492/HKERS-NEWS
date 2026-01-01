@@ -38,17 +38,30 @@ export const Profile: React.FC = () => {
   }
 
   const handleWithdraw = async () => {
+    // Requirement 8: 積分必須最少1000000分，需SOL Address
     if (withdrawAmount < 1000000) {
-      alert(lang === 'cn' ? '最低提幣額為 1,000,000 HKER 積分。' : 'Minimum withdrawal is 1,000,000 HKER Points.');
+      alert(lang === 'cn' 
+        ? '錯誤：提幣數量不足！\n最少提幣數量為 1,000,000 HKER 積分。' 
+        : 'Error: Insufficient withdrawal amount!\nMinimum withdrawal is 1,000,000 HKER Points.');
       return;
     }
     if (user.points < withdrawAmount) {
-      alert(lang === 'cn' ? '積分不足' : 'Insufficient points');
+      alert(lang === 'cn' 
+        ? '錯誤：帳戶積分不足！\n您的積分不足以提取此數量。\n可能是提幣數量不足或用帳無提供SOL ADDRESS問題。' 
+        : 'Error: Insufficient points!\nYour account does not have enough points for this withdrawal.\nPossible issues: Insufficient withdrawal amount or missing SOL ADDRESS.');
+      return;
+    }
+    if (!user.solAddress || user.solAddress.trim() === '') {
+      alert(lang === 'cn' 
+        ? '錯誤：帳戶無提供SOL ADDRESS！\n請先在用戶資料中設定 SOL Wallet Address。\n可能是提幣數量不足或用帳無提供SOL ADDRESS問題。' 
+        : 'Error: No SOL ADDRESS provided!\nPlease set your SOL Wallet Address in your profile first.\nPossible issues: Insufficient withdrawal amount or missing SOL ADDRESS.');
       return;
     }
 
-    if(confirm(lang === 'cn' ? `確認提取 ${withdrawAmount} HKER？` : `Confirm withdrawal of ${withdrawAmount} HKER?`)) {
+    if(confirm(lang === 'cn' ? `確認提取 ${withdrawAmount.toLocaleString()} HKER？` : `Confirm withdrawal of ${withdrawAmount.toLocaleString()} HKER?`)) {
         await MockDB.updateUserPoints(user.id, -withdrawAmount);
+        const updatedUser = MockDB.getCurrentUser();
+        if (updatedUser) setUser(updatedUser);
         alert(lang === 'cn' ? '申請處理成功！' : 'Request Processed Successfully!');
     }
   };
