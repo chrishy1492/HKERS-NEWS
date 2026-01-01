@@ -241,9 +241,9 @@ export const BaccaratGame: React.FC = () => {
           </h1>
         </div>
         <div className="flex items-center gap-4">
-          <div className="text-right">
+          <div className="text-right hidden md:block">
             <div className="text-xs text-slate-500">BALANCE</div>
-            <div className="text-sm md:text-xl font-mono text-yellow-400 font-bold">${currentUser.points.toLocaleString()}</div>
+            <div className="text-xl font-mono text-yellow-400 font-bold">${currentUser.points.toLocaleString()}</div>
           </div>
           <button onClick={() => setShowRules(true)} className="p-2 hover:text-green-400 transition"><Info /></button>
         </div>
