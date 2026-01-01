@@ -1,79 +1,49 @@
 
-export type UserRole = 'user' | 'moderator' | 'admin';
+export type UserRole = 'admin' | 'user';
 
-export interface User {
+export interface UserProfile {
   id: string;
-  name: string;
   email: string;
-  password?: string;
   points: number;
   role: UserRole;
-  starLevel: number;
-  joinedAt: string;
-  avatar: string;
-  solAddress?: string;
-  phone?: string;
+  nickname: string;
+  name?: string;
   address?: string;
+  phone?: string;
   gender?: string;
-}
-
-export interface Reply {
-  id: number;
-  authorId: string;
-  authorName: string;
-  content: string;
-  createdAt: string;
+  sol_address?: string;
+  created_at?: string;
 }
 
 export interface Post {
-  id: number;
-  authorId: string;
-  authorName: string;
-  title: string;
+  id: string;
   content: string;
   region: string;
   topic: string;
-  
-  // Interaction: Store user IDs. Multiple occurrences allowed for 3x limit.
-  likes: string[]; 
-  loves: string[]; 
-  
-  createdAt: string;
-  replies: Reply[];
-
-  // Bot Specific Fields
-  isBot?: boolean;
-  sourceUrl?: string;
-  sourceName?: string;
-  originalLang?: 'zh' | 'en';
-  isTranslated?: boolean; // UI toggle state
-  summary?: string; // The AI generated summary
-  
-  // Pre-generated translation content (e.g., if original is EN, this holds ZH)
-  translation?: {
-    title: string;
-    content: string;
+  author_id: string;
+  likes: number;
+  hearts: number;
+  created_at: string;
+  // AI Bot 擴展欄位
+  is_bot?: boolean;
+  source_name?: string;
+  source_url?: string;
+  translated_content?: string;
+  is_translated?: boolean;
+  profiles?: {
+    nickname: string;
+    role: string;
+    id: string;
   };
 }
 
-export interface Game {
-  id: string;
-  name: string;
+export interface Notification {
+  msg: string;
+  type: 'info' | 'error';
 }
 
-// Analytics Structure: Year -> Month -> Day -> Hour -> Count
-export interface VisitorLog {
-  [year: string]: {
-    [month: string]: {
-      [day: string]: {
-        [hour: string]: {
-          guests: number;
-          members: number;
-        }
-      }
-    }
-  }
-}
+export type AppView = 'forum' | 'game_zone' | 'fengshui_zone' | 'profile' | 'admin' | 'register' | 'disclaimer' | 'token_info';
 
-export type ViewState = 'landing' | 'token' | 'forum';
-export type ForumView = 'home' | 'login' | 'register' | 'profile' | 'games' | 'divination' | 'admin';
+// 區域內部的子視圖類型
+export type GameSubView = 'lobby' | 'blackjack' | 'baccarat' | 'roulette' | 'slot' | 'classic';
+export type FengShuiSubView = 'lobby' | 'fortune' | 'tarot' | 'ziwei' | 'pray';
