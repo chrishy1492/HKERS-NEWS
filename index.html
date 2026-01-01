@@ -1,17 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 
 /**
- * 圖示組件：使用內聯 SVG
+ * 圖示組件：以標準 React 組件方式定義
  */
 const Icons = {
   Users: () => (
     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-  ),
-  LogOut: () => (
-    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/></svg>
-  ),
-  ShieldCheck: () => (
-    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10"/><path d="m9 12 2 2 4-4"/></svg>
   ),
   RefreshCw: ({ className }: { className?: string }) => (
     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
@@ -32,87 +26,98 @@ const App = () => {
   const [password, setPassword] = useState('');
   const [profiles, setProfiles] = useState<any[]>([]);
   const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
-  const [message, setMessage] = useState({ text: '', type: '' });
+  const [message, setMessage] = useState<{text: string, type: 'error' | 'success' | ''}>({ text: '', type: '' });
+  const isInitializing = useRef(false);
 
-  // 初始化 Supabase 客戶端，增加重試與安全性檢查
+  // 1. 安全加載 Supabase SDK
   useEffect(() => {
-    let retryCount = 0;
-    const initSupabase = () => {
-      try {
-        // @ts-ignore
-        if (window.supabase) {
+    const loadSupabase = () => {
+      // @ts-ignore
+      if (window.supabase) {
+        try {
           // @ts-ignore
           const client = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-          setSupabase(client);
-        } else if (retryCount < 10) {
-          retryCount++;
-          setTimeout(initSupabase, 300);
-        } else {
-          setMessage({ text: '無法載入 Supabase SDK，請檢查網路連線', type: 'error' });
-          setLoading(false);
+          // 確保 client 真的有 auth 方法
+          if (client && client.auth) {
+            setSupabase(client);
+          } else {
+            setTimeout(loadSupabase, 500);
+          }
+        } catch (e) {
+          console.error("Supabase Client Error:", e);
         }
-      } catch (err) {
-        console.error("Supabase Init Error:", err);
+      } else {
+        if (!isInitializing.current) {
+          isInitializing.current = true;
+          const script = document.createElement('script');
+          script.src = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2";
+          script.async = true;
+          script.onload = loadSupabase;
+          document.head.appendChild(script);
+        } else {
+          setTimeout(loadSupabase, 500);
+        }
       }
     };
-    initSupabase();
+    loadSupabase();
   }, []);
 
-  // 處理身分驗證與資料同步
+  // 2. 處理資料同步與 Session
   useEffect(() => {
-    if (!supabase) return;
+    // 嚴格檢查 supabase.auth 是否存在
+    if (!supabase || !supabase.auth || typeof supabase.auth.onAuthStateChanged !== 'function') {
+      return;
+    }
 
-    const checkSession = async () => {
+    const fetchData = async () => {
       try {
-        const { data: { session: initialSession }, error } = await supabase.auth.getSession();
-        if (error) throw error;
-        
-        setSession(initialSession);
-        if (initialSession) {
-          await syncAndFetch(initialSession.user);
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('*')
+          .order('updated_at', { ascending: false });
+        if (!error && data) {
+          setProfiles(data);
         }
-      } catch (err: any) {
-        console.error("Session Check Error:", err);
-      } finally {
-        setLoading(false);
+      } catch (err) {
+        console.error("Fetch Error:", err);
       }
     };
 
-    const syncAndFetch = async (user: any) => {
+    const syncUser = async (user: any) => {
+      if (!user) return;
       try {
-        // 更新或插入當前用戶資訊
-        // 注意：請確保您的 profiles 資料表已關閉 RLS 或已設定正確的 Policy
-        const { error: upsertError } = await supabase.from('profiles').upsert({ 
-          id: user.id, 
-          email: user.email, 
-          updated_at: new Date().toISOString() 
+        await supabase.from('profiles').upsert({
+          id: user.id,
+          email: user.email,
+          updated_at: new Date().toISOString()
         });
-        
-        if (upsertError) console.warn("Sync Profile Error (Check RLS):", upsertError.message);
-
-        // 獲取所有用戶列表
-        const { data, error: fetchError } = await supabase.from('profiles').select('*').order('updated_at', { ascending: false });
-        if (fetchError) throw fetchError;
-        
-        setProfiles(data || []);
-      } catch (err: any) {
-        console.error("Data Fetch Error:", err);
+        await fetchData();
+      } catch (err) {
+        console.error("Sync User Error:", err);
       }
     };
 
-    checkSession();
+    // 獲取當前 Session
+    supabase.auth.getSession().then(({ data: { session: s } }: any) => {
+      setSession(s);
+      if (s) syncUser(s.user);
+      setLoading(false);
+    });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChanged((_event: any, currentSession: any) => {
-      setSession(currentSession);
-      if (currentSession) {
-        syncAndFetch(currentSession.user);
+    // 監聽 Auth 變化
+    const { data: { subscription } } = supabase.auth.onAuthStateChanged((_event: any, s: any) => {
+      setSession(s);
+      if (s) {
+        syncUser(s.user);
       } else {
         setProfiles([]);
       }
     });
 
     return () => {
-      if (subscription) subscription.unsubscribe();
+      if (subscription && typeof subscription.unsubscribe === 'function') {
+        subscription.unsubscribe();
+      }
     };
   }, [supabase]);
 
@@ -121,23 +126,19 @@ const App = () => {
     if (!supabase) return;
     setLoading(true);
     setMessage({ text: '', type: '' });
-    
+
     try {
       let result;
       if (authMode === 'signup') {
         result = await supabase.auth.signUp({ email, password });
-        if (!result.error) {
-          setMessage({ text: '註冊成功！若有啟用信箱驗證，請檢查您的收件匣。', type: 'success' });
-        }
+        if (!result.error) setMessage({ text: '註冊成功，請前往信箱查收驗證信。', type: 'success' });
       } else {
         result = await supabase.auth.signInWithPassword({ email, password });
       }
       
-      if (result?.error) {
-        setMessage({ text: `驗證失敗: ${result.error.message}`, type: 'error' });
-      }
-    } catch (err: any) {
-      setMessage({ text: '連線發生意外錯誤', type: 'error' });
+      if (result?.error) setMessage({ text: result.error.message, type: 'error' });
+    } catch (err) {
+      setMessage({ text: '發生未知連線錯誤', type: 'error' });
     } finally {
       setLoading(false);
     }
@@ -147,29 +148,28 @@ const App = () => {
     return (
       <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-amber-500 font-mono">
         <Icons.RefreshCw className="animate-spin mb-4" />
-        <p>HKER_NET_BOOTING...</p>
+        <p className="animate-pulse">HKER_SYSTEM_BOOTING...</p>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-200 p-6 font-sans selection:bg-amber-500 selection:text-black">
+    <div className="min-h-screen bg-slate-950 text-slate-200 p-6 font-sans">
       <div className="max-w-4xl mx-auto">
-        
-        <header className="flex justify-between items-center mb-12 border-b border-slate-800 pb-8">
+        <header className="flex justify-between items-center mb-10 border-b border-slate-800 pb-6">
           <div className="flex items-center gap-4">
-            <div className="p-3 bg-amber-500 rounded-lg text-slate-950 shadow-[0_0_20px_rgba(245,158,11,0.4)]">
+            <div className="p-3 bg-amber-500 rounded-lg text-slate-950 shadow-[0_0_15px_rgba(245,158,11,0.5)]">
               <Icons.Users />
             </div>
             <div>
-              <h1 className="text-2xl font-black text-white tracking-tighter">HKER_CLOUD</h1>
-              <p className="text-[10px] text-amber-500 font-bold tracking-[0.2em]">DB_ENGINE_V2_FIXED</p>
+              <h1 className="text-xl font-bold text-white tracking-tight">HKER_CLOUD_CENTRAL</h1>
+              <p className="text-[10px] text-amber-500 font-bold uppercase tracking-widest">Protocol_V2.6_Stable</p>
             </div>
           </div>
           {session && (
             <button 
               onClick={() => supabase.auth.signOut()}
-              className="px-4 py-2 border border-slate-700 rounded-lg text-xs font-bold hover:bg-slate-800 transition"
+              className="px-4 py-2 border border-slate-700 rounded-lg text-xs font-bold hover:bg-slate-800 transition-colors"
             >
               DISCONNECT
             </button>
@@ -177,7 +177,7 @@ const App = () => {
         </header>
 
         {message.text && (
-          <div className={`mb-8 p-4 rounded-lg text-xs font-bold border ${
+          <div className={`mb-6 p-4 rounded-lg border text-xs font-bold ${
             message.type === 'error' ? 'bg-red-500/10 border-red-500/50 text-red-400' : 'bg-green-500/10 border-green-500/50 text-green-400'
           }`}>
             {message.text}
@@ -185,103 +185,92 @@ const App = () => {
         )}
 
         {!session ? (
-          <div className="max-w-sm mx-auto bg-slate-900 border border-slate-800 p-8 rounded-2xl shadow-2xl">
-            <div className="flex gap-2 mb-8 bg-black/40 p-1 rounded-xl border border-slate-800">
+          <div className="max-w-sm mx-auto bg-slate-900 border border-slate-800 p-8 rounded-2xl shadow-2xl animate-in fade-in zoom-in duration-300">
+            <div className="flex gap-2 mb-6 bg-black/40 p-1 rounded-xl">
               <button 
-                type="button"
-                onClick={() => setAuthMode('login')}
-                className={`flex-1 py-2 rounded-lg text-[10px] font-bold transition ${authMode === 'login' ? 'bg-slate-700 text-white shadow-lg' : 'text-slate-500'}`}
+                onClick={() => setAuthMode('login')} 
+                className={`flex-1 py-2 rounded-lg text-[10px] font-bold transition-all ${authMode === 'login' ? 'bg-slate-700 text-white shadow' : 'text-slate-500 hover:text-slate-300'}`}
               >
                 LOGIN
               </button>
               <button 
-                type="button"
-                onClick={() => setAuthMode('signup')}
-                className={`flex-1 py-2 rounded-lg text-[10px] font-bold transition ${authMode === 'signup' ? 'bg-slate-700 text-white shadow-lg' : 'text-slate-500'}`}
+                onClick={() => setAuthMode('signup')} 
+                className={`flex-1 py-2 rounded-lg text-[10px] font-bold transition-all ${authMode === 'signup' ? 'bg-slate-700 text-white shadow' : 'text-slate-500 hover:text-slate-300'}`}
               >
                 SIGNUP
               </button>
             </div>
-
             <form onSubmit={handleAuth} className="space-y-4">
-              <input 
-                type="email" 
-                placeholder="EMAIL"
-                value={email}
-                autoComplete="email"
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-800 p-3 rounded-lg text-sm outline-none focus:border-amber-500 transition"
-              />
-              <input 
-                type="password" 
-                placeholder="PASSWORD"
-                value={password}
-                autoComplete="current-password"
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-800 p-3 rounded-lg text-sm outline-none focus:border-amber-500 transition"
-              />
-              <button 
-                type="submit"
-                disabled={loading || !supabase}
-                className="w-full bg-amber-500 text-slate-950 font-black py-3 rounded-lg hover:bg-amber-400 disabled:opacity-30 transition"
-              >
-                {authMode === 'login' ? 'AUTHENTICATE' : 'CREATE_ID'}
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-500 ml-1 uppercase">Email Address</label>
+                <input type="email" placeholder="name@domain.com" value={email} onChange={e => setEmail(e.target.value)} className="w-full bg-slate-950 border border-slate-800 p-3 rounded-lg text-sm outline-none focus:border-amber-500 transition-colors" required />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-500 ml-1 uppercase">Password</label>
+                <input type="password" placeholder="••••••••" value={password} onChange={e => setPassword(e.target.value)} className="w-full bg-slate-950 border border-slate-800 p-3 rounded-lg text-sm outline-none focus:border-amber-500 transition-colors" required />
+              </div>
+              <button type="submit" disabled={loading} className="w-full bg-amber-500 text-slate-950 font-black py-3 rounded-lg hover:bg-amber-400 disabled:opacity-50 transition-all transform active:scale-[0.98]">
+                {authMode === 'login' ? 'AUTHENTICATE' : 'CREATE_ACCOUNT'}
               </button>
             </form>
           </div>
         ) : (
-          <div className="animate-in fade-in slide-in-from-bottom-2 duration-700">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
+          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="bg-slate-900 border border-slate-800 p-5 rounded-xl">
-                <p className="text-slate-500 text-[10px] font-bold mb-1 uppercase tracking-widest">Network_Users</p>
-                <p className="text-3xl font-black text-white">{profiles.length}</p>
+                <p className="text-slate-500 text-[10px] font-bold uppercase mb-1">Current Node</p>
+                <p className="text-sm font-bold text-white truncate">{session.user.email}</p>
+                <div className="mt-2 flex items-center gap-2">
+                  <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
+                  <span className="text-[10px] text-green-500 font-bold uppercase">Active_Connection</span>
+                </div>
               </div>
-              <div className="bg-slate-900 border border-slate-800 p-5 rounded-xl border-t-amber-500/40">
-                <p className="text-slate-500 text-[10px] font-bold mb-1 uppercase tracking-widest">Active_Node</p>
-                <p className="text-sm font-mono text-amber-500 truncate">{session.user.email}</p>
+              <div className="bg-slate-900 border border-slate-800 p-5 rounded-xl">
+                <p className="text-slate-500 text-[10px] font-bold uppercase mb-1">Registered Nodes</p>
+                <p className="text-3xl font-black text-amber-500">{profiles.length}</p>
               </div>
             </div>
 
             <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-xl">
               <div className="p-4 border-b border-slate-800 flex justify-between items-center bg-black/20">
                 <span className="text-xs font-black tracking-widest flex items-center gap-2">
-                  <Icons.LayoutDashboard /> CLOUD_ENTRIES
+                  <Icons.LayoutDashboard /> NETWORK_REGISTRY
                 </span>
                 <button 
-                  type="button"
                   onClick={async () => {
-                    const { data } = await supabase.from('profiles').select('*').order('updated_at', { ascending: false });
-                    setProfiles(data || []);
+                    if (supabase) {
+                      const {data} = await supabase.from('profiles').select('*').order('updated_at', { ascending: false });
+                      if (data) setProfiles(data);
+                    }
                   }} 
-                  className="text-slate-500 hover:text-white transition"
+                  className="p-2 text-slate-500 hover:text-white hover:bg-slate-800 rounded-lg transition-all"
                 >
                   <Icons.RefreshCw />
                 </button>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-950/50 text-slate-500 font-bold">
+                  <thead className="bg-slate-950 text-slate-500 font-bold uppercase tracking-wider">
                     <tr>
-                      <th className="px-6 py-4">ID</th>
-                      <th className="px-6 py-4">EMAIL</th>
-                      <th className="px-6 py-4">SYNC_TIME</th>
+                      <th className="px-6 py-4">Node_Hash</th>
+                      <th className="px-6 py-4">Identity</th>
+                      <th className="px-6 py-4 text-right">Last_Sync</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800">
-                    {profiles.length > 0 ? (
-                      profiles.map(p => (
-                        <tr key={p.id} className="hover:bg-slate-800/30 transition">
-                          <td className="px-6 py-4 font-mono text-slate-500">{p.id.substring(0,8)}...</td>
-                          <td className="px-6 py-4 text-white font-medium">{p.email}</td>
-                          <td className="px-6 py-4 text-slate-500">
-                            {p.updated_at ? new Date(p.updated_at).toLocaleTimeString() : 'N/A'}
-                          </td>
-                        </tr>
-                      ))
-                    ) : (
+                    {profiles.map((p, idx) => (
+                      <tr key={p.id || idx} className="hover:bg-slate-800/50 transition-colors group">
+                        <td className="px-6 py-4 font-mono text-slate-500 group-hover:text-amber-500/50">{p.id ? p.id.slice(0, 8) : 'unknown'}</td>
+                        <td className="px-6 py-4 text-white font-medium">{p.email}</td>
+                        <td className="px-6 py-4 text-slate-500 text-right">
+                          {p.updated_at ? new Date(p.updated_at).toLocaleTimeString() : 'N/A'}
+                        </td>
+                      </tr>
+                    ))}
+                    {profiles.length === 0 && (
                       <tr>
                         <td colSpan={3} className="px-6 py-10 text-center text-slate-500 italic">
-                          暫無資料或正在載入節點紀錄...
+                          No nodes detected in registry...
                         </td>
                       </tr>
                     )}
