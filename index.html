@@ -1,307 +1,58 @@
-import React, { useState, useEffect, useRef } from 'react';
-
-/**
- * 圖示組件：以標準 React 組件方式定義
- */
-const Icons = {
-  Users: () => (
-    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-  ),
-  RefreshCw: ({ className }: { className?: string }) => (
-    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
-  ),
-  LayoutDashboard: () => (
-    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="15" rx="1"/></svg>
-  )
-};
-
-const SUPABASE_URL = "https://wgkcwnyxjhnlkrdjvzyj.supabase.co";
-const SUPABASE_KEY = "sb_publishable_O_E1KKVTudZg2Ipob5E14g_eExGWDBG";
-
-const App = () => {
-  const [supabase, setSupabase] = useState<any>(null);
-  const [session, setSession] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [profiles, setProfiles] = useState<any[]>([]);
-  const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
-  const [message, setMessage] = useState<{text: string, type: 'error' | 'success' | ''}>({ text: '', type: '' });
-  const isScriptInjected = useRef(false);
-
-  // 1. 安全加載 Supabase SDK
-  useEffect(() => {
-    const initClient = () => {
-      // @ts-ignore
-      if (window.supabase && typeof window.supabase.createClient === 'function') {
-        try {
-          // @ts-ignore
-          const client = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-          if (client && client.auth) {
-            setSupabase(client);
-            return true;
-          }
-        } catch (e) {
-          console.error("Supabase Init Error:", e);
-        }
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>HKER Forum & Token</title>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              slate: {
+                850: '#1e293b',
+                950: '#020617',
+              },
+              amber: {
+                450: '#F59E0B',
+              }
+            },
+            fontFamily: {
+              sans: ['Inter', 'system-ui', 'sans-serif'],
+              orbitron: ['Orbitron', 'sans-serif'],
+            },
+            animation: {
+              'fade-in': 'fadeIn 0.5s ease-out',
+              'spin-slow': 'spin 3s linear infinite',
+            },
+            keyframes: {
+              fadeIn: {
+                '0%': { opacity: '0', transform: 'translateY(10px)' },
+                '100%': { opacity: '1', transform: 'translateY(0)' },
+              }
+            }
+          },
+        },
       }
-      return false;
-    };
-
-    const poll = () => {
-      if (!initClient()) {
-        setTimeout(poll, 300);
-      }
-    };
-
-    if (!isScriptInjected.current) {
-      isScriptInjected.current = true;
-      const script = document.createElement('script');
-      script.src = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2";
-      script.async = true;
-      script.onload = poll;
-      document.head.appendChild(script);
-    } else {
-      poll();
-    }
-  }, []);
-
-  // 2. 處理驗證與資料監聽
-  useEffect(() => {
-    // 關鍵修復：嚴格檢查 supabase.auth 及其方法是否存在
-    if (!supabase || !supabase.auth || typeof supabase.auth.onAuthStateChanged !== 'function') {
-      return;
-    }
-
-    let mounted = true;
-
-    const fetchData = async () => {
-      try {
-        const { data, error } = await supabase
-          .from('profiles')
-          .select('*')
-          .order('updated_at', { ascending: false });
-        if (mounted && !error && data) {
-          setProfiles(Array.isArray(data) ? data : []);
-        }
-      } catch (err) {
-        console.error("Data Fetch Error:", err);
-      }
-    };
-
-    const syncUser = async (user: any) => {
-      if (!user || !mounted) return;
-      try {
-        await supabase.from('profiles').upsert({
-          id: user.id,
-          email: user.email,
-          updated_at: new Date().toISOString()
-        });
-        await fetchData();
-      } catch (err) {
-        console.error("Sync Error:", err);
-      }
-    };
-
-    // 初始 Session 檢查
-    const getInitialSession = async () => {
-      try {
-        const { data: { session: s } } = await supabase.auth.getSession();
-        if (mounted) {
-          setSession(s);
-          if (s) syncUser(s.user);
-          setLoading(false);
-        }
-      } catch (e) {
-        if (mounted) setLoading(false);
-      }
-    };
-
-    getInitialSession();
-
-    // 監聽狀態變化
-    const { data: authListener } = supabase.auth.onAuthStateChanged((_event: any, s: any) => {
-      if (mounted) {
-        setSession(s);
-        if (s) {
-          syncUser(s.user);
-        } else {
-          setProfiles([]);
-        }
-      }
-    });
-
-    return () => {
-      mounted = false;
-      if (authListener && authListener.subscription) {
-        authListener.subscription.unsubscribe();
-      }
-    };
-  }, [supabase]);
-
-  const handleAuth = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!supabase) return;
-    setLoading(true);
-    setMessage({ text: '', type: '' });
-
-    try {
-      let result;
-      if (authMode === 'signup') {
-        result = await supabase.auth.signUp({ email, password });
-        if (!result.error) setMessage({ text: '註冊指令已發送，請檢查信箱。', type: 'success' });
-      } else {
-        result = await supabase.auth.signInWithPassword({ email, password });
-      }
-      
-      if (result?.error) setMessage({ text: result.error.message, type: 'error' });
-    } catch (err) {
-      setMessage({ text: '網路連線異常，請重試。', type: 'error' });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  if (loading && !session) {
-    return (
-      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-amber-500 font-mono">
-        <Icons.RefreshCw className="animate-spin mb-4" />
-        <p className="tracking-widest animate-pulse">CONNECTING_TO_ENCRYPTED_DATABASE...</p>
-      </div>
-    );
+    </script>
+  <script type="importmap">
+{
+  "imports": {
+    "react/": "https://esm.sh/react@^19.2.3/",
+    "react": "https://esm.sh/react@^19.2.3",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
+    "lucide-react": "https://esm.sh/lucide-react@^0.562.0",
+    "lunar-javascript": "https://esm.sh/lunar-javascript@1.6.12",
+    "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@^2.89.0"
   }
-
-  return (
-    <div className="min-h-screen bg-slate-950 text-slate-200 p-6 font-sans">
-      <div className="max-w-4xl mx-auto">
-        <header className="flex justify-between items-center mb-10 border-b border-slate-800 pb-6">
-          <div className="flex items-center gap-4">
-            <div className="p-3 bg-amber-600 rounded-lg text-white shadow-[0_0_20px_rgba(217,119,6,0.2)]">
-              <Icons.Users />
-            </div>
-            <div>
-              <h1 className="text-xl font-black text-white tracking-tighter italic">HKER_CLOUD_NODE</h1>
-              <div className="flex items-center gap-2">
-                <span className="w-1.5 h-1.5 rounded-full bg-green-500 shadow-[0_0_5px_#22c55e]"></span>
-                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Signal_Stable</p>
-              </div>
-            </div>
-          </div>
-          {session && (
-            <button 
-              onClick={() => supabase.auth.signOut()}
-              className="px-4 py-1.5 bg-slate-900 border border-slate-700 rounded text-[10px] font-black hover:bg-red-600 hover:text-white transition-all"
-            >
-              DISCONNECT
-            </button>
-          )}
-        </header>
-
-        {message.text && (
-          <div className={`mb-6 p-4 rounded border text-xs font-mono font-bold ${
-            message.type === 'error' ? 'bg-red-950/30 border-red-800 text-red-400' : 'bg-green-950/30 border-green-800 text-green-400'
-          }`}>
-            {"> "} {message.text}
-          </div>
-        )}
-
-        {!session ? (
-          <div className="max-w-sm mx-auto bg-slate-900 border border-slate-800 p-8 rounded-xl shadow-2xl relative overflow-hidden">
-            <div className="absolute top-0 left-0 w-full h-1 bg-amber-500"></div>
-            <div className="flex gap-2 mb-8 bg-black/40 p-1 rounded">
-              <button 
-                onClick={() => setAuthMode('login')} 
-                className={`flex-1 py-2 rounded text-[10px] font-black transition-all ${authMode === 'login' ? 'bg-amber-600 text-white' : 'text-slate-500 hover:text-slate-300'}`}
-              >
-                ACCESS_PORTAL
-              </button>
-              <button 
-                onClick={() => setAuthMode('signup')} 
-                className={`flex-1 py-2 rounded text-[10px] font-black transition-all ${authMode === 'signup' ? 'bg-amber-600 text-white' : 'text-slate-500 hover:text-slate-300'}`}
-              >
-                NEW_REGISTER
-              </button>
-            </div>
-            <form onSubmit={handleAuth} className="space-y-5">
-              <div className="space-y-1">
-                <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Credential_ID</label>
-                <input type="email" placeholder="IDENTITY@HKER.LOCAL" value={email} onChange={e => setEmail(e.target.value)} className="w-full bg-slate-950 border border-slate-800 p-3 rounded text-sm font-mono outline-none focus:border-amber-600 transition-colors" required />
-              </div>
-              <div className="space-y-1">
-                <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Secure_Key</label>
-                <input type="password" placeholder="••••••••" value={password} onChange={e => setPassword(e.target.value)} className="w-full bg-slate-950 border border-slate-800 p-3 rounded text-sm font-mono outline-none focus:border-amber-600 transition-colors" required />
-              </div>
-              <button type="submit" disabled={loading} className="w-full bg-slate-100 text-slate-950 font-black py-4 rounded hover:bg-amber-500 transition-all transform active:scale-[0.98]">
-                {authMode === 'login' ? 'INITIALIZE_AUTH' : 'CREATE_NODE'}
-              </button>
-            </form>
-          </div>
-        ) : (
-          <div className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="bg-slate-900 border border-slate-800 p-6 rounded-xl">
-                <p className="text-slate-500 text-[9px] font-black uppercase tracking-widest mb-2">Connected_Node</p>
-                <p className="text-sm font-mono font-bold text-white truncate">{session.user.email}</p>
-              </div>
-              <div className="bg-slate-900 border border-slate-800 p-6 rounded-xl">
-                <p className="text-slate-500 text-[9px] font-black uppercase tracking-widest mb-2">Active_Profiles</p>
-                <p className="text-4xl font-black text-amber-600 tabular-nums">{profiles.length}</p>
-              </div>
-            </div>
-
-            <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-2xl">
-              <div className="p-5 border-b border-slate-800 flex justify-between items-center bg-black/20">
-                <div className="flex items-center gap-3">
-                  <Icons.LayoutDashboard />
-                  <span className="text-xs font-black tracking-widest uppercase italic">Node_Registry</span>
-                </div>
-                <button 
-                  onClick={async () => {
-                    if (supabase) {
-                      const {data} = await supabase.from('profiles').select('*').order('updated_at', { ascending: false });
-                      if (data) setProfiles(data);
-                    }
-                  }} 
-                  className="p-2 text-slate-400 hover:text-amber-500 transition-all"
-                >
-                  <Icons.RefreshCw />
-                </button>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-[11px]">
-                  <thead className="bg-slate-950 text-slate-500 font-black uppercase tracking-widest border-b border-slate-800">
-                    <tr>
-                      <th className="px-6 py-4">Hash_ID</th>
-                      <th className="px-6 py-4">Node_Email</th>
-                      <th className="px-6 py-4 text-right">Timestamp</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-800/40">
-                    {profiles.map((p, idx) => (
-                      <tr key={p.id || idx} className="hover:bg-slate-800/30 transition-colors">
-                        <td className="px-6 py-4 font-mono text-slate-500">{p.id ? p.id.slice(0, 10) : '---'}</td>
-                        <td className="px-6 py-4 text-slate-200 font-bold">{p.email || 'N/A'}</td>
-                        <td className="px-6 py-4 text-slate-500 text-right font-mono">
-                          {p.updated_at ? new Date(p.updated_at).toLocaleTimeString() : 'offline'}
-                        </td>
-                      </tr>
-                    ))}
-                    {profiles.length === 0 && (
-                      <tr>
-                        <td colSpan={3} className="px-6 py-12 text-center text-slate-600 font-mono text-xs italic">
-                          {"//"} EMPTY_CLUSTER_DATA
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-};
-
-export default App;
+}
+</script>
+<link rel="stylesheet" href="/index.css">
+</head>
+  <body>
+    <div id="root"></div>
+  <script type="module" src="/index.tsx"></script>
+</body>
+</html>
