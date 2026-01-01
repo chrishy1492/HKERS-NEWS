@@ -34,16 +34,25 @@ const App = () => {
   const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
   const [message, setMessage] = useState({ text: '', type: '' });
 
-  // 初始化 Supabase 客戶端
+  // 初始化 Supabase 客戶端，增加重試與安全性檢查
   useEffect(() => {
+    let retryCount = 0;
     const initSupabase = () => {
-      // @ts-ignore
-      if (window.supabase) {
+      try {
         // @ts-ignore
-        const client = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-        setSupabase(client);
-      } else {
-        setTimeout(initSupabase, 300);
+        if (window.supabase) {
+          // @ts-ignore
+          const client = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+          setSupabase(client);
+        } else if (retryCount < 10) {
+          retryCount++;
+          setTimeout(initSupabase, 300);
+        } else {
+          setMessage({ text: '無法載入 Supabase SDK，請檢查網路連線', type: 'error' });
+          setLoading(false);
+        }
+      } catch (err) {
+        console.error("Supabase Init Error:", err);
       }
     };
     initSupabase();
@@ -54,24 +63,41 @@ const App = () => {
     if (!supabase) return;
 
     const checkSession = async () => {
-      const { data: { session: initialSession } } = await supabase.auth.getSession();
-      setSession(initialSession);
-      if (initialSession) {
-        await syncAndFetch(initialSession.user);
+      try {
+        const { data: { session: initialSession }, error } = await supabase.auth.getSession();
+        if (error) throw error;
+        
+        setSession(initialSession);
+        if (initialSession) {
+          await syncAndFetch(initialSession.user);
+        }
+      } catch (err: any) {
+        console.error("Session Check Error:", err);
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     };
 
     const syncAndFetch = async (user: any) => {
-      // 更新或插入當前用戶資訊
-      await supabase.from('profiles').upsert({ 
-        id: user.id, 
-        email: user.email, 
-        updated_at: new Date().toISOString() 
-      });
-      // 獲取所有用戶列表
-      const { data } = await supabase.from('profiles').select('*').order('updated_at', { ascending: false });
-      setProfiles(data || []);
+      try {
+        // 更新或插入當前用戶資訊
+        // 注意：請確保您的 profiles 資料表已關閉 RLS 或已設定正確的 Policy
+        const { error: upsertError } = await supabase.from('profiles').upsert({ 
+          id: user.id, 
+          email: user.email, 
+          updated_at: new Date().toISOString() 
+        });
+        
+        if (upsertError) console.warn("Sync Profile Error (Check RLS):", upsertError.message);
+
+        // 獲取所有用戶列表
+        const { data, error: fetchError } = await supabase.from('profiles').select('*').order('updated_at', { ascending: false });
+        if (fetchError) throw fetchError;
+        
+        setProfiles(data || []);
+      } catch (err: any) {
+        console.error("Data Fetch Error:", err);
+      }
     };
 
     checkSession();
@@ -85,7 +111,9 @@ const App = () => {
       }
     });
 
-    return () => subscription?.unsubscribe();
+    return () => {
+      if (subscription) subscription.unsubscribe();
+    };
   }, [supabase]);
 
   const handleAuth = async (e: React.FormEvent) => {
@@ -98,13 +126,18 @@ const App = () => {
       let result;
       if (authMode === 'signup') {
         result = await supabase.auth.signUp({ email, password });
-        if (!result.error) setMessage({ text: '註冊成功，請檢查信箱。', type: 'success' });
+        if (!result.error) {
+          setMessage({ text: '註冊成功！若有啟用信箱驗證，請檢查您的收件匣。', type: 'success' });
+        }
       } else {
         result = await supabase.auth.signInWithPassword({ email, password });
       }
-      if (result.error) setMessage({ text: result.error.message, type: 'error' });
+      
+      if (result?.error) {
+        setMessage({ text: `驗證失敗: ${result.error.message}`, type: 'error' });
+      }
     } catch (err: any) {
-      setMessage({ text: '連線錯誤', type: 'error' });
+      setMessage({ text: '連線發生意外錯誤', type: 'error' });
     } finally {
       setLoading(false);
     }
@@ -130,7 +163,7 @@ const App = () => {
             </div>
             <div>
               <h1 className="text-2xl font-black text-white tracking-tighter">HKER_CLOUD</h1>
-              <p className="text-[10px] text-amber-500 font-bold tracking-[0.2em]">DB_ENGINE_V2</p>
+              <p className="text-[10px] text-amber-500 font-bold tracking-[0.2em]">DB_ENGINE_V2_FIXED</p>
             </div>
           </div>
           {session && (
@@ -155,12 +188,14 @@ const App = () => {
           <div className="max-w-sm mx-auto bg-slate-900 border border-slate-800 p-8 rounded-2xl shadow-2xl">
             <div className="flex gap-2 mb-8 bg-black/40 p-1 rounded-xl border border-slate-800">
               <button 
+                type="button"
                 onClick={() => setAuthMode('login')}
                 className={`flex-1 py-2 rounded-lg text-[10px] font-bold transition ${authMode === 'login' ? 'bg-slate-700 text-white shadow-lg' : 'text-slate-500'}`}
               >
                 LOGIN
               </button>
               <button 
+                type="button"
                 onClick={() => setAuthMode('signup')}
                 className={`flex-1 py-2 rounded-lg text-[10px] font-bold transition ${authMode === 'signup' ? 'bg-slate-700 text-white shadow-lg' : 'text-slate-500'}`}
               >
@@ -173,6 +208,7 @@ const App = () => {
                 type="email" 
                 placeholder="EMAIL"
                 value={email}
+                autoComplete="email"
                 onChange={(e) => setEmail(e.target.value)}
                 className="w-full bg-slate-950 border border-slate-800 p-3 rounded-lg text-sm outline-none focus:border-amber-500 transition"
               />
@@ -180,12 +216,13 @@ const App = () => {
                 type="password" 
                 placeholder="PASSWORD"
                 value={password}
+                autoComplete="current-password"
                 onChange={(e) => setPassword(e.target.value)}
                 className="w-full bg-slate-950 border border-slate-800 p-3 rounded-lg text-sm outline-none focus:border-amber-500 transition"
               />
               <button 
                 type="submit"
-                disabled={loading}
+                disabled={loading || !supabase}
                 className="w-full bg-amber-500 text-slate-950 font-black py-3 rounded-lg hover:bg-amber-400 disabled:opacity-30 transition"
               >
                 {authMode === 'login' ? 'AUTHENTICATE' : 'CREATE_ID'}
@@ -211,6 +248,7 @@ const App = () => {
                   <Icons.LayoutDashboard /> CLOUD_ENTRIES
                 </span>
                 <button 
+                  type="button"
                   onClick={async () => {
                     const { data } = await supabase.from('profiles').select('*').order('updated_at', { ascending: false });
                     setProfiles(data || []);
@@ -230,13 +268,23 @@ const App = () => {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800">
-                    {profiles.map(p => (
-                      <tr key={p.id} className="hover:bg-slate-800/30 transition">
-                        <td className="px-6 py-4 font-mono text-slate-500">{p.id.substring(0,8)}...</td>
-                        <td className="px-6 py-4 text-white font-medium">{p.email}</td>
-                        <td className="px-6 py-4 text-slate-500">{new Date(p.updated_at).toLocaleTimeString()}</td>
+                    {profiles.length > 0 ? (
+                      profiles.map(p => (
+                        <tr key={p.id} className="hover:bg-slate-800/30 transition">
+                          <td className="px-6 py-4 font-mono text-slate-500">{p.id.substring(0,8)}...</td>
+                          <td className="px-6 py-4 text-white font-medium">{p.email}</td>
+                          <td className="px-6 py-4 text-slate-500">
+                            {p.updated_at ? new Date(p.updated_at).toLocaleTimeString() : 'N/A'}
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={3} className="px-6 py-10 text-center text-slate-500 italic">
+                          暫無資料或正在載入節點紀錄...
+                        </td>
                       </tr>
-                    ))}
+                    )}
                   </tbody>
                 </table>
               </div>
