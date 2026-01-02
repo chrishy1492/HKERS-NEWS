@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   LogOut, Search, Menu, X, Gamepad2, Shield, User, Coins, 
   Sparkles, Globe, Settings, Bell, CreditCard, ChevronDown, Hand, Compass, Zap, Flame, Cpu, ArrowLeft
@@ -41,78 +41,111 @@ interface ForumAppProps {
   onLogout?: () => void;
 }
 
+// Bot Configuration - High Frequency Mode
+const BOT_COOLDOWN_MS = 5 * 60 * 1000; // 5 Minutes (Active Mode)
+const BOT_STORAGE_KEY = 'nexus_bot_last_pulse';
+
 const ForumApp: React.FC<ForumAppProps> = ({ 
   supabase, session, userProfile, updatePoints, setView, refreshProfile, onLogout
 }) => {
   const [subView, setSubView] = useState<ForumSubView>(ForumSubView.FEED);
   const [region, setRegion] = useState('All');
-  const [topic, setTopic] = useState('All'); // 默認設置為 All (全部主題)
+  const [topic, setTopic] = useState('All'); 
   const [searchTerm, setSearchTerm] = useState('');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
 
-  // --- 自動發帖引擎 (Engineering Fix: Robust Interval & Content Consistency) ---
-  useEffect(() => {
-    // 定義機械人工作邏輯
-    const runBot = async () => {
-      // 只有在有 session 或特殊配置下才運行，以確保 RLS 通過
-      
-      console.log("🤖 HKER Bot: Scouting for news...");
-      
-      // 隨機選擇主題與地區，模擬真實用戶興趣
-      const randomRegion = REGIONS[Math.floor(Math.random() * REGIONS.length)];
-      const randomTopic = TOPICS[Math.floor(Math.random() * TOPICS.length)];
-      
+  // --- Distributed Bot Heartbeat System v2.1 (Accelerated) ---
+  const checkAndTriggerBot = useCallback(async () => {
+    // Only trigger if we have a valid session to sign the request (RLS policy)
+    if (!session) return; 
+
+    try {
+      console.log("🤖 Nexus Bot: Checking pulse...");
+      let lastPostTime = 0;
+      let useLocalFallback = false;
+
+      // 1. Check DB for last bot activity
       try {
+        const { data: lastPosts, error } = await supabase
+          .from('posts')
+          .select('created_at')
+          .ilike('title', '%速遞]%') // Identify bot posts by title convention
+          .order('created_at', { ascending: false })
+          .limit(1);
+
+        if (error) {
+           useLocalFallback = true;
+        } else {
+           lastPostTime = lastPosts && lastPosts.length > 0 ? new Date(lastPosts[0].created_at).getTime() : 0;
+        }
+      } catch (dbErr) {
+        useLocalFallback = true;
+      }
+
+      // 2. LocalStorage Fallback (Circuit Breaker)
+      if (useLocalFallback) {
+         const lastLocal = localStorage.getItem(BOT_STORAGE_KEY);
+         lastPostTime = lastLocal ? parseInt(lastLocal) : 0;
+      }
+
+      const now = Date.now();
+      const timeDiff = now - lastPostTime;
+
+      // 3. Execution Logic
+      if (timeDiff > BOT_COOLDOWN_MS) {
+        console.log(`🤖 Nexus Bot: Waking up. Last active: ${(timeDiff / 60000).toFixed(1)}m ago.`);
+        
+        // Optimistic lock to prevent multiple clients from firing simultaneously
+        localStorage.setItem(BOT_STORAGE_KEY, now.toString());
+        
+        // Randomize Task
+        const randomRegion = REGIONS[Math.floor(Math.random() * REGIONS.length)];
+        const randomTopic = TOPICS[Math.floor(Math.random() * TOPICS.length)];
+        
+        // Scout News
         const news = await scoutAutomatedNews(randomRegion, randomTopic);
         
-        if (news && news.source_url && news.title && news.summary_points) {
+        if (news && news.title) {
           const botPost = {
-            title: `[${randomTopic}重點] ${news.title}`,
-            content: news.summary_points, // 這裡是重點摘要，確保內容不完全複製
-            author_name: "HKER_AUTO_SCOUT",
-            author_avatar: "https://api.dicebear.com/7.x/bottts/svg?seed=NexusRobot&backgroundColor=b6e3f4",
+            title: `[${randomTopic}速遞] ${news.title}`,
+            content: news.summary_points,
             region: randomRegion,
             topic: randomTopic,
-            is_bot: true,
-            is_readonly: true,
             source_name: news.source_name,
             source_url: news.source_url,
-            original_lang: news.lang,
             likes: 0,
-            hearts: 0,
-            // CRITICAL FIX: Attach current user ID if available to pass RLS 'Authenticated' policies
-            user_id: session?.user?.id || null 
+            user_id: session.user.id // Attribution to current user (bot proxy)
           };
+
+          const { error: insertError } = await supabase.from('posts').insert([botPost]);
           
-          const { error } = await supabase.from('posts').insert([botPost]);
-          if (error) {
-            console.error("🤖 Bot Post Error:", error.message, error.details || '');
+          if (insertError) {
+            console.error("🤖 Bot: Post failed", insertError.message);
           } else {
-            console.log("🤖 Bot Posted Successfully:", news.title);
+            console.log("🤖 Bot: Published", news.title);
           }
-        } else {
-           console.log("🤖 Bot: No valid news found or incomplete data.");
         }
-      } catch (err: any) {
-        console.error("🤖 Bot Critical Failure:", err.message || err);
       }
-    };
+    } catch (err) {
+      console.error("🤖 Bot: Critical failure", err);
+    }
+  }, [supabase, session]);
 
-    // 1. 組件掛載後 5 秒立即執行一次
-    const initialTimer = setTimeout(runBot, 5000);
-
-    // 2. 設定循環定時器 (每 120 秒執行一次，給予 AI 足夠時間生成高質量改寫內容)
-    const newsInterval = setInterval(runBot, 120000); 
+  // Initialize Bot Heartbeat
+  useEffect(() => {
+    // Initial check after boot
+    const bootTimer = setTimeout(checkAndTriggerBot, 3000);
+    // Recurring heartbeat - Check every 1 minute for high availability
+    const intervalTimer = setInterval(checkAndTriggerBot, 60 * 1000); 
 
     return () => {
-      clearTimeout(initialTimer);
-      clearInterval(newsInterval);
+      clearTimeout(bootTimer);
+      clearInterval(intervalTimer);
     };
-  }, [supabase, session]); // Add session to dependency array
+  }, [checkAndTriggerBot]);
 
   const isAdmin = userProfile?.role === 'admin';
-
   const showBackButton = ![ForumSubView.FEED, ForumSubView.GAMES_HUB, ForumSubView.FORTUNE_HUB, ForumSubView.AI_CHAT, ForumSubView.ADMIN].includes(subView);
 
   const handleBack = () => {

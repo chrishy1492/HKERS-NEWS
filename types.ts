@@ -28,13 +28,13 @@ export interface Post {
   region: string;
   topic: string;
   likes: number;
-  hearts: number;
+  // hearts removed to fix schema error
   is_bot?: boolean;
   is_announcement?: boolean;
   is_readonly?: boolean;
   source_name?: string;
   source_url?: string;
-  original_lang?: 'zh' | 'en';
+  // original_lang removed to fix schema error
   created_at: string;
 }
 

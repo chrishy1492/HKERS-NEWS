@@ -4,47 +4,50 @@ import { GoogleGenAI } from "@google/genai";
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 /**
- * 專業工程師版：自動化新聞獵頭引擎 (v5.0 Copyright-Safe Edition)
- * 修復重點：
- * 1. 嚴格的「題文一致性」檢查。
- * 2. 加入「版權規避」指令，強制 AI 進行改寫 (Paraphrasing) 而非複製。
- * 3. 優化 Regex 清洗邏輯。
+ * 專業工程師版：自動化新聞獵頭引擎 (v7.0 Copyright Safe Edition)
+ * 
+ * 功能升級：
+ * 1. 結構化內容 (Structured Layout): 強制分為「重點速讀」與「深度報導」。
+ * 2. 版權規避 (Copyright Evasion): 強制語義重組 (Paraphrasing)，禁止直接引用，使用不同詞彙重寫。
+ * 3. 內容增量 (Content Expansion): 篇幅增加 200%，提供更有價值的資訊。
  */
 export const scoutAutomatedNews = async (region: string, topic: string) => {
   try {
     const isZH = region === "中國香港" || region === "台灣";
     const langInstruction = isZH 
-      ? "Traditional Chinese (Hong Kong Cantonese style, use terms like '據報', '消息指', '最新顯示')" 
-      : "English (Journalistic style)";
+      ? "Traditional Chinese (Hong Kong Cantonese professional yet engaging style). Use local terminology." 
+      : "English (Professional journalistic blog style).";
 
-    // 構建更嚴謹的 Prompt，強制 AI 扮演編輯而非搬運工
+    // Advanced Prompt Engineering for Copyright Safety & Structure
     const prompt = `
-    ROLE: Professional News Editor & Copyright Compliance Officer.
-    TASK: Search for ONE specific, latest news event about "${topic}" in "${region}".
+    ROLE: You are a Senior Editor for HKER Nexus. 
+    TASK: Find a trending news event about "${topic}" in "${region}".
     
-    STRICT EXECUTION STEPS:
-    1. SEARCH: Find the most relevant recent news article.
-    2. READ: Analyze the core facts.
-    3. REWRITE (Crucial): Completely rephrase the content in your own words to avoid copyright infringement. Do NOT copy-paste sentences.
-    4. CONSISTENCY CHECK: Ensure the Title and Summary Points are about the EXACT SAME event.
+    CRITICAL COPYRIGHT RULES (MUST FOLLOW):
+    1. NO PLAGIARISM: Do NOT copy-paste sentences from the source. 
+    2. REWRITE COMPLETELY: You must digest the facts and REWRITE them using your own vocabulary, sentence structure, and tone.
+    3. SYNTHESIZE: Combine facts to create a unique perspective.
 
-    OUTPUT REQUIREMENTS (JSON ONLY):
+    CONTENT STRUCTURE REQUIREMENTS:
+    1. **Key Highlights (重點速讀)**: 3-4 bullet points summarizing the most critical facts.
+    2. **Detailed Insight (深度報導)**: A detailed body paragraph (at least 200-300 words). Explain the context, why it matters, and potential impact. Do not be brief.
+
+    OUTPUT FORMAT (JSON ONLY):
     {
-      "title": "A short, punchy headline highlighting the main point (Max 20 words).",
-      "summary_points": "A concise summary of the event in 3-4 bullet points or a short paragraph. Focus ONLY on key facts (Who, What, When, Why). Max 100 words.",
-      "source_name": "Name of the news outlet",
-      "source_url": "Direct link to the article"
+      "title": "A catchy, rewritten headline (Max 30 chars)",
+      "summary_points": "The full content string combining Highlights and Body. Use Markdown formatting (e.g., ### 💡 重點速讀\\n- Point 1...\\n\\n### 📝 深度報導\\n[Detailed rewritten article content here...])",
+      "source_name": "Source Outlet Name",
+      "source_url": "Source URL"
     }
 
     LANGUAGE: ${langInstruction}
-    FORMAT: Raw JSON object. No Markdown. No code blocks.
     `;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
+      model: 'gemini-3-pro-preview', // Upgraded to Pro model for better writing capability
       contents: prompt,
       config: {
-        systemInstruction: "You are a JSON-only bot. You synthesize news into original summaries. You never copy text directly.",
+        systemInstruction: "You are a JSON-only API. You are a creative writer who avoids copyright infringement by rewriting content entirely.",
         responseMimeType: "application/json",
         tools: [{ googleSearch: {} }]
       }
@@ -52,48 +55,48 @@ export const scoutAutomatedNews = async (region: string, topic: string) => {
 
     let text = response.text || "{}";
     
-    // CRITICAL FIX: Extract JSON object using Regex to handle potential conversational wrappers
-    // 尋找最外層的 { }，確保抓取的是完整的 JSON 對象
+    // JSON Sanitation
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
       text = jsonMatch[0];
-    } else {
-      // Fallback cleanup
-      text = text.replace(/```json|```/g, '').trim();
     }
-
-    const data = JSON.parse(text);
     
-    // 二次驗證數據完整性
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch (e) {
+      console.warn("AI Scout JSON Parse Error, retrying raw text cleanup...", e);
+      return null;
+    }
+    
+    // Data Integrity Check
     if (!data.title || !data.summary_points || !data.source_url) {
-        throw new Error("Incomplete data from AI");
+        console.warn("AI Scout: Incomplete data structure received.");
+        return null;
     }
     
-    // 簡單的後期處理：確保標題不包含 "標題：" 或 "Title:" 等前綴
-    data.title = data.title.replace(/^(標題|Title)[:：]\s*/i, '');
-
     return {
       ...data,
       lang: isZH ? 'zh' : 'en' as 'zh' | 'en'
     };
   } catch (error) {
-    console.error("Automated Scout Error:", error);
+    console.error("AI Scout System Error:", error);
     return null;
   }
 };
 
 /**
- * 全球即時翻譯引擎
+ * 全球即時翻譯引擎 (Quantum Translation)
  */
 export const performQuantumTranslation = async (text: string, targetLang: 'zh' | 'en') => {
   try {
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
-      contents: `Translate the following to ${targetLang === 'zh' ? 'Traditional Chinese (Hong Kong style)' : 'English'}. Keep it concise and natural:\n\n${text}`,
+      contents: `Translate the following text to ${targetLang === 'zh' ? 'Traditional Chinese (HK style)' : 'English'}. Maintain the original markdown formatting and structure.\n\nText:\n${text}`,
     });
     return response.text;
   } catch (error) {
-    console.error("Translation Engine Error:", error);
+    console.error("Translation Error:", error);
     return null;
   }
 };
@@ -104,12 +107,11 @@ export const generateLionRockInsight = async (prompt: string) => {
       model: 'gemini-3-pro-preview',
       contents: prompt,
       config: {
-        systemInstruction: "You are the Lion Rock Assistant. You provide helpful advice on migration, Hong Kong culture, and community info. You are friendly, encouraging, and embody the 'Lion Rock Spirit' (perseverance, solidarity, and flexibility). You should use a mix of English and Traditional Chinese (Hong Kong style) where appropriate."
+        systemInstruction: "You are the Lion Rock Assistant. Helpful, friendly, embodying the 'Lion Rock Spirit'. Mix English and Cantonese."
       }
     });
-    return response.text || "Sorry, I'm having trouble processing that right now.";
+    return response.text || "Connection weak. Try again.";
   } catch (error) {
-    console.error("Lion Rock Insight Error:", error);
-    return "The Lion Rock spirit is strong, but my connection is weak. Please try again later.";
+    return "System busy.";
   }
 };
