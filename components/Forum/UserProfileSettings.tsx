@@ -22,11 +22,13 @@ const UserProfileSettings: React.FC<UserProfileSettingsProps> = ({
   // 1. 入會資料與個人化狀態
   const [nickname, setNickname] = useState(userProfile.nickname);
   const [avatar, setAvatar] = useState(userProfile.avatar_url);
-  const [fullName, setFullName] = useState(userProfile.full_name || '');
-  const [phone, setPhone] = useState(userProfile.phone || '');
-  const [address, setAddress] = useState(userProfile.physical_address || '');
-  const [gender, setGender] = useState(userProfile.gender || 'Secret');
-  const [solAddress, setSolAddress] = useState(userProfile.sol_address || '');
+  
+  // Specific fields requested
+  const [fullName, setFullName] = useState(userProfile.full_name || ''); // a) 姓名
+  const [address, setAddress] = useState(userProfile.physical_address || ''); // b) 地址
+  const [phone, setPhone] = useState(userProfile.phone || ''); // c) 電話
+  const [solAddress, setSolAddress] = useState(userProfile.sol_address || ''); // d) SOL ADDRESS
+  const [gender, setGender] = useState(userProfile.gender || 'Secret'); // e) 性別
   
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<{ type: 'success' | 'error', text: string } | null>(null);
@@ -51,7 +53,7 @@ const UserProfileSettings: React.FC<UserProfileSettingsProps> = ({
 
       if (error) throw error;
       
-      setMsg({ type: 'success', text: "資料已直接寫入系統，更新成功！" });
+      setMsg({ type: 'success', text: "個人資料已直接更新成功 / Profile Updated!" });
       onRefresh(); // 刷新 App 層級的 profile 狀態
       window.scrollTo({ top: 0, behavior: 'smooth' });
     } catch (err: any) {
@@ -64,7 +66,7 @@ const UserProfileSettings: React.FC<UserProfileSettingsProps> = ({
   return (
     <div className="max-w-6xl mx-auto p-4 md:p-10 pb-32 animate-in fade-in slide-in-from-bottom-8 duration-500">
       
-      {/* 帳戶頂部輝煌概覽卡片 - 包含不可修改的積分 */}
+      {/* 帳戶頂部輝煌概覽卡片 */}
       <div className="relative bg-slate-900 rounded-[48px] p-8 md:p-12 text-white overflow-hidden shadow-2xl border border-white/5 mb-10">
         <div className="absolute top-0 right-0 w-96 h-96 bg-blue-600/10 rounded-full blur-[100px] -mr-40 -mt-40"></div>
         <div className="relative z-10 flex flex-col lg:flex-row items-center justify-between gap-10">
@@ -141,24 +143,22 @@ const UserProfileSettings: React.FC<UserProfileSettingsProps> = ({
               <div className="p-3 bg-blue-50 rounded-2xl text-blue-600">
                 <User size={24} />
               </div>
-              <h3 className="text-2xl font-black text-slate-900 tracking-tight">編輯個人檔案 (直接修改)</h3>
+              <h3 className="text-2xl font-black text-slate-900 tracking-tight">編輯個人檔案 (無需認證，直接修改)</h3>
             </div>
             
             <div className="grid md:grid-cols-2 gap-8">
               <div className="space-y-2">
-                <label className="text-[10px] font-black uppercase text-slate-400 tracking-[0.2em] ml-2">論壇暱稱 *</label>
-                <input className="premium-edit-input" value={nickname} onChange={e => setNickname(e.target.value)} />
+                <label className="text-[10px] font-black uppercase text-slate-400 tracking-[0.2em] ml-2">a) 姓名 / FULL NAME</label>
+                <input className="premium-edit-input" placeholder="真實姓名" value={fullName} onChange={e => setFullName(e.target.value)} />
               </div>
+              
               <div className="space-y-2">
-                <label className="text-[10px] font-black uppercase text-slate-400 tracking-[0.2em] ml-2">真實姓名</label>
-                <input className="premium-edit-input" placeholder="用於實務通訊" value={fullName} onChange={e => setFullName(e.target.value)} />
-              </div>
-              <div className="space-y-2">
-                <label className="text-[10px] font-black uppercase text-slate-400 tracking-[0.2em] ml-2">聯絡電話</label>
+                <label className="text-[10px] font-black uppercase text-slate-400 tracking-[0.2em] ml-2">c) 電話 / PHONE</label>
                 <input className="premium-edit-input" placeholder="+852 9000 0000" value={phone} onChange={e => setPhone(e.target.value)} />
               </div>
+
               <div className="space-y-2">
-                <label className="text-[10px] font-black uppercase text-slate-400 tracking-[0.2em] ml-2">性別</label>
+                <label className="text-[10px] font-black uppercase text-slate-400 tracking-[0.2em] ml-2">e) 性別 / GENDER</label>
                 <select className="premium-edit-input appearance-none cursor-pointer" value={gender} onChange={e => setGender(e.target.value as any)}>
                   <option value="Male">男 / Male</option>
                   <option value="Female">女 / Female</option>
@@ -166,10 +166,15 @@ const UserProfileSettings: React.FC<UserProfileSettingsProps> = ({
                   <option value="Secret">保密 / Secret</option>
                 </select>
               </div>
+
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase text-slate-400 tracking-[0.2em] ml-2">論壇顯示暱稱 (NICKNAME)</label>
+                <input className="premium-edit-input" value={nickname} onChange={e => setNickname(e.target.value)} />
+              </div>
             </div>
 
             <div className="space-y-2">
-              <label className="text-[10px] font-black uppercase text-slate-400 tracking-[0.2em] ml-2">通訊地址 / PHYSICAL ADDRESS</label>
+              <label className="text-[10px] font-black uppercase text-slate-400 tracking-[0.2em] ml-2">b) 地址 / PHYSICAL ADDRESS</label>
               <textarea 
                 rows={3}
                 className="premium-edit-input pt-4 resize-none"
@@ -180,7 +185,7 @@ const UserProfileSettings: React.FC<UserProfileSettingsProps> = ({
             </div>
 
             <div className="space-y-2">
-              <label className="text-[10px] font-black uppercase text-slate-400 tracking-[0.2em] ml-2">SOLANA 錢包地址</label>
+              <label className="text-[10px] font-black uppercase text-slate-400 tracking-[0.2em] ml-2">d) SOLANA 錢包地址 / SOL ADDRESS</label>
               <div className="relative">
                 <Wallet size={18} className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-300" />
                 <input 

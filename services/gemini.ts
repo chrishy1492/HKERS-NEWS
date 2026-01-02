@@ -4,55 +4,80 @@ import { GoogleGenAI } from "@google/genai";
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 /**
- * 專業工程師版：自動化新聞獵頭引擎 (v4.5)
- * 嚴格遵守：
- * 1. 標題僅限「文章重點」 (Highlight Only)
- * 2. 內容為「選擇性簡單重點文」 (Selective Key Points)
- * 3. 嚴格禁止全文複製，必須進行 AI 二次改寫以避免侵權
- * 4. 確保標題與內容出自同一新聞源
+ * 專業工程師版：自動化新聞獵頭引擎 (v5.0 Copyright-Safe Edition)
+ * 修復重點：
+ * 1. 嚴格的「題文一致性」檢查。
+ * 2. 加入「版權規避」指令，強制 AI 進行改寫 (Paraphrasing) 而非複製。
+ * 3. 優化 Regex 清洗邏輯。
  */
 export const scoutAutomatedNews = async (region: string, topic: string) => {
   try {
     const isZH = region === "中國香港" || region === "台灣";
-    
-    // 構建更嚴謹的 Prompt
-    const prompt = `Action: Search for the ONE most significant current news about ${topic} in ${region}.
-    
-    Strict Operating Rules:
-    1. Title: Create a high-level highlight (文章重點). Maximum 12 words.
-    2. Content: Provide 2-3 rephrased, selective key points (選擇性簡單重點文). 
-    3. Copyright Policy: DO NOT copy sentences from the source. Re-write everything in your own words.
-    4. Consistency: The Title and Content MUST be derived from the SAME news article.
-    5. Language: Use ${isZH ? 'Traditional Chinese (Hong Kong style/Cantonese phrasing)' : 'Professional English'}.
-    6. Source: You must provide the exact site name and direct URL.
+    const langInstruction = isZH 
+      ? "Traditional Chinese (Hong Kong Cantonese style, use terms like '據報', '消息指', '最新顯示')" 
+      : "English (Journalistic style)";
 
-    Output format (Strict JSON):
+    // 構建更嚴謹的 Prompt，強制 AI 扮演編輯而非搬運工
+    const prompt = `
+    ROLE: Professional News Editor & Copyright Compliance Officer.
+    TASK: Search for ONE specific, latest news event about "${topic}" in "${region}".
+    
+    STRICT EXECUTION STEPS:
+    1. SEARCH: Find the most relevant recent news article.
+    2. READ: Analyze the core facts.
+    3. REWRITE (Crucial): Completely rephrase the content in your own words to avoid copyright infringement. Do NOT copy-paste sentences.
+    4. CONSISTENCY CHECK: Ensure the Title and Summary Points are about the EXACT SAME event.
+
+    OUTPUT REQUIREMENTS (JSON ONLY):
     {
-      "title": "Concise Highlight Title",
-      "summary_points": "• Point 1 (Rephrased)\n• Point 2 (Rephrased)",
-      "source_name": "Source Website Name",
-      "source_url": "https://..."
-    }`;
+      "title": "A short, punchy headline highlighting the main point (Max 20 words).",
+      "summary_points": "A concise summary of the event in 3-4 bullet points or a short paragraph. Focus ONLY on key facts (Who, What, When, Why). Max 100 words.",
+      "source_name": "Name of the news outlet",
+      "source_url": "Direct link to the article"
+    }
+
+    LANGUAGE: ${langInstruction}
+    FORMAT: Raw JSON object. No Markdown. No code blocks.
+    `;
 
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
       contents: prompt,
       config: {
-        systemInstruction: "You are the HKER Nexus News Scout. You are an expert at summarizing news while respecting copyright. You never copy-paste full articles. You extract only facts and rephrase them into concise community updates.",
+        systemInstruction: "You are a JSON-only bot. You synthesize news into original summaries. You never copy text directly.",
         responseMimeType: "application/json",
         tools: [{ googleSearch: {} }]
       }
     });
 
-    const text = response.text || "{}";
+    let text = response.text || "{}";
+    
+    // CRITICAL FIX: Extract JSON object using Regex to handle potential conversational wrappers
+    // 尋找最外層的 { }，確保抓取的是完整的 JSON 對象
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      text = jsonMatch[0];
+    } else {
+      // Fallback cleanup
+      text = text.replace(/```json|```/g, '').trim();
+    }
+
     const data = JSON.parse(text);
     
+    // 二次驗證數據完整性
+    if (!data.title || !data.summary_points || !data.source_url) {
+        throw new Error("Incomplete data from AI");
+    }
+    
+    // 簡單的後期處理：確保標題不包含 "標題：" 或 "Title:" 等前綴
+    data.title = data.title.replace(/^(標題|Title)[:：]\s*/i, '');
+
     return {
       ...data,
       lang: isZH ? 'zh' : 'en' as 'zh' | 'en'
     };
   } catch (error) {
-    console.error("Automated Scout v4.5 Error:", error);
+    console.error("Automated Scout Error:", error);
     return null;
   }
 };

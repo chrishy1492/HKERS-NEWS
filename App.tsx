@@ -23,46 +23,47 @@ export default function App() {
 
   const fetchUserProfile = useCallback(async (userId: string, email?: string, metadata?: any) => {
     try {
-      // 1. 嘗試從數據庫精確讀取檔案
+      // 使用 maybeSingle() 避免拋出錯誤，更穩健地檢查用戶是否存在
       const { data, error } = await supabase
         .from('profiles')
         .select('*')
         .eq('id', userId)
-        .single();
+        .maybeSingle();
       
       if (error) {
-        // CRITICAL FIX: 只有在 "查無此資料 (PGRST116)" 時才初始化新用戶
-        // 其他錯誤 (如網絡問題) 不應導致數據重置
-        if (error.code === 'PGRST116') {
-          console.log("New user detected, initializing profile...");
-          const newProfile: any = {
-            id: userId,
-            email: email || '',
-            role: ADMIN_EMAILS.includes(email || '') ? 'admin' : 'user',
-            points: 88888, // 僅限新用戶的初始積分
-            nickname: metadata?.nickname || 'HKER_' + Math.floor(Math.random() * 10000),
-            avatar_url: metadata?.avatar_url || AVATARS[Math.floor(Math.random() * AVATARS.length)],
-            full_name: metadata?.full_name || '',
-            phone: metadata?.phone || '',
-            physical_address: metadata?.physical_address || '',
-            gender: metadata?.gender || 'Secret',
-            sol_address: metadata?.sol_address || '',
-            created_at: new Date().toISOString()
-          };
+        console.error("Database connection error:", error.message);
+        // 如果是連接錯誤，不要重置資料，保持 loading 或顯示錯誤
+        // 這裡我們選擇不操作，避免覆蓋用戶數據
+        return; 
+      }
 
-          const { error: insertError } = await supabase.from('profiles').upsert([newProfile]);
-          
-          if (!insertError) {
-            setUserProfile(newProfile as UserProfile);
-          } else {
-            console.error("Initialization failed:", insertError);
-          }
+      if (!data) {
+        // 確認無資料 -> 初始化新用戶
+        console.log("New user detected, initializing profile...");
+        const newProfile: any = {
+          id: userId,
+          email: email || '',
+          role: ADMIN_EMAILS.includes(email || '') ? 'admin' : 'user',
+          points: 88888, // 僅限新用戶的初始積分
+          nickname: metadata?.nickname || 'HKER_' + Math.floor(Math.random() * 10000),
+          avatar_url: metadata?.avatar_url || AVATARS[Math.floor(Math.random() * AVATARS.length)],
+          full_name: metadata?.full_name || '',
+          phone: metadata?.phone || '',
+          physical_address: metadata?.physical_address || '',
+          gender: metadata?.gender || 'Secret',
+          sol_address: metadata?.sol_address || '',
+          created_at: new Date().toISOString()
+        };
+
+        const { error: insertError } = await supabase.from('profiles').insert([newProfile]);
+        
+        if (!insertError) {
+          setUserProfile(newProfile as UserProfile);
         } else {
-          console.error("Database error, retaining session but not resetting points:", error.message);
-          // 發生讀取錯誤時，不要重置 profile，避免積分歸零
+          console.error("Initialization failed:", insertError);
         }
-      } else if (data) {
-        // 成功讀取現有資料
+      } else {
+        // 成功讀取現有資料，絕不重置積分
         setUserProfile(data);
       }
     } catch (error: any) {
@@ -85,7 +86,7 @@ export default function App() {
     const { data: { subscription } } = (supabase.auth as any).onAuthStateChange((_event: any, session: any) => {
       setSession(session);
       if (session) {
-        // 當 Session 改變時，重新抓取資料，確保數據同步
+        // 當 Session 改變時，重新抓取資料
         fetchUserProfile(session.user.id, session.user.email, session.user.user_metadata);
       } else {
         setUserProfile(null);
@@ -99,11 +100,11 @@ export default function App() {
   const updatePoints = async (amount: number) => {
     if (!userProfile) return;
     
-    // 1. 本地樂觀更新 (Optimistic Update) 以確保 UI 反應極快
+    // 1. 本地樂觀更新 (Optimistic Update)
     const newPoints = (userProfile.points || 0) + amount;
     setUserProfile(prev => prev ? { ...prev, points: newPoints } : null);
 
-    // 2. 背景異步寫入數據庫 (Fire and Forget or Await based on need)
+    // 2. 寫入數據庫
     try {
       const { error } = await supabase
         .from('profiles')
@@ -112,7 +113,7 @@ export default function App() {
 
       if (error) {
         console.error("Points sync failed:", error.message);
-        // 如果寫入失敗，可以在這裡回滾本地狀態 (可選)
+        // 如果失敗，可以在這裡考慮回滾，或是依賴下次 fetch 校正
       }
     } catch (err) {
       console.error("Connection error during point update");
