@@ -1,71 +1,79 @@
 
-export type UserRole = 'user' | 'admin';
+export type UserRole = 'user' | 'moderator' | 'admin';
 
-export type Session = any;
-
-export interface UserProfile {
+export interface User {
   id: string;
+  name: string;
   email: string;
-  nickname: string;
-  avatar_url: string;
-  role: UserRole;
+  password?: string;
   points: number;
-  sol_address?: string;
-  full_name?: string;
-  physical_address?: string;
+  role: UserRole;
+  starLevel: number;
+  joinedAt: string;
+  avatar: string;
+  solAddress?: string;
   phone?: string;
-  gender?: 'Male' | 'Female' | 'Other' | 'Secret';
-  created_at?: string;
+  address?: string;
+  gender?: string;
+}
+
+export interface Reply {
+  id: number;
+  authorId: string;
+  authorName: string;
+  content: string;
+  createdAt: string;
 }
 
 export interface Post {
-  id: string;
-  user_id?: string;
+  id: number;
+  authorId: string;
+  authorName: string;
   title: string;
   content: string;
-  author_name: string;
-  author_avatar?: string;
   region: string;
   topic: string;
-  likes: number;
-  // hearts removed to fix schema error
-  is_bot?: boolean;
-  is_announcement?: boolean;
-  is_readonly?: boolean;
-  source_name?: string;
-  source_url?: string;
-  // original_lang removed to fix schema error
-  created_at: string;
+  
+  // Interaction: Store user IDs. Multiple occurrences allowed for 3x limit.
+  likes: string[]; 
+  loves: string[]; 
+  
+  createdAt: string;
+  replies: Reply[];
+
+  // Bot Specific Fields
+  isBot?: boolean;
+  sourceUrl?: string;
+  sourceName?: string;
+  originalLang?: 'zh' | 'en';
+  isTranslated?: boolean; // UI toggle state
+  summary?: string; // The AI generated summary
+  
+  // Pre-generated translation content (e.g., if original is EN, this holds ZH)
+  translation?: {
+    title: string;
+    content: string;
+  };
 }
 
-export enum AppView {
-  LANDING = 'landing',
-  FORUM = 'forum',
-  TOKEN = 'token'
+export interface Game {
+  id: string;
+  name: string;
 }
 
-export enum ForumSubView {
-  FEED = 'feed',
-  ADMIN = 'admin',
-  PROFILE = 'profile',
-  AI_CHAT = 'ai_chat',
-  
-  // Hubs
-  FORTUNE_HUB = 'fortune_hub',
-  GAMES_HUB = 'games_hub',
-  
-  // Fortune Views
-  FORTUNE_AI = 'fortune_ai',
-  PRAYER = 'prayer',
-  ZIWEI = 'ziwei',
-  TAROT = 'tarot',
-  FORTUNE_TELLER = 'fortune_teller',
-  
-  // Game Views
-  BLACKJACK = 'blackjack',
-  BACCARAT = 'baccarat',
-  ROULETTE = 'roulette',
-  SLOTS = 'slots',
-  FISH_PRAWN_CRAB = 'fpc',
-  LITTLE_MARY = 'mary'
+// Analytics Structure: Year -> Month -> Day -> Hour -> Count
+export interface VisitorLog {
+  [year: string]: {
+    [month: string]: {
+      [day: string]: {
+        [hour: string]: {
+          guests: number;
+          members: number;
+        }
+      }
+    }
+  }
 }
+
+export type ViewState = 'landing' | 'token' | 'forum';
+export type ForumView = 'home' | 'login' | 'register' | 'profile' | 'games' | 'divination' | 'admin';
