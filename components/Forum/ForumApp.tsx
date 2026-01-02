@@ -38,10 +38,11 @@ interface ForumAppProps {
   updatePoints: (amount: number) => void;
   setView: (view: AppView) => void;
   refreshProfile: () => void;
+  onLogout?: () => void;
 }
 
 const ForumApp: React.FC<ForumAppProps> = ({ 
-  supabase, session, userProfile, updatePoints, setView, refreshProfile 
+  supabase, session, userProfile, updatePoints, setView, refreshProfile, onLogout
 }) => {
   const [subView, setSubView] = useState<ForumSubView>(ForumSubView.FEED);
   const [region, setRegion] = useState('All');
@@ -126,6 +127,15 @@ const ForumApp: React.FC<ForumAppProps> = ({
                     <Shield size={18} />
                   </button>
                 )}
+                {onLogout && (
+                  <button 
+                    onClick={onLogout}
+                    className="p-2 ml-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all"
+                    title="登出帳戶"
+                  >
+                    <LogOut size={18} />
+                  </button>
+                )}
               </div>
             ) : (
               <AuthModal supabase={supabase} onLogin={refreshProfile} />
@@ -149,6 +159,13 @@ const ForumApp: React.FC<ForumAppProps> = ({
                <button onClick={() => setMobileMenuOpen(false)} className="p-2"><X /></button>
              </div>
              <Sidebar currentRegion={region} setRegion={(r) => { setRegion(r); setMobileMenuOpen(false); }} currentTopic={topic} setTopic={(t) => { setTopic(t); setMobileMenuOpen(false); }} setSubView={(v) => { setSubView(v); setMobileMenuOpen(false); }} activeSubView={subView} />
+             {onLogout && (
+               <div className="p-4 border-t mt-4">
+                 <button onClick={onLogout} className="w-full py-3 bg-red-50 text-red-600 font-bold rounded-xl flex items-center justify-center gap-2">
+                   <LogOut size={18} /> 登出帳戶
+                 </button>
+               </div>
+             )}
           </div>
         )}
 

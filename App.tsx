@@ -20,64 +20,53 @@ export default function App() {
   const [view, setView] = useState<AppView>(AppView.LANDING);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
-  
-  // 移除 dbError 狀態，不再顯示資料庫錯誤畫面
-  // const [dbError, setDbError] = useState<string | null>(null);
 
   const fetchUserProfile = useCallback(async (userId: string, email?: string, metadata?: any) => {
     try {
-      // 1. 嘗試讀取檔案
+      // 1. 嘗試從數據庫精確讀取檔案
       const { data, error } = await supabase
         .from('profiles')
         .select('*')
         .eq('id', userId)
         .single();
       
-      // 移除錯誤拋出邏輯，改為靜默處理
-      if (data) {
-        setUserProfile(data);
-      } else {
-        // 2. 如果檔案不存在 (或讀取失敗)，則進行初始化
-        // 從 metadata 中提取註冊時填寫的詳細資料
-        const newProfile: any = {
-          id: userId,
-          email: email || '',
-          role: ADMIN_EMAILS.includes(email || '') ? 'admin' : 'user',
-          points: 88888,
-          nickname: metadata?.nickname || 'HKER_' + Math.floor(Math.random() * 10000),
-          avatar_url: metadata?.avatar_url || AVATARS[Math.floor(Math.random() * AVATARS.length)],
-          full_name: metadata?.full_name || '',
-          phone: metadata?.phone || '',
-          physical_address: metadata?.physical_address || '',
-          gender: metadata?.gender || 'Secret',
-          sol_address: metadata?.sol_address || '',
-          created_at: new Date().toISOString()
-        };
+      if (error) {
+        // CRITICAL FIX: 只有在 "查無此資料 (PGRST116)" 時才初始化新用戶
+        // 其他錯誤 (如網絡問題) 不應導致數據重置
+        if (error.code === 'PGRST116') {
+          console.log("New user detected, initializing profile...");
+          const newProfile: any = {
+            id: userId,
+            email: email || '',
+            role: ADMIN_EMAILS.includes(email || '') ? 'admin' : 'user',
+            points: 88888, // 僅限新用戶的初始積分
+            nickname: metadata?.nickname || 'HKER_' + Math.floor(Math.random() * 10000),
+            avatar_url: metadata?.avatar_url || AVATARS[Math.floor(Math.random() * AVATARS.length)],
+            full_name: metadata?.full_name || '',
+            phone: metadata?.phone || '',
+            physical_address: metadata?.physical_address || '',
+            gender: metadata?.gender || 'Secret',
+            sol_address: metadata?.sol_address || '',
+            created_at: new Date().toISOString()
+          };
 
-        // 嘗試寫入資料庫
-        const { error: insertError } = await supabase.from('profiles').upsert([newProfile]);
-        
-        if (insertError) {
-          console.warn("Profile sync warning (Database might not be ready):", insertError.message);
-          // 強制通關：即使資料庫寫入失敗，也在前端設定用戶資料，讓用戶能直接進入
-          setUserProfile(newProfile as UserProfile);
+          const { error: insertError } = await supabase.from('profiles').upsert([newProfile]);
+          
+          if (!insertError) {
+            setUserProfile(newProfile as UserProfile);
+          } else {
+            console.error("Initialization failed:", insertError);
+          }
         } else {
-          setUserProfile(newProfile as UserProfile);
+          console.error("Database error, retaining session but not resetting points:", error.message);
+          // 發生讀取錯誤時，不要重置 profile，避免積分歸零
         }
+      } else if (data) {
+        // 成功讀取現有資料
+        setUserProfile(data);
       }
     } catch (error: any) {
-      console.error("Profile load error (Bypassing):", error);
-      // 發生未預期錯誤時，嘗試建立一個臨時 profile 讓用戶進入
-      if (email) {
-         setUserProfile({
-            id: userId,
-            email: email,
-            nickname: metadata?.nickname || 'Guest',
-            avatar_url: metadata?.avatar_url || AVATARS[0],
-            role: 'user',
-            points: 88888
-         } as UserProfile);
-      }
+      console.error("Critical Profile Error:", error);
     } finally {
       setLoading(false);
     }
@@ -96,6 +85,7 @@ export default function App() {
     const { data: { subscription } } = (supabase.auth as any).onAuthStateChange((_event: any, session: any) => {
       setSession(session);
       if (session) {
+        // 當 Session 改變時，重新抓取資料，確保數據同步
         fetchUserProfile(session.user.id, session.user.email, session.user.user_metadata);
       } else {
         setUserProfile(null);
@@ -108,18 +98,33 @@ export default function App() {
 
   const updatePoints = async (amount: number) => {
     if (!userProfile) return;
+    
+    // 1. 本地樂觀更新 (Optimistic Update) 以確保 UI 反應極快
     const newPoints = (userProfile.points || 0) + amount;
-    // 前端即時更新
-    setUserProfile({ ...userProfile, points: newPoints });
+    setUserProfile(prev => prev ? { ...prev, points: newPoints } : null);
 
-    // 背景同步到資料庫 (失敗不報錯)
-    await supabase
-      .from('profiles')
-      .update({ points: newPoints })
-      .eq('id', userProfile.id);
+    // 2. 背景異步寫入數據庫 (Fire and Forget or Await based on need)
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update({ points: newPoints })
+        .eq('id', userProfile.id);
+
+      if (error) {
+        console.error("Points sync failed:", error.message);
+        // 如果寫入失敗，可以在這裡回滾本地狀態 (可選)
+      }
+    } catch (err) {
+      console.error("Connection error during point update");
+    }
   };
 
-  // 移除錯誤畫面渲染邏輯 (if dbError ...)
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    setSession(null);
+    setUserProfile(null);
+    setView(AppView.LANDING);
+  };
 
   if (loading) {
     return (
@@ -143,6 +148,7 @@ export default function App() {
           updatePoints={updatePoints}
           setView={setView}
           refreshProfile={() => session && fetchUserProfile(session.user.id, session.user.email)}
+          onLogout={handleLogout}
         />
       ) : (
         <TokenApp 

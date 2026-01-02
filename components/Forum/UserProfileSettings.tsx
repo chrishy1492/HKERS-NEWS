@@ -28,15 +28,10 @@ const UserProfileSettings: React.FC<UserProfileSettingsProps> = ({
   const [gender, setGender] = useState(userProfile.gender || 'Secret');
   const [solAddress, setSolAddress] = useState(userProfile.sol_address || '');
   
-  // 2. 帳號安全性狀態
-  const [email, setEmail] = useState(userProfile.email);
-  const [newPassword, setNewPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<{ type: 'success' | 'error', text: string } | null>(null);
 
-  // 儲存一般資料更新
+  // 儲存一般資料更新 - 簡單直接，無需驗證
   const handleSaveProfile = async () => {
     setSaving(true);
     setMsg(null);
@@ -56,35 +51,11 @@ const UserProfileSettings: React.FC<UserProfileSettingsProps> = ({
 
       if (error) throw error;
       
-      setMsg({ type: 'success', text: "帳戶資料同步成功！已更新至雲端伺服器。" });
-      onRefresh();
+      setMsg({ type: 'success', text: "資料已直接寫入系統，更新成功！" });
+      onRefresh(); // 刷新 App 層級的 profile 狀態
       window.scrollTo({ top: 0, behavior: 'smooth' });
     } catch (err: any) {
       setMsg({ type: 'error', text: "更新失敗: " + err.message });
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  // 儲存帳號安全更新 (電郵/密碼)
-  const handleSecurityUpdate = async (target: 'email' | 'password') => {
-    setSaving(true);
-    setMsg(null);
-    try {
-      if (target === 'email') {
-        if (email === userProfile.email) return;
-        const { error } = await (supabase.auth as any).updateUser({ email });
-        if (error) throw error;
-        setMsg({ type: 'success', text: "電郵更新請求已發送，請檢查新信箱進行確認。" });
-      } else {
-        if (!newPassword || newPassword.length < 6) throw new Error("密碼長度至少需要 6 位。");
-        const { error } = await (supabase.auth as any).updateUser({ password: newPassword });
-        if (error) throw error;
-        setNewPassword('');
-        setMsg({ type: 'success', text: "安全性密碼已重設，下次登入請使用新密碼。" });
-      }
-    } catch (err: any) {
-      setMsg({ type: 'error', text: "修改失敗: " + err.message });
     } finally {
       setSaving(false);
     }
@@ -170,7 +141,7 @@ const UserProfileSettings: React.FC<UserProfileSettingsProps> = ({
               <div className="p-3 bg-blue-50 rounded-2xl text-blue-600">
                 <User size={24} />
               </div>
-              <h3 className="text-2xl font-black text-slate-900 tracking-tight">編輯個人檔案</h3>
+              <h3 className="text-2xl font-black text-slate-900 tracking-tight">編輯個人檔案 (直接修改)</h3>
             </div>
             
             <div className="grid md:grid-cols-2 gap-8">
@@ -227,70 +198,8 @@ const UserProfileSettings: React.FC<UserProfileSettingsProps> = ({
               className="w-full bg-slate-900 hover:bg-black text-white font-black py-5 rounded-[28px] transition-all shadow-xl shadow-slate-200 disabled:opacity-50 flex items-center justify-center gap-3 text-lg"
             >
               {saving ? <RefreshCw className="animate-spin" size={24} /> : <Save size={24} />}
-              <span>同步更新個人資料</span>
+              <span>保存所有修改</span>
             </button>
-          </div>
-
-          {/* 帳號安全性模組：電郵與密碼 */}
-          <div className="bg-slate-50 p-10 rounded-[40px] border border-slate-200 shadow-xl space-y-10">
-            <div className="flex items-center gap-4 border-b border-slate-200 pb-8">
-              <div className="p-3 bg-white rounded-2xl text-slate-900 border border-slate-200 shadow-sm">
-                <Lock size={24} />
-              </div>
-              <h3 className="text-2xl font-black text-slate-900 tracking-tight">安全中心 / SECURITY</h3>
-            </div>
-
-            <div className="space-y-8">
-              {/* 電郵變更 */}
-              <div className="flex flex-col md:flex-row gap-6 items-end">
-                <div className="flex-1 space-y-2 w-full">
-                  <label className="text-[10px] font-black uppercase text-slate-400 tracking-[0.2em] ml-2">變更電子郵件</label>
-                  <div className="relative">
-                    <Mail size={18} className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-300" />
-                    <input className="premium-edit-input bg-white pl-14" type="email" value={email} onChange={e => setEmail(e.target.value)} />
-                  </div>
-                </div>
-                <button 
-                  onClick={() => handleSecurityUpdate('email')}
-                  disabled={email === userProfile.email || saving}
-                  className="w-full md:w-auto bg-white border-2 border-slate-200 hover:border-blue-600 text-blue-600 font-black px-10 py-4 rounded-2xl text-xs transition-all disabled:opacity-30"
-                >
-                  確認同步電郵
-                </button>
-              </div>
-
-              {/* 密碼重設 */}
-              <div className="flex flex-col md:flex-row gap-6 items-end border-t border-slate-200 pt-8">
-                <div className="flex-1 space-y-2 w-full">
-                  <label className="text-[10px] font-black uppercase text-slate-400 tracking-[0.2em] ml-2">設定新安全密碼</label>
-                  <div className="relative">
-                    <Key size={18} className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-300" />
-                    <input 
-                      className="premium-edit-input bg-white pl-14 pr-14" 
-                      type={showPassword ? 'text' : 'password'} 
-                      placeholder="輸入新密碼 (至少6位)"
-                      value={newPassword}
-                      onChange={e => setNewPassword(e.target.value)}
-                    />
-                    <button 
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-5 top-1/2 -translate-y-1/2 text-slate-300 hover:text-slate-900"
-                    >
-                      {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
-                    </button>
-                  </div>
-                </div>
-                <button 
-                  onClick={() => handleSecurityUpdate('password')}
-                  disabled={!newPassword || saving}
-                  className="w-full md:w-auto bg-blue-600 hover:bg-blue-700 text-white font-black px-10 py-4 rounded-2xl text-xs transition-all shadow-xl shadow-blue-500/20 disabled:opacity-30 flex items-center gap-2"
-                >
-                  <Key size={14} />
-                  確認修改密碼
-                </button>
-              </div>
-            </div>
           </div>
         </div>
       </div>
