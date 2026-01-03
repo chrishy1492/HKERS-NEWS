@@ -162,10 +162,10 @@ const AuthModal: React.FC<AuthModalProps> = ({ supabase, onLogin }) => {
 
         <div className="text-center mb-10">
           <h2 className="text-4xl font-black text-slate-900 tracking-tight">
-            {isRegister ? '建立您的 Nexus 帳戶' : '歡迎回到社區'}
+            {isRegister ? '建立您的 HKER 帳戶' : '歡迎回到社區'}
           </h2>
           <p className="text-slate-500 text-sm mt-2 font-medium">
-            {isRegister ? '註冊後領取入會獎勵 88,888 積分' : '請輸入您的憑證以進入 Nexus'}
+            {isRegister ? '註冊後領取入會獎勵 88,888 積分' : '請輸入您的憑證以進入平台'}
           </p>
         </div>
 
@@ -301,7 +301,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ supabase, onLogin }) => {
             disabled={loading}
             className="w-full bg-slate-900 hover:bg-black text-white font-black py-5 rounded-[32px] shadow-xl transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-3 text-lg"
           >
-            {loading ? <Loader2 className="animate-spin" size={24} /> : <span>{isRegister ? '立即入會領取獎勵' : '進入 Nexus'}</span>}
+            {loading ? <Loader2 className="animate-spin" size={24} /> : <span>{isRegister ? '立即入會領取獎勵' : '進入平台'}</span>}
           </button>
         </form>
 

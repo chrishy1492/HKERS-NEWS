@@ -24,7 +24,7 @@ const FortuneHub: React.FC<FortuneHubProps> = ({ onSelect }) => {
         <div className="relative z-10">
           <div className="mb-16">
             <h1 className="text-5xl md:text-7xl font-black italic tracking-tighter text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 via-white to-fuchsia-500 uppercase leading-none">
-              FORTUNE NEXUS
+              HKER FORTUNE
             </h1>
             <p className="text-slate-400 font-bold mt-4 flex items-center gap-2 uppercase tracking-widest text-sm">
               <Sparkles size={16} className="text-indigo-400" /> Lion Rock Cyber-Occult Engine v5.0

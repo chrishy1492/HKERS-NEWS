@@ -70,7 +70,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ supabase }) => {
     const { error } = await supabase.from('posts').insert([{
       title: `[系統公告] ${broadcastTitle}`,
       content: broadcastContent,
-      author_name: "Nexus Command",
+      author_name: "HKER Command",
       author_avatar: "https://api.dicebear.com/7.x/bottts/svg?seed=NexusCommand&backgroundColor=ef4444",
       region: "All",
       topic: "公告",
@@ -132,7 +132,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ supabase }) => {
               <div className="p-3 bg-red-600 rounded-2xl shadow-lg shadow-red-600/20">
                 <Shield className="text-white" size={28} />
               </div>
-              <h2 className="text-4xl font-black tracking-tighter italic uppercase">Nexus Command Center</h2>
+              <h2 className="text-4xl font-black tracking-tighter italic uppercase">HKER Command Center</h2>
             </div>
             <p className="text-slate-400 font-bold text-xs uppercase tracking-[0.3em]">系統管理特權模式已激活</p>
           </div>

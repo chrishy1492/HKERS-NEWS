@@ -1,5 +1,8 @@
+
 {
-  "name": "HKER Forum & Token",
-  "description": "A community platform for Hongkongers featuring a forum, Web3 token integration simulation, and game center.",
-  "requestFramePermissions": []
+  "name": "HKER News Platform: Lion Rock Digital Hub",
+  "description": "A comprehensive community platform for Hong Kongers worldwide, featuring a real-time forum, AI-powered news summaries, casino games, and a Web3 token dashboard.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
 }

@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { X, Coins, Volume2, VolumeX, RotateCw, Sparkles, Trophy, Play, Zap, Info } from 'lucide-react';
 import { UserProfile } from '../../types';
@@ -131,7 +132,7 @@ const LuckySlots: React.FC<LuckySlotsProps> = ({ onClose, userProfile, updatePoi
             <h2 className="text-2xl font-black text-amber-400 italic flex items-center gap-2">
               <Zap size={24} fill="#fbbf24" className="animate-pulse" /> 幸運老虎機
             </h2>
-            <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Nexus Lucky Slots v2.0</p>
+            <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">HKER Lucky Slots v2.0</p>
           </div>
         </div>
         
@@ -243,7 +244,7 @@ const LuckySlots: React.FC<LuckySlotsProps> = ({ onClose, userProfile, updatePoi
         {/* Fixed missing import for Info icon */}
         <Info className="text-slate-500 mt-1 flex-shrink-0" size={16} />
         <p className="text-[10px] text-slate-500 leading-relaxed font-medium">
-          幸運老虎機為 Nexus 虛擬積分遊戲。請謹記「博盡無悔，量力而為」。獅子山精神的核心是創造價值與守望相助。如有沉迷傾向，請尋求社區幫助。祝願大家好運！
+          幸運老虎機為 HKER 虛擬積分遊戲。請謹記「博盡無悔，量力而為」。獅子山精神的核心是創造價值與守望相助。如有沉迷傾向，請尋求社區幫助。祝願大家好運！
         </p>
       </div>
     </div>

@@ -21,77 +21,80 @@ const PostCard: React.FC<PostCardProps> = ({ post, session, userProfile, updateP
   const [isTranslating, setIsTranslating] = useState(false);
   const [translatedText, setTranslatedText] = useState<string | null>(null);
   const [translatedTitle, setTranslatedTitle] = useState<string | null>(null);
-  // Default to 'zh' as we removed the database column, effectively resetting state on unmount
-  const [currentLang, setCurrentLang] = useState('zh');
   
-  const [likes, setLikes] = useState(post.likes);
-  const [interactionCount, setInteractionCount] = useState({ likes: 0 });
+  // Interactions State
+  const [likes, setLikes] = useState(post.likes || 0);
+  const [hasLiked, setHasLiked] = useState(false); // Local tracking for immediate feedback
 
-  // Infer bot status from title or explicit flag (fallback)
-  const isBot = post.is_bot || (post.title && post.title.includes("速遞]"));
-  const isReadonly = post.is_readonly || isBot;
+  // Display Fields Logic
+  const isBot = post.is_bot;
+  // Use source_name as author if bot, else generic
+  const displayAuthorName = post.source_name || (isBot ? "HKER AI Bot" : "Member");
+  const displayAvatar = `https://api.dicebear.com/7.x/avataaars/svg?seed=${displayAuthorName}`;
 
-  // Safe fallback for author name and avatar
-  const displayAuthorName = post.author_name || (isBot ? "HKER_NEWS_BOT" : "Anonymous Member");
-  const displayAvatar = post.author_avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${displayAuthorName}`;
-
+  // Check if user has already liked this session (Simple check, ideally check DB)
   useEffect(() => {
-    const key = `nexus_limit_v4_${post.id}_${session?.user?.id || 'guest'}`;
-    const saved = localStorage.getItem(key);
-    if (saved) setInteractionCount(JSON.parse(saved));
-  }, [post.id, session]);
+    // In a real app we would fetch 'interactions' count from DB here
+    // For now, we trust the 'likes' count passed down (if available)
+  }, [post.id]);
 
   const handleInteraction = async () => {
     if (!session) return alert("請先登入系統 / Please Login First");
     
-    // Strict Limit: Max 3 likes per user per post
-    if (interactionCount.likes >= 3) {
-      alert("⚠️ 系統提示：每位用戶對單一貼文最多只能點讚 3 次。");
-      return;
-    }
-
-    // Optimistic Update
-    const newCounts = { likes: interactionCount.likes + 1 };
+    // 1. Optimistic Update (For UI Responsiveness)
     setLikes(prev => prev + 1);
-    setInteractionCount(newCounts);
+    setHasLiked(true);
     
-    // Persist Limit Locally
-    localStorage.setItem(`nexus_limit_v4_${post.id}_${session.user.id}`, JSON.stringify(newCounts));
-    
-    // Update DB
-    await supabase.from('posts').update({ likes: likes + 1 }).eq('id', post.id);
-    
-    // Reward User
-    updatePoints(50);
+    // 2. Insert into 'interactions' table (Trigger will validate limit)
+    try {
+      const { error } = await supabase.from('interactions').insert({
+        user_id: session.user.id,
+        post_id: post.id,
+        type: 'like'
+      });
+
+      if (error) {
+        // Handle Trigger Error (P0001 is standard raise exception code)
+        if (error.code === 'P0001' || error.message.includes('limit reached')) {
+          alert("⚠️ 系統提示：您對此貼文的點讚次數已達上限 (Max 3)。");
+          setLikes(prev => prev - 1); // Revert optimistic update
+        } else {
+          console.error("Interaction Error:", error.message);
+        }
+      } else {
+        // Success: Reward User
+        updatePoints(10);
+      }
+    } catch (err) {
+      console.error("System Error", err);
+      setLikes(prev => prev - 1);
+    }
   };
 
   const handleTranslate = async () => {
     if (translatedText) {
-      // Toggle back to original
       setTranslatedText(null);
       setTranslatedTitle(null);
-      setCurrentLang('zh');
       return;
     }
     
     setIsTranslating(true);
-    const target = 'en'; // Default translation target
+    const target = 'en'; 
     
-    const [newTitle, newContent] = await Promise.all([
+    const [newTitle, newSummary] = await Promise.all([
       performQuantumTranslation(post.title, target),
-      performQuantumTranslation(post.content, target)
+      performQuantumTranslation(post.summary, target)
     ]);
     
-    if (newContent && newTitle) {
+    if (newSummary && newTitle) {
       setTranslatedTitle(newTitle);
-      setTranslatedText(newContent);
-      setCurrentLang(target);
+      setTranslatedText(newSummary);
     }
     setIsTranslating(false);
   };
 
   const handleDelete = async () => {
-    if (!confirm("ADMIN ACTION: Are you sure you want to delete this post?")) return;
+    if (!confirm("ADMIN ACTION: Confirm delete? This will create a log in audit trail.")) return;
     const { error } = await supabase.from('posts').delete().eq('id', post.id);
     if (!error) window.location.reload();
   };
@@ -99,11 +102,8 @@ const PostCard: React.FC<PostCardProps> = ({ post, session, userProfile, updateP
   const isAdmin = userProfile?.role === 'admin';
 
   return (
-    <div className={`bg-white rounded-[32px] shadow-sm border overflow-hidden hover:shadow-xl transition-all duration-300 group mb-8 ${
-      post.is_announcement 
-        ? 'border-red-500 ring-2 ring-red-500/10 shadow-[0_0_30px_rgba(239,68,68,0.1)]' 
-        : isBot ? 'border-indigo-100' : 'border-slate-200'
-    }`}>
+    <div className={`bg-white rounded-[32px] shadow-sm border overflow-hidden hover:shadow-xl transition-all duration-300 group mb-8 ${isBot ? 'border-indigo-100' : 'border-slate-200'}`}>
+      
       {/* Admin Action Bar */}
       {isAdmin && (
         <div className="bg-slate-900 px-6 py-1.5 flex justify-between items-center text-white text-[9px] font-black uppercase tracking-widest">
@@ -119,24 +119,16 @@ const PostCard: React.FC<PostCardProps> = ({ post, session, userProfile, updateP
       {/* Header Section */}
       <div className="p-6 flex justify-between items-start">
         <div className="flex items-center space-x-4">
-          <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shadow-inner ${
-            post.is_announcement ? 'bg-red-600 text-white' : 
-            isBot ? 'bg-gradient-to-br from-indigo-500 to-purple-600 text-white' : 'bg-slate-100'
-          }`}>
-            {post.is_announcement ? <Megaphone size={24} /> : 
-             isBot ? <Cpu size={24} className="animate-pulse" /> : 
+          <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shadow-inner ${isBot ? 'bg-gradient-to-br from-indigo-500 to-purple-600 text-white' : 'bg-slate-100'}`}>
+            {isBot ? <Cpu size={24} className="animate-pulse" /> : 
              <img src={displayAvatar} className="w-full h-full rounded-2xl object-cover" alt="Avt" />}
           </div>
           <div>
             <div className="flex items-center space-x-2">
               <span className="font-bold text-slate-900 text-base">{displayAuthorName}</span>
-              {post.is_announcement ? (
-                <span className="bg-red-100 text-red-600 text-[9px] font-black uppercase px-2 py-0.5 rounded border border-red-200 flex items-center gap-1">
-                  <Megaphone size={8} /> ANNOUNCEMENT
-                </span>
-              ) : isBot && (
+              {isBot && (
                 <span className="bg-indigo-50 text-indigo-600 text-[9px] font-black uppercase px-2 py-0.5 rounded border border-indigo-100 flex items-center gap-1">
-                  <Sparkles size={8} /> AI BOT
+                  <Sparkles size={8} /> AI AGENT
                 </span>
               )}
             </div>
@@ -151,23 +143,26 @@ const PostCard: React.FC<PostCardProps> = ({ post, session, userProfile, updateP
 
       {/* Content Body */}
       <div className="px-6 pb-6 space-y-4">
-        <h3 className={`text-xl font-bold leading-tight transition-colors ${
-          post.is_announcement ? 'text-red-600' : 'text-slate-900'
-        }`}>
+        <h3 className="text-xl font-bold leading-tight text-slate-900">
           {translatedTitle || post.title}
         </h3>
         
-        <div className={`text-slate-600 leading-relaxed text-sm whitespace-pre-wrap ${
-          post.is_announcement ? 'bg-red-50 p-6 rounded-2xl border border-red-100' :
-          isBot ? 'bg-slate-50/50 p-6 rounded-2xl border border-slate-100' : ''
-        }`}>
-          {translatedText || post.content}
+        {/* Content Snippet (Lead-in) */}
+        {post.content_snippet && (
+           <div className="text-sm font-medium text-slate-500 italic border-l-2 border-indigo-200 pl-3">
+             {post.content_snippet}
+           </div>
+        )}
+
+        {/* Main Summary (Markdown) */}
+        <div className={`text-slate-600 leading-relaxed text-sm whitespace-pre-wrap ${isBot ? 'bg-slate-50/50 p-6 rounded-2xl border border-slate-100' : ''}`}>
+          {translatedText || post.summary}
         </div>
 
-        {post.source_url && (
+        {post.original_url && (
           <div className="pt-2">
             <a 
-              href={post.source_url} 
+              href={post.original_url} 
               target="_blank" 
               rel="noopener noreferrer"
               className="inline-flex items-center gap-2 px-4 py-2 bg-slate-50 hover:bg-slate-100 text-indigo-600 border border-slate-200 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all"
@@ -183,15 +178,14 @@ const PostCard: React.FC<PostCardProps> = ({ post, session, userProfile, updateP
         <div className="flex items-center space-x-6">
           <button 
             onClick={handleInteraction}
-            className={`flex items-center gap-2 group/btn transition-all ${interactionCount.likes >= 3 ? 'opacity-50 cursor-not-allowed' : 'hover:scale-105'}`}
-            title={interactionCount.likes >= 3 ? "Limit Reached" : "Like Post"}
+            className={`flex items-center gap-2 group/btn transition-all ${hasLiked ? 'text-blue-600' : 'text-slate-400 hover:text-blue-500'}`}
+            title="Like Post"
           >
-            <div className={`p-2 rounded-lg transition-colors ${interactionCount.likes > 0 ? 'bg-blue-100 text-blue-600' : 'bg-white border border-slate-200 text-slate-400 group-hover/btn:border-blue-400 group-hover/btn:text-blue-500'}`}>
-              <ThumbsUp size={16} className={interactionCount.likes > 0 ? 'fill-current' : ''} />
+            <div className={`p-2 rounded-lg transition-colors ${hasLiked ? 'bg-blue-100' : 'bg-white border border-slate-200 group-hover/btn:border-blue-400'}`}>
+              <ThumbsUp size={16} className={hasLiked ? 'fill-current' : ''} />
             </div>
             <div className="flex flex-col leading-none">
-              <span className="text-xs font-bold text-slate-700">{likes}</span>
-              {interactionCount.likes > 0 && <span className="text-[8px] font-bold text-blue-500 uppercase">{interactionCount.likes}/3</span>}
+              <span className="text-xs font-bold">{likes}</span>
             </div>
           </button>
         </div>
@@ -207,13 +201,13 @@ const PostCard: React.FC<PostCardProps> = ({ post, session, userProfile, updateP
             }`}
           >
             {isTranslating ? <Loader2 size={12} className="animate-spin" /> : <Languages size={14} />}
-            <span>{translatedText ? 'Show Original' : 'Translate'}</span>
+            <span>{translatedText ? 'Original' : 'Translate'}</span>
           </button>
           
-          {(isReadonly || post.is_announcement) && (
+          {(!post.allow_comments) && (
             <div className="hidden sm:flex items-center gap-1.5 text-slate-400 text-[10px] font-bold border-l border-slate-200 pl-4">
               <MessageSquareOff size={14} />
-              <span>READ ONLY</span>
+              <span>LOCKED</span>
             </div>
           )}
         </div>

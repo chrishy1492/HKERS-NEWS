@@ -134,7 +134,7 @@ const ZiWeiGame: React.FC = () => {
             <Compass size={32} className="animate-spin-slow" />
           </div>
           <div>
-            <h1 className="text-4xl font-black text-slate-900 tracking-tighter italic">ZI WEI NEXUS</h1>
+            <h1 className="text-4xl font-black text-slate-900 tracking-tighter italic">ZI WEI CENTRE</h1>
             <p className="text-emerald-600 font-bold uppercase tracking-widest text-[10px]">AI-Powered Destiny Engine v4.2</p>
           </div>
         </div>

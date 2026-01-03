@@ -146,7 +146,7 @@ const UserProfileSettings: React.FC<UserProfileSettingsProps> = ({
             <div className="text-center md:text-left">
               <div className="flex items-center justify-center md:justify-start gap-3">
                 <h2 className="text-4xl font-black tracking-tight">{nickname}</h2>
-                <span className="bg-blue-600/20 text-blue-400 text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded-full border border-blue-600/30">HKER Nexus Member</span>
+                <span className="bg-blue-600/20 text-blue-400 text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded-full border border-blue-600/30">HKER Platform Member</span>
               </div>
               <p className="text-slate-400 font-bold uppercase tracking-[0.2em] mt-2 text-xs flex items-center justify-center md:justify-start gap-2">
                 <Shield size={14} className="text-blue-500" />

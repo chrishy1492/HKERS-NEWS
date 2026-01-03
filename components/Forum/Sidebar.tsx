@@ -1,8 +1,9 @@
 
-import React from 'react';
+import React, { useState } from 'react';
 import { REGIONS, TOPICS } from '../../constants';
 import { ForumSubView } from '../../types';
-import { LayoutGrid, Globe, Compass, Gamepad2, MessageSquare, Filter } from 'lucide-react';
+import { LayoutGrid, Globe, Compass, Gamepad2, MessageSquare, Filter, ShieldAlert } from 'lucide-react';
+import DisclaimerModal from '../Common/DisclaimerModal';
 
 interface SidebarProps {
   currentRegion: string;
@@ -16,11 +17,14 @@ interface SidebarProps {
 const Sidebar: React.FC<SidebarProps> = ({ 
   currentRegion, setRegion, currentTopic, setTopic, setSubView, activeSubView 
 }) => {
+  const [showDisclaimer, setShowDisclaimer] = useState(false);
+
   return (
+    <>
     <div className="p-6 space-y-8 flex flex-col h-full bg-white">
       {/* 1. Nexus Core - 導航中心 */}
       <div>
-        <h3 className="text-[10px] font-black uppercase text-slate-400 tracking-[0.2em] mb-4">Nexus Core / 核心導航</h3>
+        <h3 className="text-[10px] font-black uppercase text-slate-400 tracking-[0.2em] mb-4">Platform Core / 核心導航</h3>
         <div className="space-y-1.5">
           <button 
             onClick={() => setSubView(ForumSubView.FEED)}
@@ -51,7 +55,7 @@ const Sidebar: React.FC<SidebarProps> = ({
             className={`w-full flex items-center space-x-3 px-4 py-3 rounded-2xl text-sm font-bold transition-all ${activeSubView === ForumSubView.AI_CHAT ? 'bg-slate-900 text-white shadow-lg' : 'text-slate-600 hover:bg-slate-100'}`}
           >
             <MessageSquare size={18} />
-            <span>AI 助手 / Nexus Chat</span>
+            <span>AI 助手 / AI Chat</span>
           </button>
         </div>
       </div>
@@ -62,7 +66,7 @@ const Sidebar: React.FC<SidebarProps> = ({
           <Filter size={14} className="text-[#B91C1C]" />
           <h3 className="text-[10px] font-black uppercase text-slate-400 tracking-[0.2em]">Topics / 內容範疇</h3>
         </div>
-        <div className="space-y-1 max-h-[300px] overflow-y-auto custom-scrollbar pr-2">
+        <div className="space-y-1 max-h-[250px] overflow-y-auto custom-scrollbar pr-2">
           <button 
             onClick={() => { setTopic('All'); setSubView(ForumSubView.FEED); }}
             className={`w-full text-left px-4 py-2.5 rounded-xl text-sm font-semibold transition-all ${currentTopic === 'All' && activeSubView === ForumSubView.FEED ? 'bg-red-50 text-[#B91C1C] font-black border-l-4 border-[#B91C1C]' : 'text-slate-600 hover:bg-slate-50'}`}
@@ -82,7 +86,7 @@ const Sidebar: React.FC<SidebarProps> = ({
       </div>
 
       {/* 3. Regions - 地區 Hubs */}
-      <div>
+      <div className="flex-1 overflow-y-auto custom-scrollbar">
         <div className="flex items-center space-x-2 mb-4">
           <Globe size={14} className="text-blue-500" />
           <h3 className="text-[10px] font-black uppercase text-slate-400 tracking-[0.2em]">Regional Hubs / 地區中樞</h3>
@@ -92,7 +96,7 @@ const Sidebar: React.FC<SidebarProps> = ({
             onClick={() => { setRegion('All'); setSubView(ForumSubView.FEED); }}
             className={`w-full text-left px-4 py-2 rounded-xl text-sm font-semibold transition-all ${currentRegion === 'All' && activeSubView === ForumSubView.FEED ? 'bg-blue-50 text-blue-700 font-black border-l-4 border-blue-600' : 'text-slate-600 hover:bg-slate-50'}`}
           >
-            Global Nexus / 全球
+            Global News / 全球
           </button>
           {REGIONS.map(r => (
             <button 
@@ -106,11 +110,24 @@ const Sidebar: React.FC<SidebarProps> = ({
         </div>
       </div>
 
+      {/* Footer - Disclaimer */}
+      <div className="pt-4 mt-auto border-t border-slate-100">
+        <button 
+          onClick={() => setShowDisclaimer(true)}
+          className="w-full flex items-center justify-center space-x-2 px-4 py-3 bg-slate-50 hover:bg-red-50 hover:text-red-600 text-slate-400 rounded-xl transition-all text-[10px] font-black uppercase tracking-widest group"
+        >
+          <ShieldAlert size={14} className="group-hover:animate-pulse" />
+          <span>免責聲明 / Disclaimer</span>
+        </button>
+      </div>
+
       <style>{`
         .custom-scrollbar::-webkit-scrollbar { width: 4px; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #e2e8f0; border-radius: 10px; }
       `}</style>
     </div>
+    <DisclaimerModal isOpen={showDisclaimer} onClose={() => setShowDisclaimer(false)} />
+    </>
   );
 };
 

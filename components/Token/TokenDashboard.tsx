@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { 
   Coins, LogOut, ArrowUpRight, TrendingUp, Shield, 
-  ExternalLink, Wallet, Gift, Star, Clock
+  ExternalLink, Wallet, Gift, Star, Clock, Loader2
 } from 'lucide-react';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { UserProfile, AppView, Session } from '../../types';
@@ -20,6 +20,7 @@ const TokenDashboard: React.FC<TokenDashboardProps> = ({
   supabase, session, userProfile, updatePoints, setView 
 }) => {
   const [redeemStatus, setRedeemStatus] = useState<string | null>(null);
+  const [isProcessing, setIsProcessing] = useState(false);
 
   const exchangeLinks = [
     { name: 'Jupiter Exchange', url: 'https://jup.ag/tokens/B5wYCjComoHbf8CMq5nonhScdi1njuweoytS77QyXW1z', color: 'bg-green-500' },
@@ -35,13 +36,30 @@ const TokenDashboard: React.FC<TokenDashboardProps> = ({
     { star: 5, cost: 10000000, name: 'Diamond Rock Star' }
   ];
 
+  // 3. 核心修復：提幣扣除邏輯 (Withdrawal Logic)
   const handleRedeem = async (cost: number, tierName: string) => {
     if (!session || !userProfile) return alert("Please login.");
-    if (userProfile.points < cost) return alert("Insufficient points for this tier!");
+    if (isProcessing) return; // Prevent double click
+
+    if (userProfile.points < cost) {
+        return alert(`積分不足！您需要 ${cost.toLocaleString()} 積分，目前只有 ${userProfile.points.toLocaleString()}。`);
+    }
     
-    if (confirm(`Redeem ${cost.toLocaleString()} points for ${tierName}?`)) {
-      updatePoints(-cost);
-      setRedeemStatus(`Successfully redeemed ${tierName}! Admin will update your badge shortly.`);
+    if (confirm(`確認消耗 ${cost.toLocaleString()} 積分兌換【${tierName}】嗎？此操作不可撤銷。`)) {
+      setIsProcessing(true);
+      try {
+        // 執行扣除 (傳入負數)
+        await updatePoints(-cost);
+        
+        // 模擬區塊鏈/後台處理延遲
+        setTimeout(() => {
+            setRedeemStatus(`✅ 成功兌換 ${tierName}！系統已自動扣除 ${cost.toLocaleString()} HKER 積分。管理員將在 24 小時內審核並更新您的徽章。`);
+            setIsProcessing(false);
+        }, 1500);
+      } catch (e) {
+        alert("交易失敗，請稍後再試");
+        setIsProcessing(false);
+      }
     }
   };
 
@@ -91,7 +109,7 @@ const TokenDashboard: React.FC<TokenDashboardProps> = ({
              </div>
              <h2 className="text-7xl font-black mb-8 tracking-tighter leading-none italic">
                THE SOUL OF <br/>
-               <span className="text-transparent bg-clip-text bg-gradient-to-r from-red-600 via-white to-red-600">NEXUS ECONOMY</span>
+               <span className="text-transparent bg-clip-text bg-gradient-to-r from-red-600 via-white to-red-600">HKER ECONOMY</span>
              </h2>
              <p className="text-slate-400 text-xl leading-relaxed mb-10 max-w-xl font-medium">
                HKER Token is the digital pulse of our global community. Earn by engaging, spend by participating, and hold as a symbol of the enduring Lion Rock spirit.
@@ -113,13 +131,12 @@ const TokenDashboard: React.FC<TokenDashboardProps> = ({
           </div>
           
           <div className="relative group animate-in zoom-in duration-1000">
-            {/* Main Token Visual - Styled as the provided HKER Coin */}
+            {/* Main Token Visual */}
             <div className="absolute -inset-10 bg-red-600/10 rounded-full blur-3xl opacity-50 group-hover:opacity-80 transition-opacity"></div>
             <div className="relative bg-slate-900 border border-white/5 rounded-[60px] p-12 shadow-2xl overflow-hidden min-h-[500px] flex flex-col justify-between">
                
                <div className="flex justify-center mb-10">
                  <div className="relative">
-                   {/* 外圈光環 */}
                    <div className="absolute inset-0 bg-red-600 rounded-full animate-ping opacity-20 scale-125"></div>
                    <HKERLogo size={220} className="shadow-[0_0_100px_rgba(185,28,28,0.4)] hover:scale-110 transition-transform duration-700" />
                  </div>
@@ -132,22 +149,36 @@ const TokenDashboard: React.FC<TokenDashboardProps> = ({
                        <span className="text-xs font-black text-slate-500 uppercase tracking-widest">Redemption Tiers</span>
                        <Gift className="text-red-500" size={18} />
                     </div>
-                    <div className="grid grid-cols-5 gap-2">
+                    <div className="space-y-3 max-h-[150px] overflow-y-auto pr-2 custom-scrollbar">
                        {redemptionTiers.map(tier => (
-                         <div key={tier.star} className="h-2 bg-white/10 rounded-full overflow-hidden">
-                            <div 
-                              className="h-full bg-red-600" 
-                              style={{ width: userProfile?.points && userProfile.points >= tier.cost ? '100%' : '0%' }}
-                            ></div>
-                         </div>
+                         <button 
+                           key={tier.star}
+                           disabled={isProcessing || (userProfile?.points || 0) < tier.cost}
+                           onClick={() => handleRedeem(tier.cost, tier.name)}
+                           className={`w-full flex justify-between items-center p-3 rounded-xl border transition-all ${
+                             (userProfile?.points || 0) >= tier.cost 
+                               ? 'bg-red-900/20 border-red-500/50 hover:bg-red-900/40 cursor-pointer' 
+                               : 'bg-white/5 border-white/5 opacity-50 cursor-not-allowed'
+                           }`}
+                         >
+                            <span className="text-sm font-bold text-white">{tier.name}</span>
+                            <span className="text-xs font-black text-red-400">{tier.cost.toLocaleString()} PTS</span>
+                         </button>
                        ))}
                     </div>
                  </div>
                </div>
 
                {redeemStatus && (
-                 <div className="mt-6 p-4 bg-red-600 text-white rounded-2xl text-xs font-black text-center animate-in slide-in-from-bottom-2">
+                 <div className="mt-6 p-4 bg-emerald-600 text-white rounded-2xl text-xs font-black text-center animate-in slide-in-from-bottom-2">
                    {redeemStatus}
+                 </div>
+               )}
+               
+               {isProcessing && (
+                 <div className="absolute inset-0 bg-slate-950/80 flex flex-col items-center justify-center z-50">
+                    <Loader2 className="w-12 h-12 text-red-500 animate-spin mb-4" />
+                    <span className="text-red-500 font-black uppercase tracking-widest animate-pulse">Processing Transaction...</span>
                  </div>
                )}
             </div>
@@ -160,7 +191,7 @@ const TokenDashboard: React.FC<TokenDashboardProps> = ({
             <div className="w-16 h-16 bg-red-600/10 rounded-3xl flex items-center justify-center mb-8 border border-red-500/20 group-hover:scale-110 transition-transform">
                <Shield size={32} className="text-red-500" />
             </div>
-            <h4 className="text-2xl font-black mb-3 italic">Secure Nexus</h4>
+            <h4 className="text-2xl font-black mb-3 italic">Secure Platform</h4>
             <p className="text-slate-500 text-sm font-medium leading-relaxed">End-to-end verified points-to-token bridge on the Solana network.</p>
           </div>
           <div className="bg-slate-900/40 border border-white/5 p-10 rounded-[48px] hover:border-red-500/50 transition-all group">
@@ -186,6 +217,11 @@ const TokenDashboard: React.FC<TokenDashboardProps> = ({
          </div>
          <p className="text-slate-500 text-xs font-black uppercase tracking-[0.4em]">HKER Project • The Heartbeat of Lion Rock Web3</p>
       </footer>
+      
+      <style>{`
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #334155; border-radius: 4px; }
+      `}</style>
     </div>
   );
 };

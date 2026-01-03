@@ -13,10 +13,11 @@ interface CasinoProps {
   userProfile: UserProfile | null;
   updatePoints: (amount: number) => void;
   onSelectGame: (view: ForumSubView) => void;
+  isMuted: boolean;
+  setIsMuted: (muted: boolean) => void;
 }
 
-const Casino: React.FC<CasinoProps> = ({ userProfile, updatePoints, onSelectGame }) => {
-  const [isMuted, setIsMuted] = useState(false);
+const Casino: React.FC<CasinoProps> = ({ userProfile, updatePoints, onSelectGame, isMuted, setIsMuted }) => {
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
@@ -56,7 +57,7 @@ const Casino: React.FC<CasinoProps> = ({ userProfile, updatePoints, onSelectGame
                 GAME ZONE
               </h1>
               <p className="text-slate-400 font-bold mt-4 flex items-center gap-2 uppercase tracking-widest text-sm">
-                <Shield size={16} className="text-amber-500" /> Nexus Gaming Infrastructure v4.0
+                <Shield size={16} className="text-amber-500" /> HKER Gaming Infrastructure v4.0
               </p>
             </div>
 

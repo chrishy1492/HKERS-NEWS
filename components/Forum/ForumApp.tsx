@@ -1,8 +1,8 @@
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
-  LogOut, Search, Menu, X, Gamepad2, Shield, User, Coins, 
-  Sparkles, Globe, Settings, Bell, CreditCard, ChevronDown, Hand, Compass, Zap, Flame, Cpu, ArrowLeft
+  LogOut, Menu, X, Shield, User, Coins, 
+  ArrowLeft, Cpu, Activity
 } from 'lucide-react';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { UserProfile, AppView, ForumSubView, Session } from '../../types';
@@ -20,7 +20,7 @@ import DigitalPrayer from './DigitalPrayer';
 import FortuneTeller from './FortuneTeller';
 import FortuneHub from './FortuneHub';
 import HKERLogo from '../Common/HKERLogo';
-import { scoutAutomatedNews } from '../../services/gemini';
+import { scoutAutomatedNews, logBotActivity } from '../../services/gemini';
 import { REGIONS, TOPICS } from '../../constants';
 
 // 遊戲組件
@@ -41,9 +41,9 @@ interface ForumAppProps {
   onLogout?: () => void;
 }
 
-// Bot Configuration - High Frequency Mode
-const BOT_COOLDOWN_MS = 5 * 60 * 1000; // 5 Minutes (Active Mode)
-const BOT_STORAGE_KEY = 'nexus_bot_last_pulse';
+// Bot Settings
+const BOT_COOLDOWN_MS = 60 * 1000; // 60 Seconds
+const BOT_STORAGE_KEY = 'hker_bot_last_pulse';
 
 const ForumApp: React.FC<ForumAppProps> = ({ 
   supabase, session, userProfile, updatePoints, setView, refreshProfile, onLogout
@@ -53,97 +53,133 @@ const ForumApp: React.FC<ForumAppProps> = ({
   const [topic, setTopic] = useState('All'); 
   const [searchTerm, setSearchTerm] = useState('');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  
+  // Audio State for Games
   const [isMuted, setIsMuted] = useState(false);
 
-  // --- Distributed Bot Heartbeat System v2.1 (Accelerated) ---
-  const checkAndTriggerBot = useCallback(async () => {
-    // Only trigger if we have a valid session to sign the request (RLS policy)
-    if (!session) return; 
+  // Bot Status
+  const [botStatus, setBotStatus] = useState<'IDLE' | 'SCOUTING' | 'COOLDOWN'>('IDLE');
 
-    try {
-      console.log("🤖 Nexus Bot: Checking pulse...");
-      let lastPostTime = 0;
-      let useLocalFallback = false;
+  const sessionRef = useRef(session);
+  const isBotProcessingRef = useRef(false);
 
-      // 1. Check DB for last bot activity
+  useEffect(() => {
+    sessionRef.current = session;
+  }, [session]);
+
+  // --- 核心修復：符合新 SQL 架構的機械人邏輯 (v10.1 SQL-Compliant) ---
+  useEffect(() => {
+    const runBotLogic = async () => {
+      // 1. 權限檢查：必須有 Session 才能執行 Supabase 寫入
+      if (!sessionRef.current) {
+         setBotStatus('IDLE');
+         return;
+      }
+      
+      if (isBotProcessingRef.current) return;
+
       try {
+        isBotProcessingRef.current = true;
+        
+        // 2. 檢查數據庫最後 "BOT" 發貼時間 (Source of Truth)
+        // 修復：只檢查 is_bot = true 的貼文，避免因為人類剛發文而導致機械人一直被重置
         const { data: lastPosts, error } = await supabase
           .from('posts')
           .select('created_at')
-          .ilike('title', '%速遞]%') // Identify bot posts by title convention
+          .eq('is_bot', true) // CRITICAL FIX: Ensure we only check bot cadence
           .order('created_at', { ascending: false })
           .limit(1);
 
-        if (error) {
-           useLocalFallback = true;
-        } else {
-           lastPostTime = lastPosts && lastPosts.length > 0 ? new Date(lastPosts[0].created_at).getTime() : 0;
+        let lastTime = 0;
+        if (!error && lastPosts && lastPosts.length > 0) {
+          lastTime = new Date(lastPosts[0].created_at).getTime();
         }
-      } catch (dbErr) {
-        useLocalFallback = true;
-      }
 
-      // 2. LocalStorage Fallback (Circuit Breaker)
-      if (useLocalFallback) {
-         const lastLocal = localStorage.getItem(BOT_STORAGE_KEY);
-         lastPostTime = lastLocal ? parseInt(lastLocal) : 0;
-      }
+        // 3. 檢查 LocalStorage (Client Throttle)
+        const lastLocal = parseInt(localStorage.getItem(BOT_STORAGE_KEY) || '0');
+        const now = Date.now();
+        const effectiveLastTime = Math.max(lastTime, lastLocal);
+        const timeDiff = now - effectiveLastTime;
 
-      const now = Date.now();
-      const timeDiff = now - lastPostTime;
-
-      // 3. Execution Logic
-      if (timeDiff > BOT_COOLDOWN_MS) {
-        console.log(`🤖 Nexus Bot: Waking up. Last active: ${(timeDiff / 60000).toFixed(1)}m ago.`);
-        
-        // Optimistic lock to prevent multiple clients from firing simultaneously
-        localStorage.setItem(BOT_STORAGE_KEY, now.toString());
-        
-        // Randomize Task
-        const randomRegion = REGIONS[Math.floor(Math.random() * REGIONS.length)];
-        const randomTopic = TOPICS[Math.floor(Math.random() * TOPICS.length)];
-        
-        // Scout News
-        const news = await scoutAutomatedNews(randomRegion, randomTopic);
-        
-        if (news && news.title) {
-          const botPost = {
-            title: `[${randomTopic}速遞] ${news.title}`,
-            content: news.summary_points,
-            region: randomRegion,
-            topic: randomTopic,
-            source_name: news.source_name,
-            source_url: news.source_url,
-            likes: 0,
-            user_id: session.user.id // Attribution to current user (bot proxy)
-          };
-
-          const { error: insertError } = await supabase.from('posts').insert([botPost]);
+        if (timeDiff > BOT_COOLDOWN_MS) {
+          console.log(`🤖 HKER Bot: Engaging SQL Protocol... (Last: ${new Date(effectiveLastTime).toLocaleTimeString()})`);
+          setBotStatus('SCOUTING');
           
-          if (insertError) {
-            console.error("🤖 Bot: Post failed", insertError.message);
-          } else {
-            console.log("🤖 Bot: Published", news.title);
-          }
-        }
-      }
-    } catch (err) {
-      console.error("🤖 Bot: Critical failure", err);
-    }
-  }, [supabase, session]);
+          // 預先鎖定，防止雙重觸發
+          localStorage.setItem(BOT_STORAGE_KEY, now.toString());
 
-  // Initialize Bot Heartbeat
-  useEffect(() => {
-    // Initial check after boot
-    const bootTimer = setTimeout(checkAndTriggerBot, 3000);
-    // Recurring heartbeat - Check every 1 minute for high availability
-    const intervalTimer = setInterval(checkAndTriggerBot, 60 * 1000); 
+          const randomRegion = REGIONS[Math.floor(Math.random() * REGIONS.length)];
+          const randomTopic = TOPICS[Math.floor(Math.random() * TOPICS.length)];
+          
+          // A. 獲取數據
+          const newsData = await scoutAutomatedNews(randomRegion, randomTopic);
+
+          if (newsData && newsData.title) {
+            // B. 構建符合 SQL Schema 的物件
+            // CRITICAL FIX: 加入 user_id，確保符合 RLS 規範
+            const botPost = {
+              title: `[${randomTopic}速遞] ${newsData.title}`,
+              summary: newsData.summary,              
+              content_snippet: newsData.content_snippet, 
+              original_url: newsData.original_url,    
+              source_name: newsData.source_name,
+              region: randomRegion,
+              topic: randomTopic,
+              is_bot: true,
+              allow_comments: false,                  
+              language: newsData.language,
+              user_id: sessionRef.current.user.id, // Must attribute to current logged in user (who acts as the bot runner)
+              author_name: "HKER AI Bot",
+              author_avatar: "https://api.dicebear.com/7.x/bottts/svg?seed=HKER_Bot"
+            };
+
+            // C. 寫入 Posts 表
+            const { data: insertedPost, error: insertError } = await supabase.from('posts').insert([botPost]).select();
+            
+            if (insertError) {
+              console.error("🤖 Bot Insert Error:", insertError.message);
+              
+              // 記錄失敗日誌
+              await logBotActivity(supabase, { ...botPost, error: insertError.message }, 'failed');
+              
+              // 若是 Unique Constraint (URL重複) 以外的錯誤，縮短冷卻時間以便重試
+              if (!insertError.message.includes('unique') && !insertError.message.includes('duplicate')) {
+                 localStorage.setItem(BOT_STORAGE_KEY, (now - BOT_COOLDOWN_MS + 10000).toString()); // Retry in 10s
+              }
+            } else {
+              console.log("🤖 Bot: SQL Insert Success.");
+              // D. 同步寫入成功日誌
+              await logBotActivity(supabase, insertedPost ? insertedPost[0] : botPost, 'success');
+            }
+          } else {
+            console.log("🤖 Bot: No content found (Gemini Limit or Parse Error).");
+            // 失敗也更新時間，避免 API 頻繁請求 (Backoff)
+            localStorage.setItem(BOT_STORAGE_KEY, (now - BOT_COOLDOWN_MS + 20000).toString());
+          }
+        } else {
+            setBotStatus('COOLDOWN');
+        }
+      } catch (err) {
+        console.error("🤖 Bot Logic Exception:", err);
+      } finally {
+        isBotProcessingRef.current = false;
+        setTimeout(() => {
+             // 只有當沒有在運行時才切換回 COOLDOWN 狀態顯示
+             if (!isBotProcessingRef.current) setBotStatus('COOLDOWN');
+        }, 2000);
+      }
+    };
+
+    // 初始運行
+    runBotLogic();
+    // 設置定時器，每 20 秒檢查一次是否需要發貼
+    const intervalId = setInterval(runBotLogic, 20 * 1000);
 
     return () => {
-      clearTimeout(bootTimer);
-      clearInterval(intervalTimer);
+        clearInterval(intervalId);
+        isBotProcessingRef.current = false;
     };
-  }, [checkAndTriggerBot]);
+  }, []);
 
   const isAdmin = userProfile?.role === 'admin';
   const showBackButton = ![ForumSubView.FEED, ForumSubView.GAMES_HUB, ForumSubView.FORTUNE_HUB, ForumSubView.AI_CHAT, ForumSubView.ADMIN].includes(subView);
@@ -167,13 +203,24 @@ const ForumApp: React.FC<ForumAppProps> = ({
             </button>
             <div className="flex items-center space-x-3 cursor-pointer group" onClick={() => { setSubView(ForumSubView.FEED); setTopic('All'); setRegion('All'); }}>
               <HKERLogo size={36} className="group-hover:rotate-12 transition-transform" />
-              <span className="font-black text-2xl text-slate-900 tracking-tighter hidden sm:block italic">HKER NEXUS</span>
+              <span className="font-black text-2xl text-slate-900 tracking-tighter hidden sm:block italic">HKER News Platform</span>
             </div>
             
             {showBackButton && (
               <button onClick={handleBack} className="ml-4 flex items-center gap-2 bg-slate-100 px-4 py-1.5 rounded-full text-xs font-black text-slate-600 hover:bg-slate-200 transition-all">
                 <ArrowLeft size={14} /> 返回中樞
               </button>
+            )}
+
+            {/* 機械人狀態指示燈 */}
+            {session && (
+                <div className="hidden lg:flex items-center gap-2 px-3 py-1 rounded-full bg-slate-50 border border-slate-100 ml-4" title="AI Bot Status">
+                    <Cpu size={14} className={`transition-colors ${botStatus === 'SCOUTING' ? 'text-blue-500 animate-spin' : 'text-slate-300'}`} />
+                    <span className="text-[9px] font-black uppercase text-slate-400 tracking-widest">
+                        {botStatus === 'SCOUTING' ? 'AI SCOUTING...' : (botStatus === 'IDLE' ? 'BOT STANDBY' : 'AUTO ACTIVE')}
+                    </span>
+                    <div className={`w-1.5 h-1.5 rounded-full ${botStatus === 'SCOUTING' ? 'bg-blue-500' : 'bg-green-400'} animate-pulse`}></div>
+                </div>
             )}
           </div>
 
@@ -221,7 +268,7 @@ const ForumApp: React.FC<ForumAppProps> = ({
         {mobileMenuOpen && (
           <div className="fixed inset-0 z-50 bg-white lg:hidden overflow-y-auto pt-16 animate-in slide-in-from-right duration-300">
              <div className="p-4 border-b flex justify-between items-center bg-slate-50">
-               <span className="font-bold text-lg">Nexus Menu</span>
+               <span className="font-bold text-lg">HKER Menu</span>
                <button onClick={() => setMobileMenuOpen(false)} className="p-2"><X /></button>
              </div>
              <Sidebar currentRegion={region} setRegion={(r) => { setRegion(r); setMobileMenuOpen(false); }} currentTopic={topic} setTopic={(t) => { setTopic(t); setMobileMenuOpen(false); }} setSubView={(v) => { setSubView(v); setMobileMenuOpen(false); }} activeSubView={subView} />
@@ -241,7 +288,7 @@ const ForumApp: React.FC<ForumAppProps> = ({
           )}
 
           {subView === ForumSubView.AI_CHAT && <AIChat />}
-          {subView === ForumSubView.GAMES_HUB && <Casino userProfile={userProfile} updatePoints={updatePoints} onSelectGame={setSubView} />}
+          {subView === ForumSubView.GAMES_HUB && <Casino userProfile={userProfile} updatePoints={updatePoints} onSelectGame={setSubView} isMuted={isMuted} setIsMuted={setIsMuted} />}
           {subView === ForumSubView.FORTUNE_HUB && <FortuneHub onSelect={setSubView} />}
 
           {subView === ForumSubView.FORTUNE_AI && <FortuneAI userProfile={userProfile} />}

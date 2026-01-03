@@ -180,7 +180,7 @@ const FortuneAI: React.FC<{ userProfile: UserProfile | null }> = ({ userProfile 
                    <div className="absolute inset-0 bg-gradient-to-tr from-fuchsia-500/5 to-blue-500/5 rounded-[64px]"></div>
                 </div>
                 <div className="max-w-xs mx-auto">
-                   <h4 className="text-2xl font-black text-slate-900">天機 Nexus 未啟動</h4>
+                   <h4 className="text-2xl font-black text-slate-900">天機系統未啟動</h4>
                    <p className="text-sm text-slate-400 font-medium mt-2">請輸入您的原始數據碼，讓 AI 終端為您映射未來維度。</p>
                 </div>
              </div>

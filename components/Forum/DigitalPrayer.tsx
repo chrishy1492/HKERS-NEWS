@@ -114,7 +114,7 @@ const DigitalPrayer: React.FC<{ userProfile: UserProfile | null, updatePoints: (
             <Flame size={36} className="animate-pulse" />
           </div>
           <div>
-            <h1 className="text-4xl font-black text-slate-900 tracking-tighter italic">NEXUS PRAYER</h1>
+            <h1 className="text-4xl font-black text-slate-900 tracking-tighter italic">HKER PRAYER</h1>
             <p className="text-orange-600 font-bold uppercase tracking-[0.2em] text-[10px]">Digital Lion Rock Spiritual Hub v2.1</p>
           </div>
         </div>

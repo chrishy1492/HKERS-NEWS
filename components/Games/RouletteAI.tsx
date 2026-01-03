@@ -214,7 +214,7 @@ export default function RouletteAI({ onClose, userProfile, updatePoints, isMuted
           </button>
           <div>
             <h1 className="text-xl sm:text-3xl font-black italic tracking-tighter uppercase text-cyan-400 tech-font">Quantum Pulse Roulette</h1>
-            <p className="text-[10px] font-black text-slate-500 tracking-[0.3em] uppercase tech-font">Nexus Engineering v4.0</p>
+            <p className="text-[10px] font-black text-slate-500 tracking-[0.3em] uppercase tech-font">HKER Engineering v4.0</p>
           </div>
         </div>
 
@@ -328,7 +328,7 @@ export default function RouletteAI({ onClose, userProfile, updatePoints, isMuted
                <div className="space-y-4 font-medium leading-relaxed opacity-80">
                   <p>• 系統基於歐式 37 槽架構。粒子物理模擬旋轉路徑，結果絕對不可預測。</p>
                   <p>• <span className="text-cyan-400 font-bold">2.0x 極速模式：</span>大幅縮減無效發牌等待時間，最高效率對戰。</p>
-                  <p>• 本遊戲僅供 Nexus 虛擬積分娛樂，博盡無悔，量力而為。</p>
+                  <p>• 本遊戲僅供 HKER 虛擬積分娛樂，博盡無悔，量力而為。</p>
                </div>
             </div>
             <button onClick={() => setShowRules(false)} className="w-full mt-10 py-5 bg-cyan-600 rounded-[24px] font-black text-lg uppercase tracking-widest text-white shadow-xl tech-font">
