@@ -1,79 +1,79 @@
 
-export type UserRole = 'user' | 'admin';
+export type UserRole = 'user' | 'moderator' | 'admin';
 
-export type Session = any;
-
-export interface UserProfile {
+export interface User {
   id: string;
+  name: string;
   email: string;
-  nickname: string;
-  avatar_url: string;
-  role: UserRole;
+  password?: string;
   points: number;
-  sol_address?: string;
-  full_name?: string;
-  physical_address?: string;
+  role: UserRole;
+  starLevel: number;
+  joinedAt: string;
+  avatar: string;
+  solAddress?: string;
   phone?: string;
-  gender?: 'Male' | 'Female' | 'Other' | 'Secret';
-  created_at?: string;
+  address?: string;
+  gender?: string;
 }
 
-// Updated to match the new SQL Schema
+export interface Reply {
+  id: number;
+  authorId: string;
+  authorName: string;
+  content: string;
+  createdAt: string;
+}
+
 export interface Post {
-  id: number; // bigint comes as number or string from JS, usually number is fine for UI
+  id: number;
+  authorId: string;
+  authorName: string;
   title: string;
-  summary: string; // AI Generated Summary (Markdown)
-  content_snippet: string; // Short snippet/lead
-  original_url: string;
-  source_name: string;
+  content: string;
   region: string;
   topic: string;
-  is_bot: boolean;
-  allow_comments: boolean;
-  language: string;
-  created_at: string;
   
-  // UI Helper fields (optional, might be joined or defaulted)
-  author_name?: string; 
-  author_avatar?: string;
-  likes?: number; // Kept for UI compatibility if view combines count
+  // Interaction: Store user IDs. Multiple occurrences allowed for 3x limit.
+  likes: string[]; 
+  loves: string[]; 
+  
+  createdAt: string;
+  replies: Reply[];
+
+  // Bot Specific Fields
+  isBot?: boolean;
+  sourceUrl?: string;
+  sourceName?: string;
+  originalLang?: 'zh' | 'en';
+  isTranslated?: boolean; // UI toggle state
+  summary?: string; // The AI generated summary
+  
+  // Pre-generated translation content (e.g., if original is EN, this holds ZH)
+  translation?: {
+    title: string;
+    content: string;
+  };
 }
 
-export interface BotLog {
-  id?: number;
-  raw_data: any;
-  processed_status: 'success' | 'failed';
-  sync_time?: string;
+export interface Game {
+  id: string;
+  name: string;
 }
 
-export enum AppView {
-  LANDING = 'landing',
-  FORUM = 'forum',
-  TOKEN = 'token'
+// Analytics Structure: Year -> Month -> Day -> Hour -> Count
+export interface VisitorLog {
+  [year: string]: {
+    [month: string]: {
+      [day: string]: {
+        [hour: string]: {
+          guests: number;
+          members: number;
+        }
+      }
+    }
+  }
 }
 
-export enum ForumSubView {
-  FEED = 'feed',
-  ADMIN = 'admin',
-  PROFILE = 'profile',
-  AI_CHAT = 'ai_chat',
-  
-  // Hubs
-  FORTUNE_HUB = 'fortune_hub',
-  GAMES_HUB = 'games_hub',
-  
-  // Fortune Views
-  FORTUNE_AI = 'fortune_ai',
-  PRAYER = 'prayer',
-  ZIWEI = 'ziwei',
-  TAROT = 'tarot',
-  FORTUNE_TELLER = 'fortune_teller',
-  
-  // Game Views
-  BLACKJACK = 'blackjack',
-  BACCARAT = 'baccarat',
-  ROULETTE = 'roulette',
-  SLOTS = 'slots',
-  FISH_PRAWN_CRAB = 'fpc',
-  LITTLE_MARY = 'mary'
-}
+export type ViewState = 'landing' | 'token' | 'forum';
+export type ForumView = 'home' | 'login' | 'register' | 'profile' | 'games' | 'divination' | 'admin';
