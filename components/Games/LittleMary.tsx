@@ -1,269 +1,349 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Coins, Volume2, VolumeX, RotateCw, Sparkles, Trophy, Play, Zap, Info } from 'lucide-react';
-import { UserProfile } from '../../types';
+import { Profile } from '../../types';
+import { Coins, RefreshCw, Trophy, Volume2, VolumeX, AlertCircle, Play, ChevronRight } from 'lucide-react';
 
-interface LittleMaryProps {
-  onClose: () => void;
-  userProfile: UserProfile | null;
-  updatePoints: (amount: number) => void;
-  isMuted: boolean;
-  setIsMuted: (muted: boolean) => void;
+interface Props {
+  profile: Profile | null;
+  supabase: any;
+  onUpdate: () => void;
 }
 
-// 符號配置
-const SYMBOLS = [
-  { id: 'apple', char: '🍎', label: 'Apple', odds: 5, color: 'bg-red-500' },
-  { id: 'orange', char: '🍊', label: 'Orange', odds: 10, color: 'bg-orange-500' },
-  { id: 'mango', char: '🥭', label: 'Mango', odds: 15, color: 'bg-amber-500' },
-  { id: 'bell', char: '🔔', label: 'Bell', odds: 20, color: 'bg-yellow-500' },
-  { id: 'watermelon', char: '🍉', label: 'Melon', odds: 20, color: 'bg-green-500' },
-  { id: 'star', char: '⭐', label: 'Star', odds: 30, color: 'bg-purple-500' },
-  { id: 'seven', char: '7️⃣', label: '777', odds: 40, color: 'bg-blue-600' },
-  { id: 'bar', char: '🎰', label: 'BAR', odds: 100, color: 'bg-slate-900' },
+// Configuration
+const GRID_SIZE = 24;
+const BASE_SPEED = 15; // Accelerated Speed (Lower is faster)
+const ITEMS = {
+  BAR: { name: 'BAR', odds: 100, color: 'bg-red-600', text: 'text-red-100', icon: '💎' },
+  SEVEN: { name: '77', odds: 40, color: 'bg-orange-600', text: 'text-orange-100', icon: '7️⃣' },
+  STAR: { name: '星星', odds: 30, color: 'bg-yellow-500', text: 'text-yellow-900', icon: '⭐' },
+  WATERMELON: { name: '西瓜', odds: 20, color: 'bg-green-600', text: 'text-green-100', icon: '🍉' },
+  BELL: { name: '鈴鐺', odds: 15, color: 'bg-amber-400', text: 'text-amber-900', icon: '🔔' },
+  MANGO: { name: '芒果', odds: 10, color: 'bg-yellow-400', text: 'text-yellow-900', icon: '🥭' },
+  ORANGE: { name: '橘子', odds: 5, color: 'bg-orange-400', text: 'text-orange-900', icon: '🍊' },
+  APPLE: { name: '蘋果', odds: 2, color: 'bg-red-400', text: 'text-red-900', icon: '🍎' },
+  LUCKY: { name: '送燈', odds: 0, color: 'bg-purple-600', text: 'text-purple-100', icon: '💡' }, // Represents "Blank/Send Light"
+};
+
+// Physical Layout (24 Slots)
+// Counts: BAR(1), 77(1), Star(2), Watermelon(2), Bell(3), Mango(3), Orange(5), Apple(6)+Lucky(1)=7
+const GRID_LAYOUT = [
+  ITEMS.ORANGE,      // 0
+  ITEMS.APPLE,       // 1
+  ITEMS.MANGO,       // 2
+  ITEMS.BAR,         // 3 (Top Center)
+  ITEMS.APPLE,       // 4
+  ITEMS.STAR,        // 5
+  ITEMS.ORANGE,      // 6
+  ITEMS.APPLE,       // 7 (Right)
+  ITEMS.BELL,        // 8
+  ITEMS.MANGO,       // 9
+  ITEMS.APPLE,       // 10
+  ITEMS.SEVEN,       // 11
+  ITEMS.ORANGE,      // 12 (Bottom Right)
+  ITEMS.APPLE,       // 13
+  ITEMS.BELL,        // 14
+  ITEMS.WATERMELON,  // 15
+  ITEMS.ORANGE,      // 16
+  ITEMS.LUCKY,       // 17 (Replaces 1 Apple for logic)
+  ITEMS.MANGO,       // 18 (Bottom Left)
+  ITEMS.ORANGE,      // 19 (Left)
+  ITEMS.BELL,        // 20
+  ITEMS.APPLE,       // 21
+  ITEMS.WATERMELON,  // 22
+  ITEMS.STAR         // 23
 ];
 
-// 跑馬燈佈局 (24格)
-// 7x7 Grid Perimeter
-// Top (0-6), Right (7-11), Bottom (12-18), Left (19-23)
-const BOARD_LAYOUT = [
-  { idx: 0, sym: 'orange' }, { idx: 1, sym: 'bell' }, { idx: 2, sym: 'bar' }, { idx: 3, sym: 'bar' }, { idx: 4, sym: 'seven' }, { idx: 5, sym: 'seven' }, { idx: 6, sym: 'apple' },
-  { idx: 23, sym: 'apple' },                                                                                                                            { idx: 7, sym: 'apple' },
-  { idx: 22, sym: 'orange' },                                                                                                                           { idx: 8, sym: 'mango' },
-  { idx: 21, sym: 'mango' },                                                                                                                            { idx: 9, sym: 'watermelon' },
-  { idx: 20, sym: 'bell' },                                                                                                                             { idx: 10, sym: 'seven' },
-  { idx: 19, sym: 'apple' },                                                                                                                            { idx: 11, sym: 'apple' },
-  { idx: 18, sym: 'apple' }, { idx: 17, sym: 'orange' }, { idx: 16, sym: 'mango' }, { idx: 15, sym: 'bell' }, { idx: 14, sym: 'star' }, { idx: 13, sym: 'star' }, { idx: 12, sym: 'watermelon' }
+// Exact Weight Table (Sum = 1000)
+const WEIGHTS = [
+  { item: ITEMS.BAR, weight: 5 },       // 0.5%
+  { item: ITEMS.SEVEN, weight: 15 },    // 1.5%
+  { item: ITEMS.STAR, weight: 25 },     // 2.5%
+  { item: ITEMS.WATERMELON, weight: 40 }, // 4.0%
+  { item: ITEMS.BELL, weight: 60 },     // 6.0%
+  { item: ITEMS.MANGO, weight: 100 },   // 10.0%
+  { item: ITEMS.ORANGE, weight: 200 },  // 20.0%
+  { item: ITEMS.APPLE, weight: 485 },   // 48.5%
+  { item: ITEMS.LUCKY, weight: 70 },    // 7.0% (Blank/Send Light)
 ];
 
-const LittleMary: React.FC<LittleMaryProps> = ({ onClose, userProfile, updatePoints, isMuted, setIsMuted }) => {
-  const [activeIdx, setActiveIdx] = useState(0);
+const BET_OPTIONS = [ITEMS.BAR, ITEMS.SEVEN, ITEMS.STAR, ITEMS.WATERMELON, ITEMS.BELL, ITEMS.MANGO, ITEMS.ORANGE, ITEMS.APPLE];
+
+const LittleMary: React.FC<Props> = ({ profile, supabase, onUpdate }) => {
+  const [activeLight, setActiveLight] = useState(0);
+  const [isRunning, setIsRunning] = useState(false);
   const [bets, setBets] = useState<Record<string, number>>({});
-  const [isSpinning, setIsSpinning] = useState(false);
-  const [message, setMessage] = useState('請下注 / PLACE BETS');
-  const [chipValue, setChipValue] = useState(100);
+  const [totalBet, setTotalBet] = useState(0);
   const [lastWin, setLastWin] = useState(0);
+  const [message, setMessage] = useState('請下注並開始');
   
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const speedRef = useRef(BASE_SPEED);
+  const stepRef = useRef(0);
+  const targetRef = useRef(0);
+  const timerRef = useRef<any>(null);
 
-  useEffect(() => {
-    if (!audioRef.current) {
-      audioRef.current = new Audio('https://www.soundhelix.com/examples/mp3/SoundHelix-Song-8.mp3'); 
-      audioRef.current.loop = true;
-      audioRef.current.volume = 0.1;
-    }
-    if (!isMuted) audioRef.current.play().catch(() => {});
-    else audioRef.current.pause();
-    return () => audioRef.current?.pause();
-  }, [isMuted]);
+  const handleBet = (itemName: string) => {
+    if (isRunning) return;
+    if (!profile) return alert('請先登入');
+    if (profile.points < totalBet + 10) return alert('積分不足');
 
-  const handleBet = (symId: string) => {
-    if (isSpinning) return;
-    const currentTotal = (Object.values(bets) as number[]).reduce((a, b) => a + b, 0);
-    if ((userProfile?.points || 0) < currentTotal + chipValue) return alert("積分不足！");
-
-    setBets(prev => ({
-      ...prev,
-      [symId]: (prev[symId] || 0) + chipValue
-    }));
-    setMessage(`已加注 ${SYMBOLS.find(s => s.id === symId)?.label}`);
+    const currentBet = bets[itemName] || 0;
+    const newBets = { ...bets, [itemName]: currentBet + 10 };
+    setBets(newBets);
+    setTotalBet(prev => prev + 10);
   };
 
-  const handleClear = () => {
-    if (isSpinning) return;
+  const clearBets = () => {
+    if (isRunning) return;
     setBets({});
-    setMessage('下注已清除');
-    setLastWin(0);
+    setTotalBet(0);
   };
 
-  const spin = () => {
-    const totalBet = (Object.values(bets) as number[]).reduce((a, b) => a + b, 0);
-    if (totalBet === 0) return alert("請先下注");
-    if ((userProfile?.points || 0) < totalBet) return alert("積分不足");
-
-    setIsSpinning(true);
-    setLastWin(0);
-    setMessage('SPINNING...');
-    updatePoints(-totalBet);
-
-    // 決定結果 (簡單隨機)
-    const resultIdx = Math.floor(Math.random() * 24);
-    const resultSymId = BOARD_LAYOUT.find(b => b.idx === resultIdx)?.sym;
-
-    // 動畫邏輯
-    let currentIdx = activeIdx;
-    let speed = 50;
-    let rounds = 0;
-    const maxRounds = 3;
+  // RNG Logic
+  const determineResult = () => {
+    const rand = Math.floor(Math.random() * 1000);
+    let cumulative = 0;
+    let selectedItem = ITEMS.APPLE;
     
-    const animate = () => {
-      currentIdx = (currentIdx + 1) % 24;
-      setActiveIdx(currentIdx);
+    for (const w of WEIGHTS) {
+      cumulative += w.weight;
+      if (rand < cumulative) {
+        selectedItem = w.item;
+        break;
+      }
+    }
 
-      if (currentIdx === 0) rounds++;
+    // Find physical slots for this item
+    const possibleIndices: number[] = [];
+    GRID_LAYOUT.forEach((item, index) => {
+      if (item.name === selectedItem.name) possibleIndices.push(index);
+    });
 
-      if (rounds >= maxRounds && currentIdx === resultIdx) {
-        // 停止
-        calculateWin(resultSymId!, totalBet);
-        setIsSpinning(false);
+    if (possibleIndices.length === 0) {
+      // Fallback for safety, though layout covers all
+      return { item: ITEMS.APPLE, index: 1 };
+    }
+
+    const targetIndex = possibleIndices[Math.floor(Math.random() * possibleIndices.length)];
+    return { item: selectedItem, index: targetIndex };
+  };
+
+  const startGame = async () => {
+    if (isRunning) return;
+    if (totalBet === 0) return alert('請先下注');
+    if (!profile || profile.points < totalBet) return alert('積分不足');
+
+    setIsRunning(true);
+    setLastWin(0);
+    setMessage('運轉中...');
+
+    // Deduct points
+    const { error } = await supabase.from('profiles').update({
+      points: profile.points - totalBet
+    }).eq('id', profile.id);
+
+    if (error) {
+      setIsRunning(false);
+      return alert('扣款失敗');
+    }
+
+    const { item: resultItem, index: targetIndex } = determineResult();
+    
+    // Animation math
+    const currentPos = activeLight;
+    const distance = (targetIndex - currentPos + GRID_SIZE) % GRID_SIZE;
+    // Faster loop: 2 rounds + distance
+    const totalSteps = (GRID_SIZE * 2) + distance; 
+
+    stepRef.current = 0;
+    targetRef.current = totalSteps;
+    speedRef.current = BASE_SPEED;
+
+    const runLoop = () => {
+      setActiveLight(prev => (prev + 1) % GRID_SIZE);
+      stepRef.current += 1;
+
+      // Aggressive deceleration
+      if (targetRef.current - stepRef.current < 20) {
+        speedRef.current += 10;
+      } else if (targetRef.current - stepRef.current < 10) {
+        speedRef.current += 30;
+      } else if (targetRef.current - stepRef.current < 5) {
+        speedRef.current += 60;
+      }
+
+      if (stepRef.current < targetRef.current) {
+        timerRef.current = setTimeout(runLoop, speedRef.current);
       } else {
-        // 變速效果
-        if (rounds >= maxRounds - 1) speed += 15;
-        else if (rounds < 1) speed = 40;
-        else speed += 2;
-        
-        setTimeout(animate, speed);
+        finishGame(resultItem);
       }
     };
-    animate();
+
+    runLoop();
   };
 
-  const calculateWin = (resultSymId: string, totalBet: number) => {
-    const betOnSym = bets[resultSymId] || 0;
-    const symData = SYMBOLS.find(s => s.id === resultSymId);
+  const finishGame = async (resultItem: any) => {
+    setIsRunning(false);
     
-    if (betOnSym > 0 && symData) {
-      const win = betOnSym * symData.odds + betOnSym; // 賠率含本金? 傳統是賠率倍數+本金退回，或純賠。
-      // 這裡採用純賠率計算: odds * bet.
-      const totalPayout = betOnSym * symData.odds;
-      updatePoints(totalPayout);
-      setLastWin(totalPayout);
-      setMessage(`WIN! ${symData.label} x${symData.odds} (+${totalPayout})`);
+    let payout = 0;
+    let bonusMessage = '';
+
+    if (resultItem.name === '送燈') {
+        bonusMessage = '✨ 獲得送燈獎勵！(此版本為幸運圖標)';
+        // Special case: Lucky typically doesn't multiply bet unless specified. 
+        // Based on "Odds: 0", it's a non-win in terms of direct bet multiplication for this spec,
+        // or we could treat it as a "Push" (return bet). 
+        // Let's treat it as a "Small Luck" - maybe return bet?
+        // Prompt says "Odds 0", so we payout 0.
+        payout = 0;
     } else {
-      setMessage(`RESULT: ${symData?.label || 'Loss'}`);
+        const userBet = bets[resultItem.name] || 0;
+        payout = userBet * resultItem.odds;
     }
+
+    if (payout > 0) {
+      setMessage(`🎉 恭喜！中獎 ${resultItem.name}，贏得 ${payout} 積分！`);
+      setLastWin(payout);
+      
+      const { data } = await supabase.from('profiles').select('points').eq('id', profile!.id).single();
+      if (data) {
+         await supabase.from('profiles').update({ points: data.points + payout }).eq('id', profile!.id);
+      }
+    } else {
+      setMessage(resultItem.name === '送燈' ? `💡 哎呀！中了送燈但未中獎。` : '😢 未中獎，再接再厲！');
+    }
+    onUpdate();
   };
 
-  // 渲染格子的輔助函數
-  const renderCell = (idx: number) => {
-    const cellData = BOARD_LAYOUT.find(b => b.idx === idx);
-    const symData = SYMBOLS.find(s => s.id === cellData?.sym);
-    const isActive = activeIdx === idx;
+  // Grid styling helper (Maps 0-23 to 7x7 Grid coordinates)
+  const getGridStyle = (index: number) => {
+    // Top Row (0-6) -> Row 1, Col 1-7
+    if (index <= 6) return { gridRow: 1, gridColumn: index + 1 };
+    // Right Col (7-11) -> Row 2-6, Col 7
+    if (index <= 11) return { gridRow: index - 5, gridColumn: 7 };
+    // Bottom Row (12-18) -> Row 7, Col 7-1 (Reverse)
+    if (index <= 18) return { gridRow: 7, gridColumn: 7 - (index - 12) };
+    // Left Col (19-23) -> Row 6-2, Col 1 (Reverse)
+    return { gridRow: 7 - (index - 18), gridColumn: 1 };
+  };
 
+  const renderCell = (index: number) => {
+    const item = GRID_LAYOUT[index];
+    const isActive = activeLight === index;
+    
     return (
       <div 
-        className={`relative w-full h-full rounded-xl flex flex-col items-center justify-center border-2 transition-all ${isActive ? 'bg-white border-yellow-400 shadow-[0_0_20px_#facc15] scale-105 z-20' : 'bg-slate-800 border-slate-700 opacity-90'}`}
+        key={index}
+        className={`relative rounded-xl flex flex-col items-center justify-center border-2 transition-all duration-75
+          ${isActive 
+            ? 'border-white bg-white scale-110 shadow-[0_0_25px_rgba(255,255,255,0.9)] z-20' 
+            : `border-slate-800 ${item.color} opacity-60 grayscale-[0.3]`
+          }
+        `}
+        style={{ aspectRatio: '1/1' }}
       >
-         <span className="text-2xl md:text-3xl filter drop-shadow-md">{symData?.char}</span>
-         {isActive && <div className="absolute inset-0 bg-white/40 animate-pulse rounded-xl"></div>}
-         {/* 小燈泡 */}
-         <div className={`absolute top-1 right-1 w-2 h-2 rounded-full ${isActive ? 'bg-red-500 shadow-[0_0_5px_red]' : 'bg-red-900'}`}></div>
+        <span className={`text-2xl md:text-3xl font-black ${isActive ? 'animate-bounce' : ''}`}>
+          {item.icon}
+        </span>
+        <span className={`text-[9px] font-bold mt-1 uppercase ${isActive ? 'text-black' : 'text-white'}`}>{item.name}</span>
       </div>
     );
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950 flex flex-col p-4 animate-in zoom-in duration-300 overflow-hidden">
-      {/* 頂部導航 */}
-      <div className="max-w-4xl mx-auto w-full flex justify-between items-center mb-4">
-        <div className="flex items-center gap-4">
-          <button onClick={onClose} className="p-3 bg-white/5 hover:bg-white/10 rounded-2xl text-white transition-all"><X /></button>
-          <div>
-            <h2 className="text-xl md:text-2xl font-black text-pink-500 italic flex items-center gap-2">
-              <Zap size={24} fill="#ec4899" className="animate-pulse" /> 小瑪莉 Little Mary
-            </h2>
-            <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Retro Arcade v1.0</p>
-          </div>
+    <div className="flex flex-col items-center bg-slate-950 p-4 rounded-[2rem] border border-slate-800 shadow-2xl max-w-4xl mx-auto">
+      <div className="w-full flex justify-between items-center mb-6 px-4">
+        <div>
+          <h2 className="text-3xl font-black text-white italic tracking-tighter text-transparent bg-clip-text bg-gradient-to-r from-pink-500 to-rose-500">
+            LITTLE MARY
+          </h2>
+          <p className="text-slate-400 text-xs font-bold uppercase tracking-widest">Speed x1.5 • 24 Slots</p>
         </div>
-        
-        <div className="flex items-center gap-3">
-          <button onClick={() => setIsMuted(!isMuted)} className="p-3 bg-white/5 hover:bg-white/10 rounded-2xl">
-            {isMuted ? <VolumeX className="text-slate-400" /> : <Volume2 className="text-pink-400" />}
-          </button>
-          <div className="bg-white/5 border border-white/10 px-4 py-2 rounded-2xl flex flex-col items-end backdrop-blur-xl">
-             <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Credits</span>
-             <span className="font-mono font-black text-white text-lg">{userProfile?.points?.toLocaleString()}</span>
-          </div>
+        <div className="text-right">
+          <p className="text-xs text-slate-500 font-bold uppercase">Balance</p>
+          <p className="text-2xl font-black text-yellow-500">{profile?.points.toLocaleString()} PTS</p>
         </div>
       </div>
 
-      {/* 遊戲機台主體 */}
-      <div className="flex-1 max-w-2xl mx-auto w-full flex flex-col items-center justify-center relative">
-         <div className="bg-slate-900 p-4 md:p-8 rounded-[40px] border-[12px] border-slate-800 shadow-2xl w-full aspect-square md:aspect-auto md:h-[600px] relative">
-            
-            {/* 跑馬燈 Grid Layout (7x7) */}
-            <div className="grid grid-cols-7 grid-rows-7 gap-2 h-full">
-               {/* Row 0 (Top) */}
-               {renderCell(0)} {renderCell(1)} {renderCell(2)} {renderCell(3)} {renderCell(4)} {renderCell(5)} {renderCell(6)}
-               
-               {/* Row 1 */}
-               {renderCell(23)} <div className="col-span-5 row-span-5 bg-black/40 rounded-3xl border border-white/5 flex flex-col items-center justify-center p-4 relative">
-                  
-                  {/* 中央顯示區 */}
-                  <div className="text-center space-y-2 mb-6 z-10">
-                     <div className="text-pink-500 font-black text-xl md:text-3xl animate-pulse tracking-widest">{message}</div>
-                     {lastWin > 0 && (
-                       <div className="text-yellow-400 font-black text-lg flex items-center justify-center gap-2 animate-bounce">
-                         <Trophy size={20} /> +{lastWin}
-                       </div>
-                     )}
-                  </div>
-
-                  {/* 下注按鈕區 */}
-                  <div className="grid grid-cols-4 gap-2 w-full">
-                     {SYMBOLS.map(sym => (
-                       <button 
-                         key={sym.id}
-                         onClick={() => handleBet(sym.id)}
-                         disabled={isSpinning}
-                         className={`relative flex flex-col items-center justify-center p-2 rounded-xl border-2 transition-all active:scale-95 ${bets[sym.id] ? 'bg-pink-900/40 border-pink-500' : 'bg-slate-800 border-slate-700 hover:border-pink-500/50'}`}
-                       >
-                          <span className="text-2xl">{sym.char}</span>
-                          <span className="text-[9px] font-black text-slate-400 mt-1">x{sym.odds}</span>
-                          {bets[sym.id] > 0 && (
-                            <div className="absolute -top-2 -right-2 bg-yellow-400 text-black text-[9px] font-black px-1.5 py-0.5 rounded-full shadow-lg">
-                              {bets[sym.id]}
-                            </div>
-                          )}
-                       </button>
-                     ))}
-                  </div>
-
-                  {/* 操作區 */}
-                  <div className="flex gap-4 w-full mt-6">
-                     <div className="flex bg-slate-800 rounded-xl p-1 gap-1">
-                        {[10, 100, 500].map(v => (
-                          <button 
-                            key={v} 
-                            onClick={() => setChipValue(v)}
-                            className={`px-3 py-2 rounded-lg text-[10px] font-black ${chipValue === v ? 'bg-pink-500 text-white' : 'text-slate-400 hover:bg-slate-700'}`}
-                          >
-                            {v}
-                          </button>
-                        ))}
-                     </div>
-                     <button onClick={handleClear} disabled={isSpinning} className="px-4 bg-slate-700 rounded-xl text-slate-300 font-black text-xs hover:bg-slate-600"><RotateCw size={14}/></button>
-                     <button 
-                       onClick={spin} 
-                       disabled={isSpinning}
-                       className="flex-1 bg-gradient-to-r from-pink-500 to-purple-600 rounded-xl font-black text-lg uppercase shadow-lg shadow-pink-500/20 active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2"
-                     >
-                        {isSpinning ? <RotateCw className="animate-spin" /> : <Play fill="white" />}
-                        <span>GO</span>
-                     </button>
-                  </div>
-
-               </div> {renderCell(7)}
-
-               {/* Row 2 */}
-               {renderCell(22)} {renderCell(8)}
-               {/* Row 3 */}
-               {renderCell(21)} {renderCell(9)}
-               {/* Row 4 */}
-               {renderCell(20)} {renderCell(10)}
-               {/* Row 5 */}
-               {renderCell(19)} {renderCell(11)}
-
-               {/* Row 6 (Bottom) */}
-               {renderCell(18)} {renderCell(17)} {renderCell(16)} {renderCell(15)} {renderCell(14)} {renderCell(13)} {renderCell(12)}
+      {/* Game Grid */}
+      <div className="relative w-full max-w-[600px] aspect-square bg-slate-900 rounded-[2rem] p-3 border-4 border-slate-800 shadow-[inset_0_0_40px_rgba(0,0,0,0.5)]">
+        <div className="grid grid-cols-7 grid-rows-7 gap-1.5 h-full w-full">
+          {GRID_LAYOUT.map((_, i) => (
+            <div key={i} style={getGridStyle(i)} className="w-full h-full">
+              {renderCell(i)}
             </div>
-         </div>
-      </div>
+          ))}
 
-      <div className="max-w-2xl mx-auto w-full mt-6 flex justify-center opacity-50">
-         <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest flex items-center gap-2">
-            <Info size={12} /> 博盡無悔，量力而為
-         </p>
+          {/* Center Control Panel */}
+          <div className="col-start-2 col-end-7 row-start-2 row-end-7 bg-slate-950 rounded-xl m-1 border border-slate-800 p-3 flex flex-col justify-between relative overflow-hidden">
+            {/* Background Effect */}
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-pink-900/20 via-slate-950 to-slate-950 pointer-events-none" />
+            
+            {/* Result Display */}
+            <div className="bg-black/60 backdrop-blur rounded-lg p-2 text-center border border-white/5 h-16 flex flex-col justify-center relative z-10">
+              <p className={`font-black text-base md:text-lg ${lastWin > 0 ? 'text-green-400 animate-pulse' : 'text-slate-200'}`}>
+                {message}
+              </p>
+              {lastWin > 0 && <p className="text-yellow-500 font-bold text-xs">+{lastWin}</p>}
+            </div>
+
+            {/* Betting Buttons */}
+            <div className="grid grid-cols-4 gap-2 mt-2 relative z-10">
+              {BET_OPTIONS.map((item) => (
+                <button
+                  key={item.name}
+                  onClick={() => handleBet(item.name)}
+                  disabled={isRunning}
+                  className={`relative p-1.5 rounded-lg border flex flex-col items-center transition-all active:scale-95
+                    ${bets[item.name] ? 'bg-indigo-600/30 border-indigo-500 shadow-[0_0_10px_rgba(99,102,241,0.2)]' : 'bg-slate-900 border-slate-700 hover:bg-slate-800'}
+                  `}
+                >
+                  <span className="text-[10px] text-slate-400 font-bold mb-0.5">x{item.odds}</span>
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-lg ${item.color} text-white shadow-lg ring-1 ring-white/10`}>
+                     {item.icon}
+                  </div>
+                  {bets[item.name] && (
+                    <div className="absolute -top-1.5 -right-1.5 bg-yellow-500 text-black text-[9px] font-black min-w-[18px] h-[18px] rounded-full flex items-center justify-center shadow-md border border-yellow-300">
+                      {bets[item.name]/10}
+                    </div>
+                  )}
+                </button>
+              ))}
+            </div>
+
+            {/* Action Bar */}
+            <div className="flex gap-2 mt-3 relative z-10">
+              <button 
+                onClick={clearBets}
+                disabled={isRunning || totalBet === 0}
+                className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-400 rounded-xl font-bold py-2 disabled:opacity-50 transition-colors text-xs"
+              >
+                CLEAR
+              </button>
+              <button 
+                onClick={startGame}
+                disabled={isRunning || totalBet === 0}
+                className={`flex-[2] rounded-xl font-black py-2 text-white text-base shadow-lg flex items-center justify-center gap-2 transition-all
+                  ${isRunning ? 'bg-slate-700 cursor-not-allowed' : 'bg-gradient-to-r from-pink-600 to-rose-600 hover:brightness-110 active:scale-[0.98] shadow-pink-600/20'}
+                `}
+              >
+                {isRunning ? <RefreshCw size={18} className="animate-spin" /> : <Play size={18} fill="currentColor" />}
+                {isRunning ? 'RUNNING' : 'START'}
+              </button>
+            </div>
+            
+            <div className="text-center mt-1 relative z-10">
+               <span className="text-[10px] text-slate-500 font-bold uppercase">Total Bet: </span>
+               <span className="text-white font-bold text-xs">{totalBet}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      {/* Footer Info */}
+      <div className="mt-6 flex flex-wrap gap-4 justify-center text-[10px] text-slate-500 uppercase font-bold tracking-wider">
+         <span className="flex items-center gap-1"><AlertCircle size={12} /> Fair Odds (1000 Weight)</span>
+         <span>•</span>
+         <span>Classic 24 Grid</span>
       </div>
     </div>
   );

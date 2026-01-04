@@ -1,53 +1,82 @@
 
 import React from 'react';
-import { MessageSquare, DollarSign } from 'lucide-react';
-import { ViewState } from '../types';
-import { Logo } from './Logo';
+import { Layout, Coins, ArrowRight } from 'lucide-react';
+import Logo from './Logo';
 
-interface LandingPageProps {
-  onSelect: (view: ViewState) => void;
+interface Props {
+  onSelect: (view: 'news' | 'token') => void;
 }
 
-export const LandingPage: React.FC<LandingPageProps> = ({ onSelect }) => {
+const LandingPage: React.FC<Props> = ({ onSelect }) => {
   return (
-    <div className="flex flex-col md:flex-row h-screen w-full bg-slate-900 text-white overflow-hidden">
-      
-      {/* Absolute Header Logo */}
-      <div className="absolute top-6 left-6 z-50 animate-fade-in">
-         <Logo className="w-16 h-16 shadow-lg border-2 border-white/20" />
-      </div>
-
-      {/* Left: Forum */}
+    <div className="flex flex-col md:flex-row h-screen w-full bg-black text-white overflow-hidden font-sans">
+      {/* News Section */}
       <div 
-        onClick={() => onSelect('forum')}
-        className="flex-1 flex flex-col items-center justify-center p-10 cursor-pointer hover:bg-slate-800 transition-all border-b md:border-b-0 md:border-r border-slate-700 group relative overflow-hidden"
+        onClick={() => onSelect('news')}
+        className="group relative flex-1 flex flex-col items-center justify-center cursor-pointer transition-all duration-1000 ease-out hover:flex-[1.6] bg-slate-950 border-b md:border-b-0 md:border-r border-white/5"
       >
-        <div className="absolute inset-0 bg-blue-600/5 group-hover:bg-blue-600/10 transition-colors"></div>
-        <div className="p-6 rounded-full bg-blue-600 mb-6 group-hover:scale-110 transition-transform shadow-[0_0_30px_rgba(37,99,235,0.5)] z-10">
-          <MessageSquare size={64} />
+        {/* Dynamic Background */}
+        <div className="absolute inset-0 bg-gradient-to-br from-blue-900/20 to-transparent opacity-50 group-hover:opacity-100 transition-opacity duration-1000" />
+        <div className="absolute inset-0 overflow-hidden">
+           <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-blue-500/10 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-700 blur-3xl scale-150" />
         </div>
-        <h1 className="text-4xl font-bold mb-4 text-center z-10">HKER 論壇</h1>
-        <p className="text-slate-400 text-center max-w-md z-10">
-          連結全球港人，分享生活、時事與娛樂。<br/>
-          即時同步，Web3 積分系統。
-        </p>
+
+        <div className="relative z-10 flex flex-col items-center transform group-hover:scale-105 transition-all duration-700">
+          <div className="w-24 h-24 bg-blue-500/10 rounded-[2rem] flex items-center justify-center mb-8 border border-blue-400/20 shadow-[0_0_50px_rgba(59,130,246,0.15)] group-hover:shadow-[0_0_70px_rgba(59,130,246,0.3)] group-hover:-rotate-3 transition-all duration-700">
+            <Layout size={44} className="text-blue-400" />
+          </div>
+          <h1 className="text-6xl font-black tracking-tighter mb-4 text-center leading-none">
+            HKER<br /><span className="bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-indigo-300">NEWS</span>
+          </h1>
+          <p className="text-slate-400 text-lg font-medium tracking-wide opacity-60 group-hover:opacity-100 transition-opacity text-center px-12">
+            獅子山下的新聞、資訊、社群
+          </p>
+
+          <div className="mt-12 flex items-center gap-3 bg-white/5 border border-white/10 px-8 py-4 rounded-3xl opacity-0 group-hover:opacity-100 translate-y-4 group-hover:translate-y-0 transition-all duration-700 delay-100 backdrop-blur-xl">
+             <span className="font-black text-sm uppercase tracking-widest">進入論壇</span>
+             <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" />
+          </div>
+        </div>
       </div>
 
-      {/* Right: Token */}
+      {/* Token Section */}
       <div 
         onClick={() => onSelect('token')}
-        className="flex-1 flex flex-col items-center justify-center p-10 cursor-pointer hover:bg-slate-800 transition-all group relative overflow-hidden"
+        className="group relative flex-1 flex flex-col items-center justify-center cursor-pointer transition-all duration-1000 ease-out hover:flex-[1.6] bg-slate-950"
       >
-        <div className="absolute inset-0 bg-amber-500/5 group-hover:bg-amber-500/10 transition-colors"></div>
-        <div className="p-6 rounded-full bg-amber-500 mb-6 group-hover:scale-110 transition-transform shadow-[0_0_30px_rgba(245,158,11,0.5)] z-10">
-          <DollarSign size={64} />
+        {/* Dynamic Background */}
+        <div className="absolute inset-0 bg-gradient-to-bl from-purple-900/20 to-transparent opacity-50 group-hover:opacity-100 transition-opacity duration-1000" />
+        <div className="absolute inset-0 overflow-hidden">
+           <div className="absolute top-0 right-0 w-full h-full bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-purple-500/10 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-700 blur-3xl scale-150" />
         </div>
-        <h1 className="text-4xl font-bold mb-4 text-center text-amber-500 z-10">HKER Token</h1>
-        <p className="text-slate-400 text-center max-w-md z-10">
-          獅子山精神數位象徵。<br/>
-          無需註冊即可查看流動性池與交易資訊。
-        </p>
+
+        <div className="relative z-10 flex flex-col items-center transform group-hover:scale-105 transition-all duration-700">
+          <div className="w-24 h-24 bg-purple-500/10 rounded-[2rem] flex items-center justify-center mb-8 border border-purple-400/20 shadow-[0_0_50px_rgba(168,85,247,0.15)] group-hover:shadow-[0_0_70px_rgba(168,85,247,0.3)] group-hover:rotate-3 transition-all duration-700">
+            <Coins size={44} className="text-purple-400" />
+          </div>
+          <h1 className="text-6xl font-black tracking-tighter mb-4 text-center leading-none">
+            HKER<br /><span className="bg-clip-text text-transparent bg-gradient-to-r from-purple-400 to-pink-300">TOKEN</span>
+          </h1>
+          <p className="text-slate-400 text-lg font-medium tracking-wide opacity-60 group-hover:opacity-100 transition-opacity text-center px-12">
+            專屬積分、遊戲與價值中心
+          </p>
+
+          <div className="mt-12 flex items-center gap-3 bg-white/5 border border-white/10 px-8 py-4 rounded-3xl opacity-0 group-hover:opacity-100 translate-y-4 group-hover:translate-y-0 transition-all duration-700 delay-100 backdrop-blur-xl">
+             <span className="font-black text-sm uppercase tracking-widest">積分遊戲</span>
+             <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" />
+          </div>
+        </div>
+      </div>
+      
+      {/* Central Branding Hub */}
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-20 pointer-events-none hidden md:block">
+        <div className="relative p-6">
+          <div className="absolute inset-0 bg-white/5 backdrop-blur-3xl rounded-[2.5rem] border border-white/10 shadow-[0_20px_50px_rgba(0,0,0,0.5)] scale-90 group-hover:scale-100 transition-transform duration-1000" />
+          <Logo size="lg" className="relative z-10 p-2" />
+        </div>
       </div>
     </div>
   );
 };
+
+export default LandingPage;

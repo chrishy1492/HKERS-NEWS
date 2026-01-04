@@ -1,79 +1,53 @@
 
-export type UserRole = 'user' | 'moderator' | 'admin';
-
-export interface User {
+export interface Profile {
   id: string;
-  name: string;
   email: string;
-  password?: string;
-  points: number;
-  role: UserRole;
-  starLevel: number;
-  joinedAt: string;
-  avatar: string;
-  solAddress?: string;
+  name: string;
   phone?: string;
   address?: string;
-  gender?: string;
-}
-
-export interface Reply {
-  id: number;
-  authorId: string;
-  authorName: string;
-  content: string;
-  createdAt: string;
+  sol_address?: string;
+  gender: 'M' | 'F';
+  points: number;
+  role: 'admin' | 'user' | 'mod';
+  avatar_url: string;
+  created_at: string;
 }
 
 export interface Post {
-  id: number;
-  authorId: string;
-  authorName: string;
+  id: string;
   title: string;
   content: string;
   region: string;
-  topic: string;
-  
-  // Interaction: Store user IDs. Multiple occurrences allowed for 3x limit.
-  likes: string[]; 
-  loves: string[]; 
-  
-  createdAt: string;
-  replies: Reply[];
-
-  // Bot Specific Fields
-  isBot?: boolean;
-  sourceUrl?: string;
-  sourceName?: string;
-  originalLang?: 'zh' | 'en';
-  isTranslated?: boolean; // UI toggle state
-  summary?: string; // The AI generated summary
-  
-  // Pre-generated translation content (e.g., if original is EN, this holds ZH)
-  translation?: {
-    title: string;
-    content: string;
-  };
+  category: string;
+  author_name: string;
+  author_id: string;
+  likes: number;
+  hearts: number;
+  created_at: string;
+  source_name?: string;
+  source_url?: string;
+  is_bot: boolean;
+  locked?: boolean;
+  translated_title?: string;
+  translated_content?: string;
+  liked_by?: Record<string, number>; // uid -> count (max 3)
+  hearted_by?: Record<string, number>; // uid -> count (max 3)
 }
 
-export interface Game {
+export interface Withdrawal {
   id: string;
-  name: string;
+  user_id: string;
+  amount: number;
+  sol_address: string;
+  status: 'pending' | 'completed' | 'rejected';
+  created_at: string;
 }
 
-// Analytics Structure: Year -> Month -> Day -> Hour -> Count
-export interface VisitorLog {
-  [year: string]: {
-    [month: string]: {
-      [day: string]: {
-        [hour: string]: {
-          guests: number;
-          members: number;
-        }
-      }
-    }
-  }
+export enum GameType {
+  BACCARAT = 'BACCARAT',
+  ROULETTE = 'ROULETTE',
+  BLACKJACK = 'BLACKJACK',
+  CRAB_FISH_SHRIMP = 'CRAB_FISH_SHRIMP',
+  SLOTS = 'SLOTS',
+  LITTLE_MARY = 'LITTLE_MARY'
 }
-
-export type ViewState = 'landing' | 'token' | 'forum';
-export type ForumView = 'home' | 'login' | 'register' | 'profile' | 'games' | 'divination' | 'admin';
