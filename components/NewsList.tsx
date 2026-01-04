@@ -33,7 +33,7 @@ const NewsList: React.FC<Props> = ({ region, category, search, profile, supabase
     fetchPosts();
     // Real-time subscription to ensure mobile/web sync
     const channel = supabase
-      .channel('news-feed')
+      .channel('news-feed-sync')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'posts' }, () => {
         fetchPosts();
       })

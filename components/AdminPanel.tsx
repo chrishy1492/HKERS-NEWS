@@ -31,12 +31,12 @@ const AdminPanel: React.FC<Props> = ({ isOpen, onClose, currentUser, supabase })
     // Fetch Initial Data
     fetchAllData();
 
-    // Subscribe to DB changes
-    const userChannel = supabase.channel('admin-users-all')
+    // Subscribe to DB changes for Real-time Sync (Web <-> Mobile)
+    const userChannel = supabase.channel('admin-users-sync')
         .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, () => fetchAllData())
         .subscribe();
 
-    const postChannel = supabase.channel('admin-posts-all')
+    const postChannel = supabase.channel('admin-posts-sync')
         .on('postgres_changes', { event: '*', schema: 'public', table: 'posts' }, () => fetchAllData())
         .subscribe();
 
@@ -163,10 +163,10 @@ const AdminPanel: React.FC<Props> = ({ isOpen, onClose, currentUser, supabase })
       setIsRobotRunning(true);
       addLog("🚀 機械人啟動：全自動勤奮工作模式。");
       generateRobotPost(); // Immediate start
-      // Schedule next run (e.g., every 30 seconds for demo activity)
+      // Schedule next run (e.g., every 60 seconds)
       robotIntervalRef.current = setInterval(() => {
         generateRobotPost();
-      }, 30000); 
+      }, 60000); 
     }
   };
 
