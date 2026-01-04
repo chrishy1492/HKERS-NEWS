@@ -215,9 +215,9 @@ export const Profile: React.FC = () => {
               <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm overflow-hidden animate-fade-in-up p-6">
                   <h3 className="font-bold mb-4 text-lg">Change Password</h3>
                   <form onSubmit={handleChangePassword} className="space-y-3">
-                      <input type="password" required value={pwdForm.oldPassword} onChange={e=>setPwdForm({...pwdForm, oldPassword: e.target.value})} placeholder="Old Password" className="w-full border p-2 rounded"/>
-                      <input type="password" required minLength={6} value={pwdForm.newPassword} onChange={e=>setPwdForm({...pwdForm, newPassword: e.target.value})} placeholder="New Password" className="w-full border p-2 rounded"/>
-                      <input type="password" required minLength={6} value={pwdForm.confirmPassword} onChange={e=>setPwdForm({...pwdForm, confirmPassword: e.target.value})} placeholder="Confirm New Password" className="w-full border p-2 rounded"/>
+                      <input type="password" required value={pwdForm.oldPassword} onChange={e=>setPwdForm({...pwdForm, oldPassword: e.target.value})} placeholder="Old Password" class="w-full border p-2 rounded"/>
+                      <input type="password" required minLength={6} value={pwdForm.newPassword} onChange={e=>setPwdForm({...pwdForm, newPassword: e.target.value})} placeholder="New Password" class="w-full border p-2 rounded"/>
+                      <input type="password" required minLength={6} value={pwdForm.confirmPassword} onChange={e=>setPwdForm({...pwdForm, confirmPassword: e.target.value})} placeholder="Confirm New Password" class="w-full border p-2 rounded"/>
                       <div className="flex gap-2 pt-2">
                           <button type="button" onClick={()=>setShowPwdModal(false)} className="flex-1 border py-2 rounded font-bold text-sm">Cancel</button>
                           <button type="submit" className="flex-1 bg-hker-red text-white py-2 rounded font-bold text-sm">Update</button>

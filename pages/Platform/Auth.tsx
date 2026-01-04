@@ -76,12 +76,6 @@ export const Auth: React.FC = () => {
     }
   };
 
-  const handleForgotPassword = () => {
-      alert(lang === 'cn' 
-        ? "請發送電郵至 hkerstoken@gmail.com 重置密碼。" 
-        : "Please email hkerstoken@gmail.com to reset your password.");
-  };
-
   return (
     <div className="flex justify-center items-center min-h-[80vh] py-10">
       <div className="bg-white p-8 rounded-xl shadow-xl w-full max-w-md border-t-4 border-hker-red">
@@ -119,14 +113,6 @@ export const Auth: React.FC = () => {
           <input required type="email" placeholder={lang === 'cn' ? "電郵地址" : "Email Address"} value={email} onChange={e => setEmail(e.target.value)} className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-hker-red outline-none" />
           <input required type="password" placeholder={lang === 'cn' ? "密碼" : "Password"} value={password} onChange={e => setPassword(e.target.value)} className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-hker-red outline-none" />
           
-          {isLogin && (
-              <div className="text-right">
-                  <button type="button" onClick={handleForgotPassword} className="text-xs text-blue-500 hover:underline">
-                      {lang === 'cn' ? '忘記密碼？' : 'Forgot Password?'}
-                  </button>
-              </div>
-          )}
-
           {!isLogin && (
              <div className="flex items-start gap-2">
                 <input type="checkbox" required checked={confirmEmail} onChange={e => setConfirmEmail(e.target.checked)} id="confirm" className="mt-1" />
