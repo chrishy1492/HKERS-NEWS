@@ -18,8 +18,10 @@ const SOURCE_DOMAINS: Record<string, string> = {
 };
 
 // --- DATA MAPPING LAYER (透明轉譯層) ---
-// 這層邏輯負責將前端的駝峰命名 (CamelCase) 自動轉換為資料庫的蛇形命名 (SnakeCase)
-// 讓前端開發者無需擔心資料庫的命名規範。
+// 修復：PostgreSQL 默認將欄位視為全小寫 (lowercase)。
+// avatarId (駝峰) -> 失敗
+// avatar_id (蛇形) -> 失敗
+// 解決方案：強制轉換為全小寫 (avatarid, soladdress, lastactive)
 
 const toDbUser = (user: User) => {
     return {
@@ -29,15 +31,16 @@ const toDbUser = (user: User) => {
         password: user.password,
         address: user.address,
         phone: user.phone,
-        sol_address: user.solAddress || null, // 資料庫欄位: sol_address
+        // 全小寫映射 (Lowercase Mapping)
+        soladdress: user.solAddress || null, 
         gender: user.gender,
         role: user.role,
         points: user.points,
-        avatar_id: user.avatarId,             // 資料庫欄位: avatar_id
-        is_banned: user.isBanned || false,    // 資料庫欄位: is_banned
+        avatarid: user.avatarId,             
+        isbanned: user.isBanned || false,    
         // 時間格式轉換: Number -> ISO String
-        joined_at: user.joinedAt ? new Date(user.joinedAt).toISOString() : new Date().toISOString(),     
-        last_active: user.lastActive ? new Date(user.lastActive).toISOString() : new Date().toISOString()
+        joinedat: user.joinedAt ? new Date(user.joinedAt).toISOString() : new Date().toISOString(),     
+        lastactive: user.lastActive ? new Date(user.lastActive).toISOString() : new Date().toISOString()
     };
 };
 
@@ -49,15 +52,16 @@ const fromDbUser = (dbUser: any): User => {
         password: dbUser.password,
         address: dbUser.address,
         phone: dbUser.phone,
-        solAddress: dbUser.sol_address || '', // 轉回 solAddress
+        // 兼容讀取：嘗試讀取全小寫，但也保留後備選項
+        solAddress: dbUser.soladdress || dbUser.sol_address || dbUser.solAddress || '', 
         gender: dbUser.gender,
         role: dbUser.role as UserRole,
         points: dbUser.points,
-        avatarId: dbUser.avatar_id || 1,      // 轉回 avatarId
-        isBanned: dbUser.is_banned || false,
+        avatarId: dbUser.avatarid || dbUser.avatar_id || dbUser.avatarId || 1,      
+        isBanned: dbUser.isbanned || dbUser.is_banned || dbUser.isBanned || false,
         // 時間格式轉換: ISO String -> Number
-        joinedAt: dbUser.joined_at ? new Date(dbUser.joined_at).getTime() : Date.now(),
-        lastActive: dbUser.last_active ? new Date(dbUser.last_active).getTime() : Date.now()
+        joinedAt: dbUser.joinedat ? new Date(dbUser.joinedat).getTime() : Date.now(),
+        lastActive: dbUser.lastactive ? new Date(dbUser.lastactive).getTime() : Date.now()
     };
 };
 
@@ -211,9 +215,9 @@ export const MockDB = {
 
     if (user.isBanned) throw new Error("Account Banned (此帳戶已被封鎖)");
 
-    // 更新最後活躍時間 (寫入時轉為 SnakeCase)
+    // 更新最後活躍時間 (寫入時轉為全小寫 lastactive)
     const nowIso = new Date().toISOString(); 
-    await supabase.from('users').update({ last_active: nowIso }).eq('id', user.id);
+    await supabase.from('users').update({ lastactive: nowIso }).eq('id', user.id);
 
     // 更新本地 Session
     const sessionUser = { ...user, lastActive: Date.now() };
@@ -236,14 +240,13 @@ export const MockDB = {
         throw new Error("Email already registered (此電郵已被註冊)");
     }
 
-    // 2. 寫入 Supabase (關鍵步驟：轉換為 DB 格式)
+    // 2. 寫入 Supabase (關鍵步驟：轉換為 DB 格式 - 全小寫)
     const dbPayload = toDbUser(user);
     
     const { error } = await supabase.from('users').insert(dbPayload);
     
     if (error) {
         console.error("Supabase Write Error:", JSON.stringify(error, null, 2));
-        // 提供更有用的錯誤信息給使用者
         throw new Error(`Database Registration Failed: ${error.message || 'Unknown Error'}`);
     }
 
@@ -349,12 +352,13 @@ export const MockDB = {
       const oneDayAgoIso = new Date(now - 86400000).toISOString();
 
       const { count: totalMembers } = await supabase.from('users').select('*', { count: 'exact', head: true });
+      // 注意：這裡查詢也必須使用全小寫欄位名 (joinedat, lastactive)
       const { count: newMembersToday } = await supabase.from('users')
         .select('*', { count: 'exact', head: true })
-        .gt('joined_at', oneDayAgoIso);
+        .gt('joinedat', oneDayAgoIso);
       const { count: activeMembersToday } = await supabase.from('users')
         .select('*', { count: 'exact', head: true })
-        .gt('last_active', oneDayAgoIso);
+        .gt('lastactive', oneDayAgoIso);
 
       const hourKey = new Date().getHours();
       const guestsToday = Math.floor(100 + (hourKey * 15) + (Math.random() * 5)); 
@@ -419,7 +423,8 @@ export const MockDB = {
               const now = Date.now();
               if (!user.lastActive || (now - user.lastActive > 300000)) {
                    const nowIso = new Date(now).toISOString();
-                   await supabase.from('users').update({ last_active: nowIso }).eq('id', user.id);
+                   // 更新最後活躍時間 (全小寫 lastactive)
+                   await supabase.from('users').update({ lastactive: nowIso }).eq('id', user.id);
                    user.lastActive = now;
                    localStorage.setItem(KEY_CURRENT_USER, JSON.stringify(user));
               }
