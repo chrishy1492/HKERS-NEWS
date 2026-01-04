@@ -48,8 +48,12 @@ export const Auth: React.FC = () => {
               initialRole = UserRole.ADMIN;
           }
 
+          // Use UUID to ensure database compatibility
+          // If the DB column is text, this works. If it's UUID, this also works.
+          const newId = crypto.randomUUID();
+
           const newUser: User = {
-            id: `HKER-${Math.floor(Math.random() * 900000) + 100000}`,
+            id: newId,
             name: name || 'Anonymous',
             email,
             password, 

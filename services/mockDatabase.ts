@@ -17,9 +17,53 @@ const SOURCE_DOMAINS: Record<string, string> = {
     'Bloomberg': 'https://www.bloomberg.com'
 };
 
-// --- CONTENT GENERATION ENGINE v2.0 ---
+// --- DATA MAPPING LAYER (透明轉譯層) ---
+// 這層邏輯負責將前端的駝峰命名 (CamelCase) 自動轉換為資料庫的蛇形命名 (SnakeCase)
+// 讓前端開發者無需擔心資料庫的命名規範。
 
-// 1. Region Specific Contexts (To make news feel local)
+const toDbUser = (user: User) => {
+    return {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        password: user.password,
+        address: user.address,
+        phone: user.phone,
+        sol_address: user.solAddress || null, // 資料庫欄位: sol_address
+        gender: user.gender,
+        role: user.role,
+        points: user.points,
+        avatar_id: user.avatarId,             // 資料庫欄位: avatar_id
+        is_banned: user.isBanned || false,    // 資料庫欄位: is_banned
+        // 時間格式轉換: Number -> ISO String
+        joined_at: user.joinedAt ? new Date(user.joinedAt).toISOString() : new Date().toISOString(),     
+        last_active: user.lastActive ? new Date(user.lastActive).toISOString() : new Date().toISOString()
+    };
+};
+
+const fromDbUser = (dbUser: any): User => {
+    return {
+        id: dbUser.id,
+        name: dbUser.name,
+        email: dbUser.email,
+        password: dbUser.password,
+        address: dbUser.address,
+        phone: dbUser.phone,
+        solAddress: dbUser.sol_address || '', // 轉回 solAddress
+        gender: dbUser.gender,
+        role: dbUser.role as UserRole,
+        points: dbUser.points,
+        avatarId: dbUser.avatar_id || 1,      // 轉回 avatarId
+        isBanned: dbUser.is_banned || false,
+        // 時間格式轉換: ISO String -> Number
+        joinedAt: dbUser.joined_at ? new Date(dbUser.joined_at).getTime() : Date.now(),
+        lastActive: dbUser.last_active ? new Date(dbUser.last_active).getTime() : Date.now()
+    };
+};
+
+// --- CONTENT GENERATION ENGINE v2.0 ---
+// (保留原有內容生成邏輯)
+
 const REGION_CONTEXT: Record<string, any> = {
     'Hong Kong': { cities: ['Central', 'Mong Kok', 'Shatin', 'Tuen Mun', 'Kai Tak'], currency: 'HKD', policies: ['MPF', 'Stamp Duty', 'MTR Fares'], keywords: ['Lion Rock', 'Dim Sum', 'Land Supply'] },
     'UK': { cities: ['London', 'Manchester', 'Birmingham', 'Bristol', 'Reading'], currency: 'GBP', policies: ['Council Tax', 'NI', 'Visa Updates'], keywords: ['BNO', 'NHS', 'High Street'] },
@@ -30,11 +74,9 @@ const REGION_CONTEXT: Record<string, any> = {
     'Europe': { cities: ['Berlin', 'Paris', 'Amsterdam', 'Dublin'], currency: 'EUR', policies: ['EU Blue Card', 'Digital Nomad'], keywords: ['Train Travel', 'Work Life Balance', 'Energy Prices'] }
 };
 
-// 2. Helper to get random item
 const rnd = (arr: string[]) => arr[Math.floor(Math.random() * arr.length)];
 const rndNum = (min: number, max: number) => Math.floor(Math.random() * (max - min + 1)) + min;
 
-// 3. Dynamic Generators per Category
 const TEMPLATE_GENERATORS: Record<string, (region: string, ctx: any) => any> = {
     'Real Estate': (region, ctx) => {
         const city = rnd(ctx.cities);
@@ -92,7 +134,6 @@ const TEMPLATE_GENERATORS: Record<string, (region: string, ctx: any) => any> = {
     }
 };
 
-// Fallback generator for other categories
 const defaultGenerator = (region: string, topic: string, ctx: any) => {
     return {
         titleEN: `[${region}] Discussions on ${topic} heating up in ${rnd(ctx.cities)}`,
@@ -106,17 +147,10 @@ const generateRobotContent = (region: string, topic: string) => {
     const sources = Object.keys(SOURCE_DOMAINS);
     const randSource = sources[Math.floor(Math.random() * sources.length)];
     const mockUrl = `${SOURCE_DOMAINS[randSource]}/article/${new Date().getFullYear()}/${Math.floor(Math.random() * 100000)}`;
-    
-    // Get Context
     const ctx = REGION_CONTEXT[region] || REGION_CONTEXT['Hong Kong'];
-    
-    // Select Generator
     const specificGenerator = TEMPLATE_GENERATORS[topic];
-    const contentData = specificGenerator 
-        ? specificGenerator(region, ctx)
-        : defaultGenerator(region, topic, ctx);
+    const contentData = specificGenerator ? specificGenerator(region, ctx) : defaultGenerator(region, topic, ctx);
 
-    // Append Standard Footer
     const footerEN = `\n\n(AI Summary by HKER Bot. Source: ${randSource})`;
     const footerCN = `\n\n(本資訊由 HKER AI 機械人摘要。來源：${randSource})`;
 
@@ -132,19 +166,17 @@ const generateRobotContent = (region: string, topic: string) => {
 
 export const MockDB = {
   
-  // --- USERS (Supabase Primary, Strict Persistence) ---
+  // --- USERS (Supabase Primary, with Transparent Mapping) ---
 
   getUsers: async (): Promise<User[]> => {
     try {
-        // Always try to fetch from Cloud first
         const { data, error } = await supabase.from('users').select('*');
-        
         if (error) throw error;
-        
         if (data) {
-            // Update Local Cache (Sync)
-            localStorage.setItem(KEY_ALL_USERS, JSON.stringify(data));
-            return data as User[];
+            // 從 DB 讀取後，自動轉回 App 認識的 camelCase
+            const appUsers = data.map(fromDbUser);
+            localStorage.setItem(KEY_ALL_USERS, JSON.stringify(appUsers));
+            return appUsers;
         }
         return [];
     } catch (e) { 
@@ -154,13 +186,12 @@ export const MockDB = {
   },
 
   getCurrentUser: (): User | null => {
-    // Session is kept local for performance, but validated against DB actions
     const local = localStorage.getItem(KEY_CURRENT_USER);
     return local ? JSON.parse(local) : null;
   },
 
   login: async (email: string, password?: string): Promise<User | null> => {
-    // 1. Query Supabase (Source of Truth)
+    // 從 Supabase 查詢
     const { data, error } = await supabase
         .from('users')
         .select('*')
@@ -171,21 +202,21 @@ export const MockDB = {
         throw new Error("User not found (用戶不存在) - Please Register First");
     }
 
-    const user = data as User;
+    // 轉換資料格式
+    const user = fromDbUser(data);
 
-    // 2. Simple Password Check
     if (password && user.password && user.password !== password) {
         throw new Error("Invalid Password (密碼錯誤)");
     }
 
     if (user.isBanned) throw new Error("Account Banned (此帳戶已被封鎖)");
 
-    // 3. Update Last Active in DB (Track Activity)
-    const now = Date.now();
-    await supabase.from('users').update({ lastActive: now }).eq('id', user.id);
+    // 更新最後活躍時間 (寫入時轉為 SnakeCase)
+    const nowIso = new Date().toISOString(); 
+    await supabase.from('users').update({ last_active: nowIso }).eq('id', user.id);
 
-    // 4. Set Local Session
-    const sessionUser = { ...user, lastActive: now };
+    // 更新本地 Session
+    const sessionUser = { ...user, lastActive: Date.now() };
     localStorage.setItem(KEY_CURRENT_USER, JSON.stringify(sessionUser));
 
     return sessionUser;
@@ -194,7 +225,7 @@ export const MockDB = {
   register: async (user: User): Promise<void> => {
     console.log("Attempting registration for:", user.email);
 
-    // 1. Check uniqueness via Supabase
+    // 1. 檢查是否已存在
     const { data: existingUser } = await supabase
         .from('users')
         .select('email')
@@ -205,18 +236,18 @@ export const MockDB = {
         throw new Error("Email already registered (此電郵已被註冊)");
     }
 
-    // 2. Insert to Supabase (Strict Cloud Write)
-    // We sanitize the object to ensure it matches JSON structure perfectly
-    const userPayload = JSON.parse(JSON.stringify(user));
+    // 2. 寫入 Supabase (關鍵步驟：轉換為 DB 格式)
+    const dbPayload = toDbUser(user);
     
-    const { error } = await supabase.from('users').insert(userPayload);
+    const { error } = await supabase.from('users').insert(dbPayload);
     
     if (error) {
-        console.error("Supabase Write Error:", error);
-        throw new Error("Database Registration Failed: " + error.message);
+        console.error("Supabase Write Error:", JSON.stringify(error, null, 2));
+        // 提供更有用的錯誤信息給使用者
+        throw new Error(`Database Registration Failed: ${error.message || 'Unknown Error'}`);
     }
 
-    // 3. Only set local session if DB write was successful
+    // 3. 註冊成功後，更新本地狀態
     localStorage.setItem(KEY_CURRENT_USER, JSON.stringify(user));
     console.log("Registration successful, data persisted to Supabase.");
   },
@@ -226,15 +257,15 @@ export const MockDB = {
   },
 
   saveUser: async (user: User): Promise<void> => {
-      // 1. Update Supabase (Persistence for Profile Changes)
-      const { error } = await supabase.from('users').upsert(user).eq('id', user.id);
+      // 更新資料 (同樣需要轉換)
+      const dbPayload = toDbUser(user);
+      const { error } = await supabase.from('users').upsert(dbPayload).eq('id', user.id);
       
       if (error) {
-          console.error("Save User Error", error);
+          console.error("Save User Error", JSON.stringify(error, null, 2));
           throw new Error("Failed to save profile changes to cloud.");
       }
 
-      // 2. Update Local Session if it's the current user
       const current = MockDB.getCurrentUser();
       if(current && current.id === user.id) {
           localStorage.setItem(KEY_CURRENT_USER, JSON.stringify(user));
@@ -246,7 +277,6 @@ export const MockDB = {
   },
 
   updateUserPoints: async (userId: string, delta: number): Promise<number> => {
-      // 1. Fetch fresh data first to ensure atomic-like accuracy
       const { data: userData, error: fetchError } = await supabase.from('users').select('points').eq('id', userId).single();
       
       if (fetchError || !userData) {
@@ -256,11 +286,9 @@ export const MockDB = {
 
       const newPoints = Math.max(0, userData.points + delta);
 
-      // 2. Update Supabase
       const { error } = await supabase.from('users').update({ points: newPoints }).eq('id', userId);
       
       if (!error) {
-          // 3. Sync Local Session if self
           const current = MockDB.getCurrentUser();
           if(current && current.id === userId) {
               current.points = newPoints;
@@ -282,15 +310,12 @@ export const MockDB = {
             .limit(100);
 
           if (!error && data) {
-              // DATA SANITIZATION:
               const cleanData = data.map((p: any) => ({
                   ...p,
                   source: (typeof p.source === 'string' && p.source !== '[object Object]' && p.source.trim() !== '') 
                           ? p.source 
                           : 'External Source'
               }));
-
-              // Cache posts to Temporary Storage (Sync)
               localStorage.setItem(KEY_LOCAL_POSTS, JSON.stringify(cleanData));
               return cleanData as Post[];
           }
@@ -300,14 +325,12 @@ export const MockDB = {
   },
 
   savePost: async (post: Post): Promise<void> => {
-      // Optimistic Cache Update
       let cached = JSON.parse(localStorage.getItem(KEY_LOCAL_POSTS) || '[]');
       const idx = cached.findIndex((p: Post) => p.id === post.id);
       if (idx >= 0) cached[idx] = post;
       else cached.unshift(post);
       localStorage.setItem(KEY_LOCAL_POSTS, JSON.stringify(cached));
 
-      // DB Update
       const safePost = {
           ...post,
           source: (typeof post.source === 'string' && post.source !== '[object Object]') ? post.source : 'System'
@@ -319,19 +342,19 @@ export const MockDB = {
       await supabase.from('posts').delete().eq('id', postId);
   },
 
-  // --- ANALYTICS (REAL-TIME AGGREGATION) ---
+  // --- ANALYTICS ---
   
   getAnalytics: async () => {
       const now = Date.now();
-      const oneDayAgo = now - 86400000;
+      const oneDayAgoIso = new Date(now - 86400000).toISOString();
 
       const { count: totalMembers } = await supabase.from('users').select('*', { count: 'exact', head: true });
       const { count: newMembersToday } = await supabase.from('users')
         .select('*', { count: 'exact', head: true })
-        .gt('joinedAt', oneDayAgo);
+        .gt('joined_at', oneDayAgoIso);
       const { count: activeMembersToday } = await supabase.from('users')
         .select('*', { count: 'exact', head: true })
-        .gt('lastActive', oneDayAgo);
+        .gt('last_active', oneDayAgoIso);
 
       const hourKey = new Date().getHours();
       const guestsToday = Math.floor(100 + (hourKey * 15) + (Math.random() * 5)); 
@@ -344,10 +367,9 @@ export const MockDB = {
       };
   },
 
-  // --- ROBOT LOGIC (Concurrency Safe) ---
+  // --- ROBOT LOGIC ---
   
   triggerRobotPost: async () => {
-       // 1. Check last robot post time from DB to prevent multiple clients spamming
        const { data: lastPosts } = await supabase
         .from('posts')
         .select('timestamp')
@@ -358,15 +380,11 @@ export const MockDB = {
        const now = Date.now();
        if (lastPosts && lastPosts.length > 0) {
            const lastTime = lastPosts[0].timestamp;
-           // Only post if > 2 minutes have passed
            if (now - lastTime < 120000) return;
        }
 
-       // 2. Generate Content
        const region = REGIONS[Math.floor(Math.random() * REGIONS.length)];
        const topic = CATEGORIES[Math.floor(Math.random() * CATEGORIES.length)];
-       
-       // Use V2 Generator
        const contentData = generateRobotContent(region, topic);
        
        const newPost: Post = {
@@ -394,15 +412,14 @@ export const MockDB = {
     await MockDB.savePost(newPost);
   },
 
-  // Record presence in DB
   recordVisit: async (isLoggedIn: boolean) => {
       if (isLoggedIn) {
           const user = MockDB.getCurrentUser();
           if (user) {
               const now = Date.now();
-              // Throttle updates to every 5 mins to save DB calls
               if (!user.lastActive || (now - user.lastActive > 300000)) {
-                   await supabase.from('users').update({ lastActive: now }).eq('id', user.id);
+                   const nowIso = new Date(now).toISOString();
+                   await supabase.from('users').update({ last_active: nowIso }).eq('id', user.id);
                    user.lastActive = now;
                    localStorage.setItem(KEY_CURRENT_USER, JSON.stringify(user));
               }
