@@ -1,5 +1,5 @@
 {
-  "name": "HKER News Platform",
-  "description": "A professional dual-interface news and token management platform for the HKER community, featuring real-time data synchronization, a point-based reward system, automated robot news, and integrated casino games.",
+  "name": "HKER Platform",
+  "description": "A dual-portal application featuring the HKER Token information site and a comprehensive News & Social Platform with gamification and community features.",
   "requestFramePermissions": []
 }

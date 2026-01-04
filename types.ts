@@ -1,53 +1,111 @@
 
-export interface Profile {
-  id: string;
-  email: string;
+export enum UserRole {
+  USER = 'USER',
+  ADMIN = 'ADMIN',
+  MODERATOR = 'MODERATOR'
+}
+
+export interface User {
+  id: string; // Member ID
   name: string;
-  phone?: string;
-  address?: string;
-  sol_address?: string;
-  gender: 'M' | 'F';
+  email: string;
+  password?: string; // stored for mock auth (in real app, use Supabase Auth)
+  address: string;
+  phone: string;
+  solAddress: string;
+  gender: string;
+  role: UserRole;
   points: number;
-  role: 'admin' | 'user' | 'mod';
-  avatar_url: string;
-  created_at: string;
+  avatarId: number; // 1-88
+  isBanned?: boolean;
+  joinedAt?: number; // Timestamp for registration analysis
+  lastActive?: number; // Timestamp for "Active Today" analysis
+}
+
+export interface Comment {
+  id: string;
+  postId: string;
+  author: string;
+  authorId: string;
+  content: string;
+  timestamp: number;
 }
 
 export interface Post {
   id: string;
-  title: string;
-  content: string;
-  region: string;
-  category: string;
-  author_name: string;
-  author_id: string;
+  title: string; // English Title
+  titleCN?: string; // Translated Title
+  content: string; // English Content
+  contentCN?: string; // Translated Content
+  region: string; // HK, TW, UK, US, CA, AU
+  category: string; // RealEstate, News, Finance, etc.
+  author: string; // 'Robot' or User Name
+  authorId: string;
+  isRobot: boolean;
+  timestamp: number;
+  displayDate: string;
   likes: number;
   hearts: number;
-  created_at: string;
-  source_name?: string;
-  source_url?: string;
-  is_bot: boolean;
-  locked?: boolean;
-  translated_title?: string;
-  translated_content?: string;
-  liked_by?: Record<string, number>; // uid -> count (max 3)
-  hearted_by?: Record<string, number>; // uid -> count (max 3)
+  views: number;
+  source?: string;
+  sourceUrl?: string; // Stores the original external news link
+  botId?: string;
+  replies: Comment[]; 
+  // Track user interactions { userId: { likes: 0-3, hearts: 0-3 } }
+  userInteractions?: Record<string, { likes: number, hearts: number }>;
 }
 
-export interface Withdrawal {
+export interface RobotLog {
   id: string;
-  user_id: string;
-  amount: number;
-  sol_address: string;
-  status: 'pending' | 'completed' | 'rejected';
-  created_at: string;
+  timestamp: number;
+  action: 'POST' | 'CLEANUP' | 'ERROR';
+  details: string;
+  region?: string;
 }
 
-export enum GameType {
-  BACCARAT = 'BACCARAT',
-  ROULETTE = 'ROULETTE',
-  BLACKJACK = 'BLACKJACK',
-  CRAB_FISH_SHRIMP = 'CRAB_FISH_SHRIMP',
-  SLOTS = 'SLOTS',
-  LITTLE_MARY = 'LITTLE_MARY'
-}
+export const REGIONS = ['Hong Kong', 'Taiwan', 'UK', 'USA', 'Canada', 'Australia', 'Europe'];
+
+export const REGIONS_CN: Record<string, string> = {
+  'Hong Kong': '中國香港',
+  'Taiwan': '台灣',
+  'UK': '英國',
+  'USA': '美國',
+  'Canada': '加拿大',
+  'Australia': '澳洲',
+  'Europe': '歐洲'
+};
+
+export const CATEGORIES = [
+  'Real Estate', 'Current Affairs', 'Finance', 'Entertainment', 'Travel', 
+  'Digital', 'Automotive', 'Religion', 'Offers', 'Campus', 'Weather', 'Community'
+];
+
+export const CATEGORIES_CN: Record<string, string> = {
+  'Real Estate': '地產',
+  'Current Affairs': '時事',
+  'Finance': '財經',
+  'Entertainment': '娛樂',
+  'Travel': '旅遊',
+  'Digital': '數碼',
+  'Automotive': '汽車',
+  'Religion': '宗教',
+  'Offers': '優惠',
+  'Campus': '校園',
+  'Weather': '天氣',
+  'Community': '社區活動'
+};
+
+// STRICT ADMIN LIST
+export const ADMIN_EMAILS = [
+  'chrishy1494@gmail.com', 
+  'hkerstoken@gmail.com', 
+  'niceleung@gmail.com'
+];
+
+export const VIP_LEVELS = [
+  { level: 1, points: 100000, title: '1 Star Member ⭐️' },
+  { level: 2, points: 300000, title: '2 Star Member ⭐️⭐️' },
+  { level: 3, points: 700000, title: '3 Star Member ⭐️⭐️⭐️' },
+  { level: 4, points: 1500000, title: '4 Star Member ⭐️⭐️⭐️⭐️' },
+  { level: 5, points: 5000000, title: '5 Star Member ⭐️⭐️⭐️⭐️⭐️' },
+];
