@@ -24,13 +24,14 @@ const NewsList: React.FC<Props> = ({ region, category, search, profile, supabase
     if (region) query = query.eq('region', region);
     if (category !== '全部') query = query.eq('category', category);
     
-    const { data, error } = await query;
+    const { data } = await query;
     if (data) setPosts(data);
     setLoading(false);
   };
 
   useEffect(() => {
     fetchPosts();
+    // Real-time subscription to ensure mobile/web sync
     const channel = supabase
       .channel('news-feed')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'posts' }, () => {
@@ -50,6 +51,7 @@ const NewsList: React.FC<Props> = ({ region, category, search, profile, supabase
     const interactionMap = type === 'like' ? post.liked_by || {} : post.hearted_by || {};
     const currentCount = interactionMap[profile.id] || 0;
 
+    // Rule 15: Interaction Limits
     if (currentCount >= 3) {
       return alert(`⚠️ 防刷機制：每個帳戶對同一貼文最多只能給 3 次${type === 'like' ? '讚' : '心'}。`);
     }
@@ -63,6 +65,7 @@ const NewsList: React.FC<Props> = ({ region, category, search, profile, supabase
       const { error: postError } = await supabase.from('posts').update(updates).eq('id', postId);
       if (postError) throw postError;
 
+      // Reward points (150 pts per interact)
       const reward = 150;
       const { error: profileError } = await supabase.from('profiles').update({
         points: profile.points + reward
@@ -70,7 +73,7 @@ const NewsList: React.FC<Props> = ({ region, category, search, profile, supabase
 
       if (profileError) throw profileError;
 
-      alert(`✅ 互動成功！獲得 ${reward} HKER Token 積分！(${currentCount + 1}/3)`);
+      // Note: No alert here to keep UX smooth, or a small toast
     } catch (err) {
       console.error(err);
     }
@@ -90,15 +93,12 @@ const NewsList: React.FC<Props> = ({ region, category, search, profile, supabase
     setTranslatingId(post.id);
     try {
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-      // Smart Language Detection Logic
       const isChineseRegion = post.region === '中國香港' || post.region === '台灣';
       const targetLang = isChineseRegion ? 'English' : 'Traditional Chinese (繁體中文)';
       
       const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
-        contents: `Translate the following news title and content into ${targetLang}. Maintain the professional tone.
-        Title: ${post.title}
-        Content: ${post.content}`,
+        model: 'gemini-2.5-flash',
+        contents: `Translate to ${targetLang}. Keep tone professional.\nTitle: ${post.title}\nContent: ${post.content}`,
       });
 
       const text = response.text || "";
@@ -113,7 +113,6 @@ const NewsList: React.FC<Props> = ({ region, category, search, profile, supabase
 
       setShowTranslated(prev => ({ ...prev, [post.id]: true }));
     } catch (err) {
-      console.error("Translation failed:", err);
       alert('AI 翻譯服務繁忙，請稍後再試。');
     } finally {
       setTranslatingId(null);
@@ -139,6 +138,8 @@ const NewsList: React.FC<Props> = ({ region, category, search, profile, supabase
 
   return (
     <div className="max-w-4xl mx-auto space-y-6 pb-20 animate-in fade-in duration-500">
+      {/* Rule 57, 80, 96: Users cannot post. Interface removed. */}
+      
       {filteredPosts.length === 0 ? (
         <div className="text-center py-20 bg-slate-900/50 rounded-[2rem] border border-dashed border-slate-700">
           <p className="text-slate-500 font-bold">目前沒有符合條件的新聞。</p>
@@ -152,7 +153,6 @@ const NewsList: React.FC<Props> = ({ region, category, search, profile, supabase
           return (
             <article key={post.id} className="bg-slate-900 border border-slate-800 rounded-[2rem] overflow-hidden hover:border-slate-700 transition-all shadow-xl hover:shadow-2xl group relative">
               
-              {/* Robot Badge / Author Info */}
               <div className="p-6">
                 <div className="flex justify-between items-start mb-5">
                   <div className="flex items-center gap-4">
@@ -181,7 +181,6 @@ const NewsList: React.FC<Props> = ({ region, category, search, profile, supabase
                   </div>
                 </div>
 
-                {/* Content */}
                 <h2 className="text-2xl font-black text-white mb-4 leading-tight group-hover:text-blue-400 transition-colors">
                   {displayTitle}
                 </h2>
@@ -190,14 +189,12 @@ const NewsList: React.FC<Props> = ({ region, category, search, profile, supabase
                   {displayContent}
                 </div>
 
-                {/* Robot Footer: Source & Disclaimer */}
                 {post.is_bot && (
                   <div className="mb-6 bg-slate-950/50 p-4 rounded-xl border border-slate-800/50 text-xs text-slate-400 space-y-3">
                     <p className="flex items-start gap-2 italic opacity-80">
                       <AlertCircle size={14} className="shrink-0 mt-0.5 text-indigo-400" />
                       <span>
                         本文由 <span className="text-indigo-400 font-bold">HKER AI Robot</span> 自動生成摘要 (Own Words Summary)。
-                        <br/>內容僅供參考，請查閱原文以獲取完整資訊。
                       </span>
                     </p>
                     {post.source_url && (
@@ -214,7 +211,6 @@ const NewsList: React.FC<Props> = ({ region, category, search, profile, supabase
                   </div>
                 )}
 
-                {/* Interaction Bar */}
                 <div className="flex items-center justify-between pt-5 border-t border-slate-800">
                   <div className="flex items-center gap-4">
                     <button 
@@ -243,13 +239,6 @@ const NewsList: React.FC<Props> = ({ region, category, search, profile, supabase
                   </div>
 
                   <div className="flex items-center gap-3">
-                    {post.locked && (
-                       <div className="hidden sm:flex items-center gap-1.5 text-[10px] font-bold text-slate-600 bg-slate-900 px-3 py-1.5 rounded-full border border-slate-800">
-                         <MessageSquareOff size={12} />
-                         不可留言
-                       </div>
-                    )}
-
                     <button 
                       onClick={() => handleTranslate(post)}
                       disabled={!!translatingId}

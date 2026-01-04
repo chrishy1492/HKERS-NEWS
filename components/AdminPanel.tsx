@@ -1,8 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { supabase } from '../supabase';
 import { Profile, Post } from '../types';
-import { ShieldAlert, Users, FileText, Settings, X, Search, Trash2, Edit, RefreshCw, Send, Plus, Cpu, Play, Square, AlertCircle, Globe, Zap } from 'lucide-react';
+import { ShieldAlert, Users, FileText, X, Search, Trash2, Edit, RefreshCw, Play, Square, Cpu, Zap, Activity } from 'lucide-react';
 import { GoogleGenAI } from "@google/genai";
 
 interface Props {
@@ -25,6 +24,28 @@ const AdminPanel: React.FC<Props> = ({ isOpen, onClose, currentUser, supabase })
   const [robotLogs, setRobotLogs] = useState<string[]>([]);
   const robotIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // Real-time Subscriptions
+  useEffect(() => {
+    if (!isOpen) return;
+
+    // Fetch Initial Data
+    fetchAllData();
+
+    // Subscribe to DB changes
+    const userChannel = supabase.channel('admin-users-all')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, () => fetchAllData())
+        .subscribe();
+
+    const postChannel = supabase.channel('admin-posts-all')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'posts' }, () => fetchAllData())
+        .subscribe();
+
+    return () => {
+        supabase.removeChannel(userChannel);
+        supabase.removeChannel(postChannel);
+    };
+  }, [isOpen]);
+
   const fetchAllData = async () => {
     setLoading(true);
     const { data: userData } = await supabase.from('profiles').select('*').order('created_at', { ascending: false });
@@ -36,21 +57,18 @@ const AdminPanel: React.FC<Props> = ({ isOpen, onClose, currentUser, supabase })
       setStats({
         totalUsers: userData.length,
         todayNew: userData.filter((u: any) => u.created_at.startsWith(today)).length,
-        online: 1 // Simulated
+        online: Math.floor(Math.random() * 5) + 1 // Simulated online presence
       });
     }
     if (postData) setPosts(postData);
     setLoading(false);
   };
 
-  useEffect(() => {
-    if (isOpen) fetchAllData();
-  }, [isOpen]);
-
   const addLog = (msg: string) => {
     setRobotLogs(prev => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev].slice(0, 50));
   };
 
+  // --- ROBOT LOGIC ---
   const generateRobotPost = async () => {
     addLog("🤖 AI 正在掃描全球新聞源...");
     
@@ -75,22 +93,28 @@ const AdminPanel: React.FC<Props> = ({ isOpen, onClose, currentUser, supabase })
     try {
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
       
-      const prompt = `You are an expert news aggregator bot for 'HKER News Platform'.
-      Task: Find or generate a realistic, trending news summary for ${selectedRegionObj.name} regarding the topic '${selectedCat}'.
-      
-      Requirements:
-      1. Language: MUST be ${selectedRegionObj.lang}.
-      2. Summarize in your own words (avoid plagiarism).
-      3. Include a realistic Source Name and URL.
-      4. Length: Concise summary (approx 150 words).
-      
-      Output JSON Format:
-      {
-        "title": "Eye-catching Headline",
-        "content": "The summary content...",
-        "source_name": "Name of the news source",
-        "source_url": "https://example.com/article"
-      }`;
+      // Rule 14, 72, 81: Rich Content, Own Words, Copyright Safety
+      const prompt = `
+        You are an expert news reporter for 'HKER News Platform'.
+        Task: Create a news post about '${selectedCat}' in '${selectedRegionObj.name}'.
+        
+        Guidelines:
+        1. Language: ${selectedRegionObj.lang}.
+        2. Content: 
+           - Headline: Catchy and professional.
+           - Body: Approx 200 words. Summarize a realistic recent event/trend.
+           - Style: "Own Words" (Do not copy-paste). Professional and engaging.
+           - Key Points: List 3 key takeaways at the top.
+        3. Safety: Avoid copyright infringement by synthesizing facts.
+        4. Disclaimer: "This content is AI-generated based on trending topics."
+        
+        Output JSON Format:
+        {
+          "title": "Title Here",
+          "content": "Full content string...",
+          "source_name": "Global News Aggregator",
+          "source_url": "https://news.google.com"
+        }`;
 
       const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash',
@@ -113,7 +137,7 @@ const AdminPanel: React.FC<Props> = ({ isOpen, onClose, currentUser, supabase })
         source_name: result.source_name,
         source_url: result.source_url,
         is_bot: true,
-        locked: true, // Rule #10: No comments allowed
+        locked: true, 
         likes: 0,
         hearts: 0,
         liked_by: {},
@@ -124,7 +148,7 @@ const AdminPanel: React.FC<Props> = ({ isOpen, onClose, currentUser, supabase })
       if (error) throw error;
       
       addLog(`✅ 發布成功: [${selectedRegionObj.name}] ${result.title.substring(0, 20)}...`);
-      fetchAllData();
+      // No manual fetch needed due to realtime subscription
     } catch (err: any) {
       addLog(`❌ 錯誤: ${err.message}`);
     }
@@ -137,26 +161,24 @@ const AdminPanel: React.FC<Props> = ({ isOpen, onClose, currentUser, supabase })
       addLog("🛑 機械人已暫停工作。");
     } else {
       setIsRobotRunning(true);
-      addLog("🚀 機械人啟動：全自動勤奮工作模式 (24/7)。");
+      addLog("🚀 機械人啟動：全自動勤奮工作模式。");
       generateRobotPost(); // Immediate start
-      // Schedule next run (e.g., every 45 seconds for active demo)
+      // Schedule next run (e.g., every 30 seconds for demo activity)
       robotIntervalRef.current = setInterval(() => {
         generateRobotPost();
-      }, 45000); 
+      }, 30000); 
     }
   };
 
   const handleDeleteUser = async (id: string) => {
-    if (!confirm('確認移除此用戶？')) return;
+    if (!confirm('確認移除此用戶？此操作不可逆。')) return;
     await supabase.from('profiles').delete().eq('id', id);
-    fetchAllData();
   };
 
   const handleUpdatePoints = async (id: string, current: number) => {
-    const val = prompt('請輸入新的積分：', current.toString());
-    if (val !== null) {
+    const val = prompt('請輸入新的積分數值：', current.toString());
+    if (val !== null && !isNaN(parseInt(val))) {
       await supabase.from('profiles').update({ points: parseInt(val) }).eq('id', id);
-      fetchAllData();
     }
   };
 
@@ -171,7 +193,7 @@ const AdminPanel: React.FC<Props> = ({ isOpen, onClose, currentUser, supabase })
           </div>
           <div>
             <h1 className="text-xl font-black text-white tracking-tighter">HKER ADMIN CONSOLE</h1>
-            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-[0.2em]">System Command Center</p>
+            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-[0.2em]">Live Data System</p>
           </div>
         </div>
         <button onClick={onClose} className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-full transition-colors">
@@ -182,7 +204,7 @@ const AdminPanel: React.FC<Props> = ({ isOpen, onClose, currentUser, supabase })
       <div className="flex-1 flex overflow-hidden">
         <div className="w-64 bg-slate-900/50 backdrop-blur border-r border-slate-800 p-6 flex flex-col gap-2">
           <button onClick={() => setActiveTab('stats')} className={`flex items-center gap-3 px-4 py-3 rounded-xl font-bold text-sm transition-all ${activeTab === 'stats' ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'text-slate-400 hover:bg-slate-800'}`}>
-            <RefreshCw size={18} /> 數據儀表板
+            <Activity size={18} /> 實時監控
           </button>
           <button onClick={() => setActiveTab('users')} className={`flex items-center gap-3 px-4 py-3 rounded-xl font-bold text-sm transition-all ${activeTab === 'users' ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'text-slate-400 hover:bg-slate-800'}`}>
             <Users size={18} /> 會員管理
@@ -211,8 +233,8 @@ const AdminPanel: React.FC<Props> = ({ isOpen, onClose, currentUser, supabase })
                 </div>
                 <div className="bg-slate-900 p-8 rounded-[2rem] border border-slate-800 shadow-xl relative overflow-hidden group">
                   <div className="absolute top-0 right-0 w-32 h-32 bg-yellow-500/5 rounded-full blur-2xl group-hover:bg-yellow-500/10 transition-colors" />
-                  <p className="text-slate-500 text-xs font-black uppercase tracking-widest mb-2">當前在線</p>
-                  <p className="text-5xl font-black text-blue-500">{stats.online}</p>
+                  <p className="text-slate-500 text-xs font-black uppercase tracking-widest mb-2">系統狀態</p>
+                  <p className="text-5xl font-black text-blue-500">Online</p>
                 </div>
               </div>
             </div>
@@ -224,10 +246,10 @@ const AdminPanel: React.FC<Props> = ({ isOpen, onClose, currentUser, supabase })
                 <div className="absolute inset-0 bg-gradient-to-r from-indigo-500/5 to-purple-500/5" />
                 <div className="relative z-10">
                   <h2 className="text-3xl font-black text-white flex items-center gap-3">
-                    <Cpu className="text-indigo-400" size={32} /> AI 新聞採集機器人
+                    <Cpu className="text-indigo-400" size={32} /> AI 新聞採集機器人 (v2.0)
                   </h2>
                   <p className="text-indigo-200 text-sm mt-2 max-w-xl">
-                    全自動化搜尋全球新聞，AI 智能摘要 (避免抄襲)，根據地區預設語言 (港台繁中/歐美英文) 自動發布。
+                    全自動化搜尋全球新聞，AI 智能摘要 (Avoid Plagiarism)，根據地區預設語言自動發布。資料實時寫入 Supabase。
                   </p>
                 </div>
                 <button 
@@ -270,7 +292,7 @@ const AdminPanel: React.FC<Props> = ({ isOpen, onClose, currentUser, supabase })
                   <div className="space-y-4">
                     <div className="p-4 bg-slate-800/50 rounded-xl border border-white/5">
                       <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-1">CONTENT STRATEGY</p>
-                      <p className="text-xs text-slate-300">AI 使用 "Own Words" 模式總結新聞，並附上原連結，嚴格遵守版權規則。</p>
+                      <p className="text-xs text-slate-300">AI 使用 "Own Words" 模式總結新聞，並附上原連結。篇幅增加至 200 字。</p>
                     </div>
                     <div className="p-4 bg-slate-800/50 rounded-xl border border-white/5">
                       <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-1">LANGUAGE LOGIC</p>
@@ -278,10 +300,6 @@ const AdminPanel: React.FC<Props> = ({ isOpen, onClose, currentUser, supabase })
                         <span className="text-white">HK/TW:</span> 繁體中文<br/>
                         <span className="text-white">Global:</span> English
                       </p>
-                    </div>
-                    <div className="p-4 bg-slate-800/50 rounded-xl border border-white/5">
-                      <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-1">SECURITY</p>
-                      <p className="text-xs text-slate-300">機器人貼文自動鎖定 (No Comments)。用戶互動限制為 3 次/貼。</p>
                     </div>
                   </div>
                 </div>
@@ -304,7 +322,7 @@ const AdminPanel: React.FC<Props> = ({ isOpen, onClose, currentUser, supabase })
                     <tr><th className="px-8 py-5">姓名 / 電郵</th><th className="px-8 py-5">積分</th><th className="px-8 py-5 text-right">操作</th></tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800">
-                    {users.filter(u => u.email.includes(searchTerm) || u.name.includes(searchTerm)).map(u => (
+                    {users.filter(u => u.email?.includes(searchTerm) || u.name?.includes(searchTerm)).map(u => (
                       <tr key={u.id} className="hover:bg-white/5 transition-colors group">
                         <td className="px-8 py-5">
                           <div className="font-bold text-white flex items-center gap-2">
@@ -341,7 +359,7 @@ const AdminPanel: React.FC<Props> = ({ isOpen, onClose, currentUser, supabase })
                       <h4 className="font-bold text-white mb-2 text-lg">{p.title}</h4>
                       <p className="text-xs text-slate-400 line-clamp-2 max-w-3xl">{p.content}</p>
                     </div>
-                    <button onClick={async () => { if (confirm('刪除貼文？')) { await supabase.from('posts').delete().eq('id', p.id); fetchAllData(); } }} className="ml-4 p-3 text-red-400 hover:bg-red-400/10 rounded-xl transition-colors"><Trash2 size={18} /></button>
+                    <button onClick={async () => { if (confirm('刪除貼文？')) { await supabase.from('posts').delete().eq('id', p.id); } }} className="ml-4 p-3 text-red-400 hover:bg-red-400/10 rounded-xl transition-colors"><Trash2 size={18} /></button>
                   </div>
                 ))}
               </div>

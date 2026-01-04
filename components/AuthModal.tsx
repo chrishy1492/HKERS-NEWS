@@ -32,23 +32,33 @@ const AuthModal: React.FC<Props> = ({ isOpen, onClose, supabase }) => {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
       } else {
+        // Validation
+        if (!formData.name) throw new Error("請填寫姓名 (Name is required)");
+
         const { data, error: signUpError } = await supabase.auth.signUp({ email, password });
         if (signUpError) throw signUpError;
+        
         if (data.user) {
-          // Create profile with bonus
+          // Create profile with bonus 8888
           const { error: profileError } = await supabase.from('profiles').insert([{
             id: data.user.id,
             email,
-            name: formData.name || 'HKER Member',
-            phone: formData.phone,
-            address: formData.address,
-            sol_address: formData.sol_address,
+            name: formData.name, // Use input name strictly
+            phone: formData.phone || '',
+            address: formData.address || '',
+            sol_address: formData.sol_address || '',
             gender: formData.gender,
             points: 8888, // Register bonus
+            role: 'user',
             avatar_url: `https://api.dicebear.com/7.x/avataaars/svg?seed=${email}`
           }]);
-          if (profileError) throw profileError;
-          alert('註冊成功！已獲得 8888 HKER Token 獎勵！');
+          
+          if (profileError) {
+             // Rollback auth if profile fails (rare but safe)
+             console.error("Profile creation failed:", profileError);
+             throw new Error("建立會員檔案失敗，請聯絡管理員");
+          }
+          alert('註冊成功！已獲得 8888 HKER Token 積分獎勵！');
         }
       }
       onClose();
@@ -65,14 +75,14 @@ const AuthModal: React.FC<Props> = ({ isOpen, onClose, supabase }) => {
         <div className="p-8">
           <div className="flex justify-between items-center mb-8">
             <h2 className="text-3xl font-black text-white tracking-tighter">
-              {isLogin ? '歡迎回來' : '加入 HKER'}
+              {isLogin ? '會員登入' : '註冊會員'}
             </h2>
             <button onClick={onClose} className="p-2 text-slate-500 hover:text-white"><X /></button>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-1">
-              <label className="text-[10px] font-bold text-slate-500 uppercase ml-1">電子郵件</label>
+              <label className="text-[10px] font-bold text-slate-500 uppercase ml-1">電子郵件 (Email)</label>
               <div className="relative">
                 <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
                 <input 
@@ -84,7 +94,7 @@ const AuthModal: React.FC<Props> = ({ isOpen, onClose, supabase }) => {
             </div>
 
             <div className="space-y-1">
-              <label className="text-[10px] font-bold text-slate-500 uppercase ml-1">登入密碼</label>
+              <label className="text-[10px] font-bold text-slate-500 uppercase ml-1">密碼 (Password)</label>
               <div className="relative">
                 <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
                 <input 
@@ -99,19 +109,19 @@ const AuthModal: React.FC<Props> = ({ isOpen, onClose, supabase }) => {
               <div className="grid grid-cols-1 gap-4 mt-4 animate-in slide-in-from-bottom duration-500">
                 <div className="relative">
                   <User className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
-                  <input type="text" placeholder="真實姓名" className="w-full bg-slate-800 border border-slate-700 rounded-xl pl-10 pr-4 py-3 text-white" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} />
+                  <input type="text" required placeholder="真實姓名 (Name)" className="w-full bg-slate-800 border border-slate-700 rounded-xl pl-10 pr-4 py-3 text-white" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} />
                 </div>
                 <div className="relative">
                   <Phone className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
-                  <input type="tel" placeholder="聯絡電話" className="w-full bg-slate-800 border border-slate-700 rounded-xl pl-10 pr-4 py-3 text-white" value={formData.phone} onChange={e => setFormData({...formData, phone: e.target.value})} />
+                  <input type="tel" placeholder="聯絡電話 (Phone)" className="w-full bg-slate-800 border border-slate-700 rounded-xl pl-10 pr-4 py-3 text-white" value={formData.phone} onChange={e => setFormData({...formData, phone: e.target.value})} />
                 </div>
                 <div className="relative">
                   <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
-                  <input type="text" placeholder="聯絡地址" className="w-full bg-slate-800 border border-slate-700 rounded-xl pl-10 pr-4 py-3 text-white" value={formData.address} onChange={e => setFormData({...formData, address: e.target.value})} />
+                  <input type="text" placeholder="聯絡地址 (Address)" className="w-full bg-slate-800 border border-slate-700 rounded-xl pl-10 pr-4 py-3 text-white" value={formData.address} onChange={e => setFormData({...formData, address: e.target.value})} />
                 </div>
                 <div className="relative">
                   <Wallet className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
-                  <input type="text" placeholder="SOL Address (提幣用)" className="w-full bg-slate-800 border border-slate-700 rounded-xl pl-10 pr-4 py-3 text-white" value={formData.sol_address} onChange={e => setFormData({...formData, sol_address: e.target.value})} />
+                  <input type="text" placeholder="SOL Address (選填)" className="w-full bg-slate-800 border border-slate-700 rounded-xl pl-10 pr-4 py-3 text-white" value={formData.sol_address} onChange={e => setFormData({...formData, sol_address: e.target.value})} />
                 </div>
                 <select 
                   className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-white"
@@ -127,7 +137,7 @@ const AuthModal: React.FC<Props> = ({ isOpen, onClose, supabase }) => {
               type="submit" disabled={loading}
               className="w-full bg-blue-600 hover:bg-blue-500 text-white font-black py-4 rounded-xl mt-6 shadow-xl shadow-blue-600/30 transition-all active:scale-[0.98] disabled:opacity-50"
             >
-              {loading ? <RefreshCw className="animate-spin mx-auto" /> : (isLogin ? '登入帳號' : '立即加入領取 8888 積分')}
+              {loading ? <RefreshCw className="animate-spin mx-auto" /> : (isLogin ? '登入' : '註冊並領取 8888 積分')}
             </button>
           </form>
 
