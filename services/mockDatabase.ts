@@ -8,7 +8,6 @@ const KEY_ALL_USERS = 'hker_all_users_cache_v6';
 const KEY_LOCAL_POSTS = 'hker_posts_cache_v6';
 
 // Global Lock for Robot Execution
-// FIX: Added timestamp to track how long the lock has been held
 let isBotProcessing = false;
 let botLockTimestamp = 0;
 
@@ -35,8 +34,36 @@ export const generateUUID = () => {
     });
 };
 
+// --- SAFE STORAGE WRAPPER WITH AUTO-TRIM ---
+// Fixes "QuotaExceededError" on mobile by clearing old data
 const safeSetItem = (key: string, value: string) => {
-    try { localStorage.setItem(key, value); } catch (e) { console.warn('LocalStorage Error:', e); }
+    try {
+        localStorage.setItem(key, value);
+    } catch (e: any) {
+        if (e.name === 'QuotaExceededError' || e.code === 22) {
+            console.warn('LocalStorage Quota Full! Trimming cache...');
+            // Try to trim existing posts if that's the key
+            if (key === KEY_LOCAL_POSTS) {
+                try {
+                    const data = JSON.parse(value);
+                    if (Array.isArray(data) && data.length > 20) {
+                        // Keep only recent 20 items to save space
+                        const trimmed = JSON.stringify(data.slice(0, 20));
+                        localStorage.setItem(key, trimmed);
+                        console.log('Cache trimmed successfully.');
+                        return;
+                    }
+                } catch(err) {}
+            }
+            // If still fails or not array, clear other keys
+            try {
+                localStorage.removeItem(KEY_ALL_USERS);
+                localStorage.setItem(key, value);
+            } catch(retryErr) {
+                console.error('Critical Storage Error:', retryErr);
+            }
+        }
+    }
 };
 
 const toDbUser = (user: User) => {
@@ -77,7 +104,7 @@ const fromDbUser = (dbUser: any): User => {
     };
 };
 
-// --- NEWS TEMPLATES (Shortened for brevity, assumes full list exists) ---
+// --- NEWS TEMPLATES ---
 const NEWS_TEMPLATES: Record<string, Record<string, { title: string, content: string }[]>> = {
     'Hong Kong': {
         'Real Estate': [
@@ -293,6 +320,7 @@ export const MockDB = {
               source: 'System',
               replies: []
           };
+          // Do not return just the seed if we failed to save it before.
           return [seed];
       }
       return finalData;
@@ -335,12 +363,11 @@ export const MockDB = {
       } catch (e) { return { totalMembers: 0, newMembersToday: 0, activeMembersToday: 0, guestsToday: 0 }; }
   },
 
-  // --- REBUILT TRIGGER LOGIC ---
-  triggerRobotPost: async () => {
+  // --- TRIGGER ROBOT LOGIC (With Force Mode) ---
+  triggerRobotPost: async (force = false) => {
        const now = Date.now();
 
        // 1. DEADLOCK BREAKER (Melting Point: 60 seconds)
-       // If the bot has been "processing" for more than 60s, it's stuck. Reset it.
        if (isBotProcessing && (now - botLockTimestamp > 60000)) {
            console.warn("⚠️ Bot Lock Stale. Resetting Lock.");
            isBotProcessing = false;
@@ -355,7 +382,7 @@ export const MockDB = {
        try {
            let lastTime = 0;
 
-           // 2. Local-First Check (Faster & Works Offline)
+           // 2. Local-First Check
            const localStr = localStorage.getItem(KEY_LOCAL_POSTS);
            if (localStr) {
                const local = JSON.parse(localStr);
@@ -376,10 +403,10 @@ export const MockDB = {
                 }
            }
            
-           // COOLDOWN: 20 Minutes (1,200,000 ms)
-           // FIX: If lastTime is future (due to time skew), force post.
-           const COOLDOWN = 1200000;
-           if (lastTime > 0 && lastTime < now && (now - lastTime < COOLDOWN)) {
+           // COOLDOWN: Reduced to 10 Minutes (600,000 ms)
+           // If FORCE is true, ignore cooldown
+           const COOLDOWN = 600000;
+           if (!force && lastTime > 0 && lastTime < now && (now - lastTime < COOLDOWN)) {
                // Too soon
                return;
            }

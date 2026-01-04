@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect, useRef } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { User } from '../../types';
@@ -958,7 +959,7 @@ export const Fortune: React.FC = () => {
                         <Compass size={150} />
                     </div>
                     <div className="bg-purple-100 w-12 h-12 rounded-full flex items-center justify-center mb-4 group-hover:scale-110 transition">
-                        <Compass class="text-purple-600" size={24}/>
+                        <Compass className="text-purple-600" size={24}/>
                     </div>
                     <h2 className="text-xl font-bold text-gray-800 mb-2 group-hover:text-purple-700">紫微斗數</h2>
                     <p className="text-gray-500 text-xs leading-relaxed">輸入生辰八字，排盤分析命宮主星與運勢走向。古代帝王御用占星術。</p>
@@ -969,7 +970,7 @@ export const Fortune: React.FC = () => {
                         <Hand size={150} />
                     </div>
                     <div className="bg-blue-100 w-12 h-12 rounded-full flex items-center justify-center mb-4 group-hover:scale-110 transition">
-                        <Hand class="text-blue-600" size={24}/>
+                        <Hand className="text-blue-600" size={24}/>
                     </div>
                     <h2 className="text-xl font-bold text-gray-800 mb-2 group-hover:text-blue-700">掐指一算 (小六壬)</h2>
                     <p className="text-gray-500 text-xs leading-relaxed">諸葛亮行軍常用。輸入當下時間，快速占卜吉凶禍福。</p>
@@ -980,7 +981,7 @@ export const Fortune: React.FC = () => {
                         <Cpu size={150} className="text-blue-500"/>
                     </div>
                     <div className="bg-gray-800 w-12 h-12 rounded-full flex items-center justify-center mb-4 group-hover:scale-110 transition border border-gray-700">
-                        <Cpu class="text-blue-400" size={24}/>
+                        <Cpu className="text-blue-400" size={24}/>
                     </div>
                     <h2 className="text-xl font-bold text-gray-200 mb-2 group-hover:text-blue-400">AI 塔羅工程 (Tarot)</h2>
                     <p className="text-gray-500 text-xs leading-relaxed font-mono">Neural Network interpretation. Select variable context for predictive modeling.</p>
@@ -991,7 +992,7 @@ export const Fortune: React.FC = () => {
                         <BrainCircuit size={150} className="text-cyan-500"/>
                     </div>
                     <div className="bg-slate-800 w-12 h-12 rounded-full flex items-center justify-center mb-4 group-hover:scale-110 transition border border-slate-600">
-                        <BrainCircuit class="text-cyan-400" size={24}/>
+                        <BrainCircuit className="text-cyan-400" size={24}/>
                     </div>
                     <h2 className="text-xl font-bold text-gray-200 mb-2 group-hover:text-cyan-400">Quantum AI Fortune</h2>
                     <p className="text-gray-500 text-xs leading-relaxed font-mono">Data-driven destiny analysis. Daily metrics, Love protocol & Risk assessment.</p>
@@ -1003,7 +1004,7 @@ export const Fortune: React.FC = () => {
                         <CloudSun size={150} className="text-[#d4af37]"/>
                     </div>
                     <div className="bg-yellow-100 w-12 h-12 rounded-full flex items-center justify-center mb-4 group-hover:scale-110 transition border border-[#d4af37]">
-                        <CloudSun class="text-[#d4af37]" size={24}/>
+                        <CloudSun className="text-[#d4af37]" size={24}/>
                     </div>
                     <h2 className="text-xl font-bold text-[#8b0000] mb-2 group-hover:text-[#d4af37]">網上誠心祈福 (Digital Shrine)</h2>
                     <p className="text-[#4a3b2a] text-xs leading-relaxed font-serif">雲端敬拜八方神祇。連結正念磁場，獲取 AI 生成的心靈祝福。</p>

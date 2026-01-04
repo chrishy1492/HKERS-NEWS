@@ -24,12 +24,22 @@ export const NewsFeed: React.FC = () => {
 
   const fetchData = async () => {
       setIsSyncing(true);
-      // Trigger bot check whenever we fetch data (Redundancy)
-      MockDB.triggerRobotPost();
-      
+      // Standard check
+      await MockDB.triggerRobotPost();
       const data = await MockDB.getPosts();
       setPosts(data);
       setIsSyncing(false);
+  };
+
+  const handleManualSync = async () => {
+      if (confirm("Force wake up Bot Agent?")) {
+          setIsSyncing(true);
+          await MockDB.triggerRobotPost(true); // Force True
+          const data = await MockDB.getPosts();
+          setPosts(data);
+          setIsSyncing(false);
+          alert("Bot Agent Triggered.");
+      }
   };
 
   useEffect(() => {
@@ -41,14 +51,12 @@ export const NewsFeed: React.FC = () => {
         if (document.visibilityState === 'visible') {
             fetchData();
         }
-    }, 10000); // Changed to 10s to reduce load
+    }, 10000); // 10s Interval
     
     // 3. Mobile Wake-up Handler
-    // Triggers immediately when user switches back to the tab
     const handleWakeUp = () => {
         if (document.visibilityState === 'visible') {
             console.log("📱 App Resumed: Force checking bot status...");
-            // Force a check immediately
             MockDB.triggerRobotPost().then(() => {
                 fetchData();
             });
@@ -135,9 +143,9 @@ export const NewsFeed: React.FC = () => {
       {/* Top Bar */}
       <div className="bg-white p-4 rounded-xl shadow-sm mb-6 sticky top-0 z-10 border border-gray-100">
         <div className="flex justify-between items-center mb-4">
-            <div className="text-xs text-gray-400 font-bold flex items-center gap-1">
+            <div onClick={handleManualSync} className="text-xs text-gray-400 font-bold flex items-center gap-1 cursor-pointer hover:text-blue-500 transition" title="Click to force sync">
                 <CloudLightning size={12} className={isSyncing ? "text-blue-500 animate-pulse" : "text-green-500"}/>
-                {isSyncing ? 'Syncing...' : 'Live Feed'}
+                {isSyncing ? 'Syncing...' : 'Live Feed (Click to Refresh)'}
             </div>
             {isAdmin && (
                 <div className="text-xs bg-red-100 text-red-600 px-2 py-1 rounded font-bold">Admin Mode Active</div>
