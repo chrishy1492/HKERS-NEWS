@@ -7,7 +7,7 @@ const KEY_CURRENT_USER = 'hker_current_user_v6_sync';
 const KEY_ALL_USERS = 'hker_all_users_cache_v6'; 
 const KEY_LOCAL_POSTS = 'hker_posts_cache_v6';
 
-// Global Lock for Robot Execution (Prevents Race Conditions on Mobile Wake-up)
+// Global Lock for Robot Execution
 let isBotProcessing = false;
 
 const SOURCE_DOMAINS: Record<string, string> = {
@@ -22,7 +22,34 @@ const SOURCE_DOMAINS: Record<string, string> = {
     'RTHK': 'https://news.rthk.hk'
 };
 
-// --- DATA MAPPING LAYER ---
+// --- CRITICAL FIX: UUID Polyfill for Mobile Browsers ---
+// Many mobile browsers (iOS < 15.4, Android webviews) do NOT support crypto.randomUUID
+// This fallback ensures the app doesn't crash on mobile.
+export const generateUUID = () => {
+    // Try native secure crypto first
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+        try {
+            return crypto.randomUUID();
+        } catch (e) {
+            // Fallback if it exists but fails
+        }
+    }
+    // Fallback: Timestamp + Random Math (Sufficient for non-critical IDs)
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+        var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+        return v.toString(16);
+    });
+};
+
+// --- SAFE STORAGE WRAPPER ---
+// Prevents app crash when LocalStorage is full or in Private Mode
+const safeSetItem = (key: string, value: string) => {
+    try {
+        localStorage.setItem(key, value);
+    } catch (e) {
+        console.warn('LocalStorage Error (Quota/Privacy):', e);
+    }
+};
 
 const toDbUser = (user: User) => {
     return {
@@ -62,8 +89,7 @@ const fromDbUser = (dbUser: any): User => {
     };
 };
 
-// --- 擬真新聞引擎 (REALISTIC NEWS ENGINE) ---
-// 定義針對不同地區、不同類別的真實語境模板，避免「假新聞」感。
+// --- REALISTIC NEWS ENGINE ---
 const NEWS_TEMPLATES: Record<string, Record<string, { title: string, content: string }[]>> = {
     'Hong Kong': {
         'Real Estate': [
@@ -132,7 +158,6 @@ const NEWS_TEMPLATES: Record<string, Record<string, { title: string, content: st
     }
 };
 
-// Fallback for generic content to avoid errors
 const GENERIC_NEWS = [
     { cat: 'Technology', title: "Global chip shortage eases, but AI chips remain scarce", content: "Supply chains are normalizing, though demand for high-end AI processors continues to outstrip supply." },
     { cat: 'Finance', title: "Gold prices stabilize near all-time highs", content: "Geopolitical uncertainty keeps gold as a favored safe-haven asset for investors." }
@@ -150,7 +175,6 @@ const generateRealisticContent = (region: string) => {
         category = rnd(categories);
         template = rnd(regionData[category]);
     } else {
-        // Fallback: pick a random real template from a major region if specific region data is missing
         const backupRegion = rnd(['USA', 'UK', 'Hong Kong']);
         const backupData = NEWS_TEMPLATES[backupRegion];
         const backupCat = rnd(Object.keys(backupData));
@@ -158,7 +182,6 @@ const generateRealisticContent = (region: string) => {
         category = backupCat;
     }
 
-    // Add unique identifier to prevent duplicate content detection
     const dynamicSuffix = ` (Report #${1000 + Math.floor(Math.random()*9000)})`;
     const sources = Object.keys(SOURCE_DOMAINS);
     const randSource = rnd(sources);
@@ -180,11 +203,12 @@ export const MockDB = {
         if (error) throw error;
         if (data) {
             const appUsers = data.map(fromDbUser);
-            localStorage.setItem(KEY_ALL_USERS, JSON.stringify(appUsers));
+            safeSetItem(KEY_ALL_USERS, JSON.stringify(appUsers));
             return appUsers;
         }
         return [];
     } catch (e) { 
+        // Fallback for offline/mobile errors
         return JSON.parse(localStorage.getItem(KEY_ALL_USERS) || '[]');
     }
   },
@@ -205,7 +229,7 @@ export const MockDB = {
     try { await supabase.from('users').update({ last_active: new Date().toISOString() }).eq('id', user.id); } catch(e) {}
     
     const sessionUser = { ...user, lastActive: Date.now() };
-    localStorage.setItem(KEY_CURRENT_USER, JSON.stringify(sessionUser));
+    safeSetItem(KEY_CURRENT_USER, JSON.stringify(sessionUser));
     return sessionUser;
   },
 
@@ -225,7 +249,7 @@ export const MockDB = {
             const { error: error3 } = await supabase.from('users').insert(minimalPayload);
             if (error3) throw new Error(`Registration Failed: ${error3.message}`);
         }
-        localStorage.setItem(KEY_CURRENT_USER, JSON.stringify(user));
+        safeSetItem(KEY_CURRENT_USER, JSON.stringify(user));
     } catch (err: any) {
         throw new Error(err.message || 'Registration Failed');
     }
@@ -243,7 +267,7 @@ export const MockDB = {
           await supabase.from('users').upsert(minimal).eq('id', user.id);
       }
       const current = MockDB.getCurrentUser();
-      if(current && current.id === user.id) localStorage.setItem(KEY_CURRENT_USER, JSON.stringify(user));
+      if(current && current.id === user.id) safeSetItem(KEY_CURRENT_USER, JSON.stringify(user));
   },
   
   deleteUser: async (id: string): Promise<void> => { await supabase.from('users').delete().eq('id', id); },
@@ -257,7 +281,7 @@ export const MockDB = {
           const current = MockDB.getCurrentUser();
           if(current && current.id === userId) {
               current.points = newPoints;
-              localStorage.setItem(KEY_CURRENT_USER, JSON.stringify(current));
+              safeSetItem(KEY_CURRENT_USER, JSON.stringify(current));
           }
           return newPoints;
       }
@@ -272,7 +296,8 @@ export const MockDB = {
                   ...p,
                   source: (typeof p.source === 'string' && p.source !== '[object Object]') ? p.source : 'System'
               }));
-              localStorage.setItem(KEY_LOCAL_POSTS, JSON.stringify(cleanData));
+              // SAFE WRAPPER APPLIED HERE
+              safeSetItem(KEY_LOCAL_POSTS, JSON.stringify(cleanData));
               return cleanData as Post[];
           }
       } catch (e) { }
@@ -296,17 +321,16 @@ export const MockDB = {
       } catch (e) { return { totalMembers: 0, newMembersToday: 0, activeMembersToday: 0, guestsToday: 0 }; }
   },
 
-  // --- ENHANCED ROBOT LOGIC WITH MUTEX LOCK (MOBILE FIX) ---
+  // --- ENHANCED ROBOT LOGIC WITH MUTEX LOCK ---
   triggerRobotPost: async () => {
-       // 1. MUTEX LOCK: 防止多個事件監聽器同時觸發導致的重複執行
+       // 1. MUTEX LOCK: Prevent concurrent executions
        if (isBotProcessing) {
-           console.log("🔒 Bot logic skipped: Execution Locked (Prevents Double Posting)");
            return;
        }
        isBotProcessing = true;
 
        try {
-           // 2. MOBILE OPTIMIZATION: 最小化查詢 (只查 timestamp，不查內容)
+           // 2. MOBILE OPTIMIZATION
            const { data: lastPosts, error } = await supabase
             .from('posts')
             .select('timestamp')
@@ -315,12 +339,12 @@ export const MockDB = {
             .limit(1);
 
            if (error) {
-               console.warn("Bot Network Check Failed - Low Connectivity?");
+               console.warn("Bot Network Check Failed");
                return; 
            }
 
            const now = Date.now();
-           // COOLDOWN: 20 Minutes (1200000ms) - 避免用戶頻繁開關 App 時洗版
+           // COOLDOWN: 20 Minutes (1200000ms)
            const COOLDOWN = 1200000;
            
            if (lastPosts && lastPosts.length > 0) {
@@ -328,12 +352,14 @@ export const MockDB = {
                if (now - lastTime < COOLDOWN) return; 
            }
 
-           // 3. GENERATE REALISTIC CONTENT
+           // 3. GENERATE & SAVE
            const region = REGIONS[Math.floor(Math.random() * REGIONS.length)];
            const newsData = generateRealisticContent(region);
            
+           // CRITICAL FIX: Use safe generateUUID() instead of crypto.randomUUID()
+           // This prevents the mobile browser crash
            const newPost: Post = {
-                id: `bot-${now}-${crypto.randomUUID().split('-')[0]}`,
+                id: `bot-${now}-${generateUUID().split('-')[0]}`,
                 title: newsData.title,
                 titleCN: "",
                 content: newsData.content,
@@ -371,7 +397,7 @@ export const MockDB = {
           if (user) {
                try { await supabase.from('users').update({ last_active: new Date().toISOString() }).eq('id', user.id); } catch (e) {}
                user.lastActive = Date.now();
-               localStorage.setItem(KEY_CURRENT_USER, JSON.stringify(user));
+               safeSetItem(KEY_CURRENT_USER, JSON.stringify(user));
           }
       }
   }

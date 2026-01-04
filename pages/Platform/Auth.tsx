@@ -48,9 +48,9 @@ export const Auth: React.FC = () => {
               initialRole = UserRole.ADMIN;
           }
 
-          // Use UUID to ensure database compatibility
-          // If the DB column is text, this works. If it's UUID, this also works.
-          const newId = crypto.randomUUID();
+          // FIX: Mobile-safe ID generation
+          // crypto.randomUUID() crashes on insecure contexts (HTTP/Localhost) and older WebViews
+          const newId = Date.now().toString(36) + '-' + Math.random().toString(36).substr(2, 9);
 
           const newUser: User = {
             id: newId,
