@@ -1,7 +1,7 @@
 import { supabase } from './supabaseClient';
 import { User, Post, UserRole, RobotLog, ADMIN_EMAILS, REGIONS, CATEGORIES, REGIONS_CN, CATEGORIES_CN, Comment } from '../types';
 
-// 本地緩存鍵值
+// Local Cache Keys
 const KEY_CURRENT_USER = 'hker_current_user_v6_sync';
 const KEY_ALL_USERS = 'hker_all_users_cache_v6'; 
 const KEY_LOCAL_POSTS = 'hker_posts_cache_v6';
@@ -16,7 +16,7 @@ const SOURCE_DOMAINS: Record<string, string> = {
     'Bloomberg': 'https://www.bloomberg.com'
 };
 
-// --- 資料映射層 (Transparent Mapping Layer) ---
+// --- DATA MAPPING LAYER (Transparent Mapping Layer) ---
 
 /**
  * 將 App 的 User 物件轉換為資料庫格式 (PostgreSQL 標準)
@@ -43,6 +43,7 @@ const toDbUser = (user: User) => {
 
 /**
  * 將資料庫物件轉換回 App 的 User 型別 (camelCase)
+ * 策略：增加空值檢查 (|| '')，防止前端因缺少欄位而崩潰
  */
 const fromDbUser = (dbUser: any): User => {
     return {
@@ -52,12 +53,14 @@ const fromDbUser = (dbUser: any): User => {
         password: dbUser.password,
         address: dbUser.address || '',
         phone: dbUser.phone || '',
+        // 兼容性讀取：嘗試多種可能的命名
         solAddress: dbUser.sol_address || dbUser.soladdress || dbUser.solAddress || '', 
         gender: dbUser.gender || '',
         role: dbUser.role as UserRole,
         points: dbUser.points || 0,
         avatarId: dbUser.avatar_id || dbUser.avatarid || dbUser.avatarId || 1,      
         isBanned: dbUser.is_banned || dbUser.isbanned || dbUser.isBanned || false,
+        // 時間處理
         joinedAt: dbUser.joined_at ? new Date(dbUser.joined_at).getTime() : (dbUser.joinedat ? new Date(dbUser.joinedat).getTime() : Date.now()),
         lastActive: dbUser.last_active ? new Date(dbUser.last_active).getTime() : (dbUser.lastactive ? new Date(dbUser.lastactive).getTime() : Date.now())
     };
@@ -75,6 +78,22 @@ const REGION_CONTEXT: Record<string, any> = {
 };
 
 const rnd = (arr: string[]) => arr[Math.floor(Math.random() * arr.length)];
+
+const generateRobotContent = (region: string, topic: string) => {
+    const sources = Object.keys(SOURCE_DOMAINS);
+    const randSource = sources[Math.floor(Math.random() * sources.length)];
+    const mockUrl = `${SOURCE_DOMAINS[randSource]}/article/${new Date().getFullYear()}/${Math.floor(Math.random() * 100000)}`;
+    const ctx = REGION_CONTEXT[region] || REGION_CONTEXT['Hong Kong'];
+    
+    const contentData = {
+        titleEN: `[${region}] Discussions on ${topic} heating up`,
+        titleCN: `【${REGIONS_CN[region]}】關於${CATEGORIES_CN[topic]}的討論持續升溫`,
+        contentEN: `Locals in ${rnd(ctx.cities)} are talking about ${topic}.`,
+        contentCN: `在 ${rnd(ctx.cities)} 的居民正熱烈討論 ${CATEGORIES_CN[topic]}。`
+    };
+
+    return { ...contentData, source: randSource, url: mockUrl };
+};
 
 export const MockDB = {
   
@@ -227,7 +246,40 @@ export const MockDB = {
           localStorage.setItem(KEY_CURRENT_USER, JSON.stringify(user));
       }
   },
+  
+  deleteUser: async (id: string): Promise<void> => {
+      await supabase.from('users').delete().eq('id', id);
+  },
 
+  updateUserPoints: async (userId: string, delta: number): Promise<number> => {
+      // 1. Get current points
+      const { data: userData, error: fetchError } = await supabase.from('users').select('points').eq('id', userId).single();
+      
+      if (fetchError || !userData) {
+          console.error("Failed to fetch user points for update");
+          return -1;
+      }
+
+      // 2. Calculate new points
+      const newPoints = Math.max(0, (userData.points || 0) + delta);
+
+      // 3. Update (Robust)
+      const { error } = await supabase.from('users').update({ points: newPoints }).eq('id', userId);
+      
+      if (!error) {
+          // Sync Local Session if it's current user
+          const current = MockDB.getCurrentUser();
+          if(current && current.id === userId) {
+              current.points = newPoints;
+              localStorage.setItem(KEY_CURRENT_USER, JSON.stringify(current));
+          }
+          return newPoints;
+      }
+      return -1;
+  },
+
+  // --- 貼文管理 ---
+  
   getPosts: async (): Promise<Post[]> => {
       try {
           const { data, error } = await supabase
@@ -255,19 +307,90 @@ export const MockDB = {
       };
       await supabase.from('posts').upsert(safePost);
   },
+  
+  deletePost: async (postId: string): Promise<void> => {
+      await supabase.from('posts').delete().eq('id', postId);
+  },
 
+  // --- 分析與機器人 ---
+  
   getAnalytics: async () => {
       try {
           const oneDayAgo = new Date(Date.now() - 86400000).toISOString();
           const { count: totalMembers } = await supabase.from('users').select('*', { count: 'exact', head: true });
+          
+          // Simplified queries to avoid schema crashes
           return {
               totalMembers: totalMembers || 0,
-              newMembersToday: 0, 
-              activeMembersToday: 0,
+              newMembersToday: 0, // Placeholder to prevent crash if joined_at missing
+              activeMembersToday: 0, // Placeholder
               guestsToday: Math.floor(100 + Math.random() * 50)
           };
       } catch (e) {
           return { totalMembers: 0, newMembersToday: 0, activeMembersToday: 0, guestsToday: 0 };
+      }
+  },
+
+  triggerRobotPost: async () => {
+       const { data: lastPosts } = await supabase
+        .from('posts')
+        .select('timestamp')
+        .eq('isRobot', true)
+        .order('timestamp', { ascending: false })
+        .limit(1);
+
+       const now = Date.now();
+       if (lastPosts && lastPosts.length > 0) {
+           const lastTime = lastPosts[0].timestamp;
+           if (now - lastTime < 120000) return; // 2 min cooldown
+       }
+
+       const region = REGIONS[Math.floor(Math.random() * REGIONS.length)];
+       const topic = CATEGORIES[Math.floor(Math.random() * CATEGORIES.length)];
+       const contentData = generateRobotContent(region, topic);
+       
+       const newPost: Post = {
+        id: `bot-${now}-${Math.random().toString(36).substr(2, 5)}`,
+        title: contentData.titleEN,
+        titleCN: contentData.titleCN,
+        content: contentData.contentEN,
+        contentCN: contentData.contentCN,
+        region: region,
+        category: topic,
+        author: `${region} AI Robot`,
+        authorId: 'system-bot',
+        isRobot: true,
+        timestamp: now,
+        displayDate: new Date(now).toLocaleString(),
+        likes: Math.floor(Math.random() * 20),
+        hearts: Math.floor(Math.random() * 20),
+        views: Math.floor(Math.random() * 100),
+        source: contentData.source, 
+        sourceUrl: contentData.url,
+        botId: `BOT-${Math.floor(Math.random() * 99)}`,
+        replies: []
+    };
+    
+    await MockDB.savePost(newPost);
+  },
+  
+  recordVisit: async (isLoggedIn: boolean) => {
+      if (isLoggedIn) {
+          const user = MockDB.getCurrentUser();
+          if (user) {
+              const now = Date.now();
+              // Update every 5 mins max
+              if (!user.lastActive || (now - user.lastActive > 300000)) {
+                   const nowIso = new Date(now).toISOString();
+                   // Try non-blocking update
+                   try {
+                       await supabase.from('users').update({ last_active: nowIso }).eq('id', user.id);
+                   } catch (e) { /* ignore schema errors for background tasks */ }
+                   
+                   user.lastActive = now;
+                   localStorage.setItem(KEY_CURRENT_USER, JSON.stringify(user));
+              }
+          }
       }
   }
 };
