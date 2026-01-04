@@ -288,31 +288,84 @@ export const MockDB = {
       return -1;
   },
   
+  // --- ENHANCED OFFLINE-READY POST FETCHING ---
   getPosts: async (): Promise<Post[]> => {
+      let remoteData: Post[] = [];
       try {
           const { data, error } = await supabase.from('posts').select('*').order('timestamp', { ascending: false }).limit(100);
           if (!error && data) {
-              const cleanData = data.map((p: any) => ({
+              remoteData = data.map((p: any) => ({
                   ...p,
                   source: (typeof p.source === 'string' && p.source !== '[object Object]') ? p.source : 'System'
               }));
               // SAFE WRAPPER APPLIED HERE
-              safeSetItem(KEY_LOCAL_POSTS, JSON.stringify(cleanData));
-              return cleanData as Post[];
+              safeSetItem(KEY_LOCAL_POSTS, JSON.stringify(remoteData));
           }
-      } catch (e) { }
-      return JSON.parse(localStorage.getItem(KEY_LOCAL_POSTS) || '[]');
+      } catch (e) { console.warn("Mobile Fetch Error (Using Cache)", e); }
+      
+      const localData = JSON.parse(localStorage.getItem(KEY_LOCAL_POSTS) || '[]');
+      
+      // Merge Strategy: Prefer Remote, but fallback to Local if Remote empty
+      const finalData = remoteData.length > 0 ? remoteData : localData;
+
+      // Seed Initial Data if absolutely empty (prevents white screen)
+      if (finalData.length === 0) {
+          const now = Date.now();
+          const seed: Post = {
+              id: 'welcome-post',
+              title: 'Welcome to HKER Platform (Official)',
+              content: 'System initialized. Waiting for global news synchronization...',
+              region: 'Hong Kong',
+              category: 'System',
+              author: 'Admin',
+              authorId: 'admin',
+              isRobot: false,
+              timestamp: now,
+              displayDate: new Date(now).toLocaleString(),
+              likes: 888,
+              hearts: 888,
+              views: 9999,
+              source: 'System',
+              replies: []
+          };
+          return [seed];
+      }
+      return finalData;
   },
 
+  // --- LOCAL-FIRST SAVING ---
   savePost: async (post: Post): Promise<void> => {
       const safePost = {
           ...post,
           source: (typeof post.source === 'string' && post.source !== '[object Object]') ? post.source : 'System'
       };
-      await supabase.from('posts').upsert(safePost);
+      
+      // 1. Optimistic Update (Write to LocalStorage IMMEDIATELY)
+      // This ensures mobile users see the post appearing instantly even if network is slow/broken
+      try {
+          const localStr = localStorage.getItem(KEY_LOCAL_POSTS);
+          let current = localStr ? JSON.parse(localStr) : [];
+          // Remove if exists (update), add to top
+          current = current.filter((p: any) => p.id !== post.id);
+          current.unshift(safePost);
+          safeSetItem(KEY_LOCAL_POSTS, JSON.stringify(current.slice(0, 100)));
+      } catch (e) { console.error("Cache Write Error", e); }
+
+      // 2. Background Sync (Write to Supabase)
+      supabase.from('posts').upsert(safePost).then(({ error }) => {
+          if (error) console.warn("Cloud Sync Warning:", error.message);
+      });
   },
   
-  deletePost: async (postId: string): Promise<void> => { await supabase.from('posts').delete().eq('id', postId); },
+  deletePost: async (postId: string): Promise<void> => { 
+      await supabase.from('posts').delete().eq('id', postId); 
+      // Update local cache
+      const localStr = localStorage.getItem(KEY_LOCAL_POSTS);
+      if (localStr) {
+          const current = JSON.parse(localStr).filter((p: any) => p.id !== postId);
+          safeSetItem(KEY_LOCAL_POSTS, JSON.stringify(current));
+      }
+  },
   
   getAnalytics: async () => {
       try {
@@ -321,43 +374,46 @@ export const MockDB = {
       } catch (e) { return { totalMembers: 0, newMembersToday: 0, activeMembersToday: 0, guestsToday: 0 }; }
   },
 
-  // --- ENHANCED ROBOT LOGIC WITH MUTEX LOCK ---
+  // --- ENHANCED ROBOT LOGIC WITH MUTEX LOCK & OFFLINE SUPPORT ---
   triggerRobotPost: async () => {
-       // 1. MUTEX LOCK: Prevent concurrent executions
-       if (isBotProcessing) {
-           return;
-       }
+       if (isBotProcessing) return;
        isBotProcessing = true;
 
        try {
-           // 2. MOBILE OPTIMIZATION
-           const { data: lastPosts, error } = await supabase
+           const now = Date.now();
+           let lastTime = 0;
+
+           // 1. Try DB Timestamp
+           const { data: dbPosts } = await supabase
             .from('posts')
             .select('timestamp')
             .eq('isRobot', true)
             .order('timestamp', { ascending: false })
             .limit(1);
 
-           if (error) {
-               console.warn("Bot Network Check Failed");
-               return; 
+           if (dbPosts && dbPosts.length > 0) {
+               lastTime = dbPosts[0].timestamp;
            }
-
-           const now = Date.now();
-           // COOLDOWN: 20 Minutes (1200000ms)
-           const COOLDOWN = 1200000;
            
-           if (lastPosts && lastPosts.length > 0) {
-               const lastTime = lastPosts[0].timestamp;
-               if (now - lastTime < COOLDOWN) return; 
+           // 2. Fallback to Local Timestamp (If DB blocked or offline)
+           // This is CRITICAL for mobile functionality when API keys fail or network blocks
+           if (!lastTime) {
+               const localStr = localStorage.getItem(KEY_LOCAL_POSTS);
+               if (localStr) {
+                   const local = JSON.parse(localStr);
+                   const lastBot = local.find((p: any) => p.isRobot);
+                   if (lastBot) lastTime = lastBot.timestamp;
+               }
            }
 
-           // 3. GENERATE & SAVE
+           // COOLDOWN: 20 Minutes
+           const COOLDOWN = 1200000;
+           if (lastTime > 0 && now - lastTime < COOLDOWN) return;
+
+           // 3. GENERATE
            const region = REGIONS[Math.floor(Math.random() * REGIONS.length)];
            const newsData = generateRealisticContent(region);
            
-           // CRITICAL FIX: Use safe generateUUID() instead of crypto.randomUUID()
-           // This prevents the mobile browser crash
            const newPost: Post = {
                 id: `bot-${now}-${generateUUID().split('-')[0]}`,
                 title: newsData.title,
@@ -380,13 +436,13 @@ export const MockDB = {
                 replies: []
             };
             
-            console.log("🤖 Robot Posting:", newPost.title);
+            console.log("🤖 Robot Posting (Offline/Online):", newPost.title);
+            // This function now handles both Local and Cloud saving
             await MockDB.savePost(newPost);
             
        } catch (err) {
            console.error("Critical Bot Error:", err);
        } finally {
-           // Release Lock
            isBotProcessing = false;
        }
   },
