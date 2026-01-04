@@ -7,6 +7,9 @@ const KEY_CURRENT_USER = 'hker_current_user_v6_sync';
 const KEY_ALL_USERS = 'hker_all_users_cache_v6'; 
 const KEY_LOCAL_POSTS = 'hker_posts_cache_v6';
 
+// Global Lock for Robot Execution (Prevents Race Conditions)
+let isBotProcessing = false;
+
 const SOURCE_DOMAINS: Record<string, string> = {
     'BBC': 'https://www.bbc.com/news',
     'CNN': 'https://edition.cnn.com',
@@ -19,7 +22,7 @@ const SOURCE_DOMAINS: Record<string, string> = {
     'RTHK': 'https://news.rthk.hk'
 };
 
-// --- DATA MAPPING LAYER (Transparent Mapping Layer) ---
+// --- DATA MAPPING LAYER ---
 
 const toDbUser = (user: User) => {
     return {
@@ -60,100 +63,82 @@ const fromDbUser = (dbUser: any): User => {
 };
 
 // --- 擬真新聞引擎 (REALISTIC NEWS ENGINE) ---
-// 這裡定義了針對不同地區、不同類別的真實語境模板，避免「假新聞」感。
-
 const NEWS_TEMPLATES: Record<string, Record<string, { title: string, content: string }[]>> = {
     'Hong Kong': {
         'Real Estate': [
-            { title: "Kai Tak new盘 prices shock market, opening 20% below peak", content: "Developers in Kai Tak are launching new units at competitive prices, drawing thousands to showrooms over the weekend." },
-            { title: "Rental index climbs for 5th consecutive month in HK", content: "Despite falling property prices, residential rents in urban areas continue to rise due to influx of talents." },
-            { title: "Northern Metropolis land sale draws cautious bids", content: "Major developers remain conservative on land acquisition in the New Territories amidst high interest rates." }
+            { title: "Kai Tak new launches see strong demand despite market cooling", content: "Hundreds queued up for the latest residential project in Kai Tak, signaling resilient demand for prime urban locations." },
+            { title: "Rental index climbs again: Tenants face higher renewal costs", content: "Residential rents in Hong Kong have risen for the 6th consecutive month, driven by the influx of professionals and students." },
+            { title: "Northern Metropolis: Gov pushes forward with land resumption", content: "The development bureau announced new timelines for land resumption in the New Territories to accelerate the Northern Metropolis plan." }
         ],
         'Finance': [
-            { title: "HSI struggles at 16,000 level amidst tech sell-off", content: "Tech giants dragged the Hang Seng Index down today. Investors are watching for mainland policy support." },
-            { title: "MPF performance records mixed results in Q3", content: "HK equity funds underperformed, while US and Japan equity funds provided a safety net for MPF members." },
-            { title: "HKMA maintains base rate following Fed decision", content: "The Hong Kong Monetary Authority announced it will keep the base rate unchanged, tracking the US Federal Reserve." }
+            { title: "HSI rebounds as tech stocks lead the charge", content: "The Hang Seng Index closed higher today, boosted by strong earnings reports from major technology firms." },
+            { title: "Green Bonds: Hong Kong solidifies hub status", content: "Issuance of green bonds in Hong Kong reached a record high this quarter, attracting global ESG investors." },
+            { title: "HKMA keeps watch on currency peg amidst Fed rate volatility", content: "The Monetary Authority reiterated its commitment to the linked exchange rate system despite external pressures." }
         ],
         'Current Affairs': [
-            { title: "Waste charging scheme: Public concerns over implementation", content: "Citizens are asking for more clarity on the logistics of the upcoming municipal solid waste charging scheme." },
-            { title: "Hong Kong airport passenger traffic returns to 80% pre-pandemic", content: "The Airport Authority reports a strong recovery in flight numbers as tourism sector rebounds." }
+            { title: "Plastic ban implementation: Restaurants adapt to new rules", content: "Eateries across the city are switching to paper and wooden alternatives as the single-use plastic ban comes into full effect." },
+            { title: "Tourism revival: Visitor numbers hit post-pandemic peak", content: "The Tourism Board reports a significant surge in arrivals during the Golden Week holiday." }
         ]
     },
     'UK': {
         'Finance': [
-            { title: "UK inflation cools, but food prices remain high", content: "Latest CPI data shows inflation slowing down, though grocery bills are still squeezing household budgets." },
-            { title: "Council Tax hikes expected across major English cities", content: "Local councils in Birmingham and Manchester warn of significant tax increases to cover social care costs." }
+            { title: "UK inflation drops to 2-year low, easing cost of living crisis", content: "Office for National Statistics data shows a welcome decline in inflation, giving relief to households." },
+            { title: "London Stock Exchange eyes new tech listings", content: "Reforms are underway to attract more technology companies to list in London post-Brexit." }
         ],
         'Real Estate': [
-            { title: "London rental market: Competition fierce for 1-bed flats", content: "Tenants in Zone 2 are facing bidding wars as supply of rental properties hits a record low." },
-            { title: "Manchester property boom: Investors look north", content: "Yields in Manchester and Leeds are outperforming London, attracting a wave of overseas buy-to-let investors." }
+            { title: "London rents hit record high: Average exceeds £2,600", content: "Tenants are facing unprecedented rental costs in the capital due to a severe shortage of available stock." },
+            { title: "Manchester property boom continues with new regeneration projects", content: "The northern powerhouse sees property values rise faster than the national average." }
         ],
         'Community': [
-            { title: "BNO Visa holders settling in: New community hubs open", content: "New support centers for Hongkongers have opened in Sutton and Reading to assist with job seeking and housing." }
+            { title: "BN(O) community groups launch cultural festival in Sutton", content: "A new festival celebrating Hong Kong culture and food drew thousands of locals and newcomers this weekend." }
         ]
     },
     'Canada': {
         'Real Estate': [
-            { title: "Toronto condo inventory piles up as sales slow", content: "High interest rates are deterring buyers, leading to a surplus of condo listings in the GTA." },
-            { title: "Vancouver rental cap set at 3.5% for 2025", content: "The BC government announced the maximum allowable rent increase, sparking debate between landlords and tenant groups." }
-        ],
-        'Weather': [
-            { title: "Winter storm warning issued for Southern Ontario", content: "Environment Canada warns of 15cm of snow and freezing rain affecting commutes in the Greater Toronto Area." }
+            { title: "Toronto housing market cools as inventory rises", content: "Buyers are taking a wait-and-see approach, leading to an accumulation of listings in the GTA." },
+            { title: "Vancouver introduces stricter short-term rental rules", content: "New regulations aim to return short-term rental units to the long-term housing market." }
         ],
         'Finance': [
-            { title: "Grocery inflation: Shoppers turn to discount chains", content: "Major grocers face scrutiny as Canadians change shopping habits to cope with rising food prices." }
+            { title: "Bank of Canada holds rates steady, signals potential cuts", content: "The central bank maintained its policy rate, citing progress in the fight against inflation." }
         ]
     },
     'USA': {
         'Finance': [
             { title: "Fed signals potential rate cuts later this year", content: "Wall Street reacts positively as inflation data shows signs of cooling in key sectors." },
-            { title: "Tech giants layoff fears subside as AI boom continues", content: "Silicon Valley is pivoting to AI, creating new roles despite previous cutbacks in other departments." }
+            { title: "Tech giants pivot: AI investment drives market rally", content: "Major tech firms are shifting resources to artificial intelligence, fueling a stock market surge." }
         ],
         'Current Affairs': [
-            { title: "Election year updates: Key states in focus", content: "Campaigns ramp up in swing states as early polling shows a tight race for the upcoming election." },
-            { title: "NASA announces new lunar mission timeline", content: "Space exploration enters a new era with private sector partnerships aiming for the moon." }
+            { title: "Election year updates: Key swing states in focus", content: "Early polling indicates a tight race in battleground states as campaign season heats up." }
         ]
     },
     'Australia': {
         'Real Estate': [
-            { title: "Sydney housing market heats up despite rate hikes", content: "Auction clearance rates remain high in NSW as supply shortages persist across the city." },
-            { title: "Rental crisis in Melbourne: Tenants struggle to find homes", content: "Vacancy rates hit record lows, pushing rental prices up significantly across Victoria." }
+            { title: "Sydney housing prices defy rate hikes", content: "Despite higher interest rates, property values in Sydney continue to inch upwards due to low supply." }
         ],
         'Economy': [
-            { title: "Mining sector boosts Aussie dollar", content: "Strong demand for iron ore and lithium supports the national currency amidst global uncertainty." }
+            { title: "Resource exports drive trade surplus", content: "Strong demand for iron ore and LNG continues to support the Australian economy." }
         ]
     },
     'Europe': {
         'Travel': [
-            { title: "New ETIAS visa waiver delayed to 2025", content: "The EU confirms the new travel authorization system for non-EU visitors is pushed back to ensure smooth implementation." },
-            { title: "Paris prepares for Summer Olympics influx", content: "Hotel prices surge as the city gets ready to host the world's biggest sporting event next summer." }
-        ],
-        'Economy': [
-            { title: "ECB keeps rates steady amidst growth concerns", content: "European Central Bank balances inflation control with preventing a recession across the Eurozone." }
+            { title: "ETIAS visa waiver launch delayed again", content: "The EU has pushed back the start date for its new travel authorization system to ensure smooth border operations." }
         ]
     },
     'Taiwan': {
         'Travel': [
-            { title: "Night Market tourism booms as visitors return", content: "Shilin and Raohe night markets report foot traffic exceeding pre-2019 levels this weekend." }
-        ],
-        'Technology': [
-            { title: "TSMC expansion plans boost Kaohsiung property market", content: "The semiconductor giant's new plant construction is driving up land values in Southern Taiwan." }
+            { title: "Taiwan tourism goal: 12 million visitors in 2024", content: "The Tourism Administration launches new campaigns to attract international travelers." }
         ]
     }
 };
 
-// Fallback templates for other regions/categories
 const GENERIC_NEWS = [
-    { cat: 'Technology', title: "AI regulation talks heat up globally", content: "Tech leaders gather to discuss safety frameworks for the next generation of LLMs." },
-    { cat: 'Finance', title: "Gold prices hit new record high", content: "Safe-haven demand pushes gold prices upward amidst geopolitical uncertainty." },
-    { cat: 'Travel', title: "Global airline capacity constrained by supply chain", content: "Ticket prices likely to remain high as airlines struggle with aircraft delivery delays." }
+    { cat: 'Technology', title: "Global chip shortage eases, but AI chips remain scarce", content: "Supply chains are normalizing, though demand for high-end AI processors continues to outstrip supply." },
+    { cat: 'Finance', title: "Gold prices stabilize near all-time highs", content: "Geopolitical uncertainty keeps gold as a favored safe-haven asset for investors." }
 ];
 
 const rnd = (arr: any[]) => arr[Math.floor(Math.random() * arr.length)];
-const rndNum = (min: number, max: number) => Math.floor(Math.random() * (max - min + 1)) + min;
 
 const generateRealisticContent = (region: string) => {
-    // 1. Select a Category based on Region availability
     const regionData = NEWS_TEMPLATES[region];
     let category = 'General';
     let template = null;
@@ -163,28 +148,21 @@ const generateRealisticContent = (region: string) => {
         category = rnd(categories);
         template = rnd(regionData[category]);
     } else {
-        // Fallback if region not found, pick a random real template from a major region
-        // This prevents the generic fallback loop
         const backupRegion = rnd(['USA', 'UK', 'Hong Kong']);
         const backupData = NEWS_TEMPLATES[backupRegion];
-        const backupCats = Object.keys(backupData);
-        const backupCat = rnd(backupCats);
+        const backupCat = rnd(Object.keys(backupData));
         template = rnd(backupData[backupCat]);
         category = backupCat;
     }
 
-    // 2. Add dynamic elements to make it unique (prevent duplicate content detection)
-    const timestamp_seed = new Date().getMinutes(); 
     const dynamicSuffix = ` (Report #${1000 + Math.floor(Math.random()*9000)})`;
-
-    // 3. Select Source
     const sources = Object.keys(SOURCE_DOMAINS);
     const randSource = rnd(sources);
     const mockUrl = `${SOURCE_DOMAINS[randSource]}/article/${new Date().getFullYear()}/${Math.floor(Math.random() * 100000)}`;
 
     return {
         title: template.title,
-        content: template.content + dynamicSuffix, // Append ID to ensure content differs slightly
+        content: template.content + dynamicSuffix, 
         category,
         source: randSource,
         url: mockUrl
@@ -192,9 +170,6 @@ const generateRealisticContent = (region: string) => {
 };
 
 export const MockDB = {
-  
-  // --- 用戶管理 (維持不變) ---
-
   getUsers: async (): Promise<User[]> => {
     try {
         const { data, error } = await supabase.from('users').select('*');
@@ -206,7 +181,6 @@ export const MockDB = {
         }
         return [];
     } catch (e) { 
-        console.warn("Sync: Network error, serving from cache.", e); 
         return JSON.parse(localStorage.getItem(KEY_ALL_USERS) || '[]');
     }
   },
@@ -214,129 +188,67 @@ export const MockDB = {
   getCurrentUser: (): User | null => {
     const local = localStorage.getItem(KEY_CURRENT_USER);
     if (!local) return null;
-    try {
-        return JSON.parse(local);
-    } catch {
-        return null;
-    }
+    try { return JSON.parse(local); } catch { return null; }
   },
 
   login: async (email: string, password?: string): Promise<User | null> => {
-    const { data, error } = await supabase
-        .from('users')
-        .select('*')
-        .ilike('email', email)
-        .maybeSingle();
-
-    if (error || !data) {
-        throw new Error("User not found (用戶不存在) - Please Register First");
-    }
-
+    const { data, error } = await supabase.from('users').select('*').ilike('email', email).maybeSingle();
+    if (error || !data) throw new Error("User not found (用戶不存在) - Please Register First");
     const user = fromDbUser(data);
-
-    if (password && user.password && user.password !== password) {
-        throw new Error("Invalid Password (密碼錯誤)");
-    }
-
+    if (password && user.password && user.password !== password) throw new Error("Invalid Password (密碼錯誤)");
     if (user.isBanned) throw new Error("Account Banned (此帳戶已被封鎖)");
-
-    const nowIso = new Date().toISOString(); 
-    try {
-        await supabase.from('users').update({ last_active: nowIso }).eq('id', user.id);
-    } catch (e) { console.warn("Update activity failed"); }
-
+    
+    try { await supabase.from('users').update({ last_active: new Date().toISOString() }).eq('id', user.id); } catch(e) {}
+    
     const sessionUser = { ...user, lastActive: Date.now() };
     localStorage.setItem(KEY_CURRENT_USER, JSON.stringify(sessionUser));
-
     return sessionUser;
   },
 
   register: async (user: User): Promise<void> => {
-    console.log("Starting Robust Registration for:", user.email);
-
     try {
-        const { data: existingUser, error: checkError } = await supabase
-            .from('users')
-            .select('id')
-            .eq('email', user.email)
-            .maybeSingle();
-            
-        if (checkError) throw checkError;
+        const { data: existingUser } = await supabase.from('users').select('id').eq('email', user.email).maybeSingle();
         if (existingUser) throw new Error("Email already registered (此電郵已被註冊)");
 
         const dbPayload = toDbUser(user);
         const { error: error1 } = await supabase.from('users').insert(dbPayload);
         
         if (error1) {
-            console.warn("Attempt 1 (snake_case) failed:", error1.message);
-            const lowercasePayload = {
-                id: user.id,
-                name: user.name,
-                email: user.email,
-                password: user.password,
-                role: user.role,
-                points: user.points || 0,
-                avatarid: user.avatarId || 1,
-                soladdress: user.solAddress || null,
-                isbanned: user.isBanned || false,
-                joinedat: dbPayload.joined_at,
-                lastactive: dbPayload.last_active
+            console.warn("Snake_case failed, trying minimal fallback");
+            const minimalPayload = {
+                id: user.id, name: user.name, email: user.email, password: user.password, role: user.role
             };
-            const { error: error2 } = await supabase.from('users').insert(lowercasePayload);
-            
-            if (error2) {
-                console.warn("Attempt 2 (lowercase) failed:", error2.message);
-                const minimalPayload = {
-                    id: user.id,
-                    name: user.name,
-                    email: user.email,
-                    password: user.password,
-                    role: user.role
-                };
-                console.log("Attempting Minimal Registration (Final Fallback)...");
-                const { error: error3 } = await supabase.from('users').insert(minimalPayload);
-                if (error3) throw new Error(`Critical DB Error: ${error3.message}`);
-            }
+            const { error: error3 } = await supabase.from('users').insert(minimalPayload);
+            if (error3) throw new Error(`Registration Failed: ${error3.message}`);
         }
         localStorage.setItem(KEY_CURRENT_USER, JSON.stringify(user));
-        console.log("Registration Successful via robust fallback.");
     } catch (err: any) {
-        console.error("Critical Registration Failure:", err);
         throw new Error(err.message || 'Registration Failed');
     }
   },
 
-  logout: (): void => {
-    localStorage.removeItem(KEY_CURRENT_USER);
-  },
+  logout: (): void => { localStorage.removeItem(KEY_CURRENT_USER); },
 
   saveUser: async (user: User): Promise<void> => {
-      const dbPayload = toDbUser(user);
       try {
-          const { error } = await supabase.from('users').upsert(dbPayload).eq('id', user.id);
+          const { error } = await supabase.from('users').upsert(toDbUser(user)).eq('id', user.id);
           if (error) throw error;
       } catch (e) {
-          console.error("Save Profile Error, trying minimal upsert", e);
+          console.error("Save Profile Error", e);
           const minimal = { id: user.id, name: user.name, email: user.email };
           await supabase.from('users').upsert(minimal).eq('id', user.id);
       }
       const current = MockDB.getCurrentUser();
-      if(current && current.id === user.id) {
-          localStorage.setItem(KEY_CURRENT_USER, JSON.stringify(user));
-      }
+      if(current && current.id === user.id) localStorage.setItem(KEY_CURRENT_USER, JSON.stringify(user));
   },
   
-  deleteUser: async (id: string): Promise<void> => {
-      await supabase.from('users').delete().eq('id', id);
-  },
+  deleteUser: async (id: string): Promise<void> => { await supabase.from('users').delete().eq('id', id); },
 
   updateUserPoints: async (userId: string, delta: number): Promise<number> => {
-      const { data: userData, error: fetchError } = await supabase.from('users').select('points').eq('id', userId).single();
-      if (fetchError || !userData) return -1;
-
+      const { data: userData } = await supabase.from('users').select('points').eq('id', userId).single();
+      if (!userData) return -1;
       const newPoints = Math.max(0, (userData.points || 0) + delta);
       const { error } = await supabase.from('users').update({ points: newPoints }).eq('id', userId);
-      
       if (!error) {
           const current = MockDB.getCurrentUser();
           if(current && current.id === userId) {
@@ -347,17 +259,10 @@ export const MockDB = {
       }
       return -1;
   },
-
-  // --- 貼文管理 (Posts) ---
   
   getPosts: async (): Promise<Post[]> => {
       try {
-          const { data, error } = await supabase
-            .from('posts')
-            .select('*')
-            .order('timestamp', { ascending: false })
-            .limit(100);
-
+          const { data, error } = await supabase.from('posts').select('*').order('timestamp', { ascending: false }).limit(100);
           if (!error && data) {
               const cleanData = data.map((p: any) => ({
                   ...p,
@@ -366,7 +271,7 @@ export const MockDB = {
               localStorage.setItem(KEY_LOCAL_POSTS, JSON.stringify(cleanData));
               return cleanData as Post[];
           }
-      } catch (e) { console.warn("Offline mode for posts"); }
+      } catch (e) { }
       return JSON.parse(localStorage.getItem(KEY_LOCAL_POSTS) || '[]');
   },
 
@@ -378,103 +283,92 @@ export const MockDB = {
       await supabase.from('posts').upsert(safePost);
   },
   
-  deletePost: async (postId: string): Promise<void> => {
-      await supabase.from('posts').delete().eq('id', postId);
-  },
-
-  // --- 分析與機器人 (ANALYTICS & ROBOT) ---
+  deletePost: async (postId: string): Promise<void> => { await supabase.from('posts').delete().eq('id', postId); },
   
   getAnalytics: async () => {
       try {
-          const { count: totalMembers } = await supabase.from('users').select('*', { count: 'exact', head: true });
-          return {
-              totalMembers: totalMembers || 0,
-              newMembersToday: 0, 
-              activeMembersToday: 0, 
-              guestsToday: Math.floor(100 + Math.random() * 50)
-          };
-      } catch (e) {
-          return { totalMembers: 0, newMembersToday: 0, activeMembersToday: 0, guestsToday: 0 };
-      }
+          const { count } = await supabase.from('users').select('*', { count: 'exact', head: true });
+          return { totalMembers: count || 0, newMembersToday: 0, activeMembersToday: 0, guestsToday: Math.floor(100 + Math.random() * 50) };
+      } catch (e) { return { totalMembers: 0, newMembersToday: 0, activeMembersToday: 0, guestsToday: 0 }; }
   },
 
-  // --- 重構的機械人發貼邏輯 (Enhanced Robot Logic) ---
+  // --- ENHANCED ROBOT LOGIC WITH MUTEX LOCK ---
   triggerRobotPost: async () => {
-       // 1. Mobile Optimization: 
-       // 只選取必要的欄位來檢查時間，減少數據傳輸量，避免在手機網絡下超時
-       const { data: lastPosts, error } = await supabase
-        .from('posts')
-        .select('timestamp')
-        .eq('isRobot', true)
-        .order('timestamp', { ascending: false })
-        .limit(1); // 極簡查詢
-
-       // 如果查詢失敗，不要中斷，可能只是網絡波動，讓它下次再試
-       if (error) {
-           console.warn("Bot check skipped due to network:", error.message);
-           return; 
+       // 1. MUTEX LOCK: Prevent concurrent executions from multiple listeners (pageshow + visibility + focus)
+       if (isBotProcessing) {
+           console.log("🔒 Bot logic skipped: Execution Locked");
+           return;
        }
+       isBotProcessing = true;
 
-       const now = Date.now();
-       
-       // 2. Cooldown Logic
-       // 設定為 30 分鐘 (1800000ms) 發一次，避免過於頻繁導致「假新聞洗版」
-       // 手機測試時如果覺得太慢，可以暫時調低這個數值
-       const COOLDOWN = 1200000; // 20 minutes
-       
-       if (lastPosts && lastPosts.length > 0) {
-           const lastTime = lastPosts[0].timestamp;
-           if (now - lastTime < COOLDOWN) return; 
+       try {
+           // 2. MOBILE OPTIMIZATION: Ultra-lightweight query
+           const { data: lastPosts, error } = await supabase
+            .from('posts')
+            .select('timestamp')
+            .eq('isRobot', true)
+            .order('timestamp', { ascending: false })
+            .limit(1);
+
+           if (error) {
+               console.warn("Bot Network Check Failed");
+               return; 
+           }
+
+           const now = Date.now();
+           // COOLDOWN: 20 Minutes (1200000ms)
+           const COOLDOWN = 1200000;
+           
+           if (lastPosts && lastPosts.length > 0) {
+               const lastTime = lastPosts[0].timestamp;
+               // If within cooldown, do nothing
+               if (now - lastTime < COOLDOWN) return; 
+           }
+
+           // 3. GENERATE & SAVE
+           const region = REGIONS[Math.floor(Math.random() * REGIONS.length)];
+           const newsData = generateRealisticContent(region);
+           
+           const newPost: Post = {
+                id: `bot-${now}-${crypto.randomUUID().split('-')[0]}`,
+                title: newsData.title,
+                titleCN: "",
+                content: newsData.content,
+                contentCN: "", 
+                region: region,
+                category: newsData.category,
+                author: `${region} News Bot`,
+                authorId: 'system-bot',
+                isRobot: true,
+                timestamp: now,
+                displayDate: new Date(now).toLocaleString(),
+                likes: Math.floor(Math.random() * 15),
+                hearts: Math.floor(Math.random() * 5),
+                views: Math.floor(Math.random() * 200) + 50,
+                source: newsData.source, 
+                sourceUrl: newsData.url,
+                botId: `BOT-${Math.floor(Math.random() * 99)}`,
+                replies: []
+            };
+            
+            console.log("🤖 Robot Posting:", newPost.title);
+            await MockDB.savePost(newPost);
+            
+       } catch (err) {
+           console.error("Critical Bot Error:", err);
+       } finally {
+           // Release Lock
+           isBotProcessing = false;
        }
-
-       // 3. Realistic Content Generation
-       // 隨機選擇地區
-       const region = REGIONS[Math.floor(Math.random() * REGIONS.length)];
-       // 使用新的引擎生成真實新聞內容
-       const newsData = generateRealisticContent(region);
-       
-       // 4. Construct Post
-       // 使用 UUID 確保 ID 唯一，防止寫入衝突
-       const newPost: Post = {
-        id: `bot-${now}-${crypto.randomUUID().split('-')[0]}`,
-        title: newsData.title,
-        titleCN: "", // Optional: Frontend translates this later via API or logic if needed
-        content: newsData.content,
-        contentCN: "", 
-        region: region,
-        category: newsData.category,
-        author: `${region} News Bot`,
-        authorId: 'system-bot',
-        isRobot: true,
-        timestamp: now,
-        displayDate: new Date(now).toLocaleString(),
-        likes: Math.floor(Math.random() * 15),
-        hearts: Math.floor(Math.random() * 5),
-        views: Math.floor(Math.random() * 200) + 50,
-        source: newsData.source, 
-        sourceUrl: newsData.url,
-        botId: `BOT-${Math.floor(Math.random() * 99)}`,
-        replies: []
-    };
-    
-    // 5. Save with logging
-    console.log("🤖 Robot Posting:", newPost.title);
-    await MockDB.savePost(newPost);
   },
   
   recordVisit: async (isLoggedIn: boolean) => {
       if (isLoggedIn) {
           const user = MockDB.getCurrentUser();
           if (user) {
-              const now = Date.now();
-              if (!user.lastActive || (now - user.lastActive > 300000)) {
-                   const nowIso = new Date(now).toISOString();
-                   try {
-                       await supabase.from('users').update({ last_active: nowIso }).eq('id', user.id);
-                   } catch (e) { /* ignore schema errors */ }
-                   user.lastActive = now;
-                   localStorage.setItem(KEY_CURRENT_USER, JSON.stringify(user));
-              }
+               try { await supabase.from('users').update({ last_active: new Date().toISOString() }).eq('id', user.id); } catch (e) {}
+               user.lastActive = Date.now();
+               localStorage.setItem(KEY_CURRENT_USER, JSON.stringify(user));
           }
       }
   }

@@ -32,32 +32,47 @@ export const NewsFeed: React.FC = () => {
   useEffect(() => {
     // 1. Initial Load
     fetchData();
-    MockDB.triggerRobotPost(); // Check immediately on load
+    MockDB.triggerRobotPost();
 
-    // 2. Regular Sync (Foreground)
+    // 2. Heartbeat (Interval) - Keeps syncing while user is reading
     const syncInterval = setInterval(fetchData, 5000); 
     
-    // 3. Robot Trigger Interval
-    // Note: This may be throttled on mobile, so we rely on visibility change as backup
-    const robotCheck = setInterval(() => {
-        MockDB.triggerRobotPost();
-    }, 20000); // Check every 20s
+    // 3. Robot Heartbeat Check (Every 30s)
+    // Ensures that if the user stays on the page without locking, checking still happens
+    const robotHeartbeat = setInterval(() => {
+        if(document.visibilityState === 'visible') {
+            MockDB.triggerRobotPost();
+        }
+    }, 30000);
 
-    // 4. Mobile Wake-up Handler (CRITICAL FIX)
-    const handleVisibilityChange = () => {
+    // 4. Robust Mobile Wake-up Handlers
+    // Mobile browsers throttle timers, so we rely on events to "catch up"
+    const handleWakeUp = () => {
         if (document.visibilityState === 'visible') {
-            console.log("📱 Mobile Wake-up: Triggering Bot Check");
-            MockDB.triggerRobotPost(); // Force check when user opens app/unlocks phone
+            console.log("📱 Mobile Wake-up / Focus Detected");
+            MockDB.triggerRobotPost();
             fetchData();
         }
     };
 
-    document.addEventListener('visibilitychange', handleVisibilityChange);
+    // Specific handler for iOS BF Cache (Back/Forward Cache)
+    const handlePageShow = (e: PageTransitionEvent) => {
+        if (e.persisted) {
+             console.log("📱 Page Restored from Cache (iOS)");
+             handleWakeUp();
+        }
+    };
+
+    document.addEventListener('visibilitychange', handleWakeUp);
+    window.addEventListener('focus', handleWakeUp);
+    window.addEventListener('pageshow', handlePageShow as EventListener);
 
     return () => {
         clearInterval(syncInterval);
-        clearInterval(robotCheck);
-        document.removeEventListener('visibilitychange', handleVisibilityChange);
+        clearInterval(robotHeartbeat);
+        document.removeEventListener('visibilitychange', handleWakeUp);
+        window.removeEventListener('focus', handleWakeUp);
+        window.removeEventListener('pageshow', handlePageShow as EventListener);
     };
   }, []);
 
@@ -171,7 +186,6 @@ export const NewsFeed: React.FC = () => {
             const displayTitle = isTranslated && post.titleCN ? post.titleCN : post.title;
             const displayContent = isTranslated && post.contentCN ? post.contentCN : post.content;
             
-            // Fix [object Object] by explicitly handling the source and excluding corrupted data
             let displaySource = 'AI Source';
             if (typeof post.source === 'string' && post.source !== '[object Object]') {
                 displaySource = post.source;
