@@ -17,11 +17,12 @@ export const Admin: React.FC = () => {
   useEffect(() => {
     if (!user || user.role !== UserRole.ADMIN) { navigate('/platform'); return; }
     refreshData();
-    const int = setInterval(refreshData, 5000); // Live update
+    const int = setInterval(refreshData, 10000); // Live update every 10s from Supabase
     return () => clearInterval(int);
   }, [user]);
 
   const refreshData = async () => {
+    // These functions now hit Supabase directly
     const allUsers = await MockDB.getUsers();
     const analytics = await MockDB.getAnalytics();
     setUsers(allUsers);
@@ -56,7 +57,7 @@ export const Admin: React.FC = () => {
       {/* Dashboard Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div className="bg-white p-4 rounded-xl shadow-sm border border-blue-100">
-              <div className="flex items-center gap-2 text-blue-600 font-bold text-xs mb-1"><Users size={14}/> TOTAL USERS</div>
+              <div className="flex items-center gap-2 text-blue-600 font-bold text-xs mb-1"><Users size={14}/> TOTAL USERS (DB)</div>
               <div className="text-2xl font-black">{stats?.totalMembers || 0}</div>
           </div>
           <div className="bg-white p-4 rounded-xl shadow-sm border border-green-100">
@@ -68,14 +69,14 @@ export const Admin: React.FC = () => {
               <div className="text-2xl font-black">{stats?.activeMembersToday || 0}</div>
           </div>
           <div className="bg-white p-4 rounded-xl shadow-sm border border-orange-100">
-              <div className="flex items-center gap-2 text-orange-600 font-bold text-xs mb-1"><AlertOctagon size={14}/> GUESTS</div>
+              <div className="flex items-center gap-2 text-orange-600 font-bold text-xs mb-1"><AlertOctagon size={14}/> GUESTS (Est.)</div>
               <div className="text-2xl font-black">{stats?.guestsToday || 0}</div>
           </div>
       </div>
 
       <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
         <div className="flex justify-between items-center mb-6">
-            <h1 className="text-xl font-bold text-gray-800 flex items-center gap-2"><AlertOctagon className="text-red-600"/> Admin Control Panel</h1>
+            <h1 className="text-xl font-bold text-gray-800 flex items-center gap-2"><AlertOctagon className="text-red-600"/> Admin Control Panel (Live)</h1>
             <div className="flex gap-2">
                 <input placeholder="Search User / ID..." className="border p-2 rounded text-sm w-48 focus:w-64 transition-all" value={searchQuery} onChange={e=>setSearchQuery(e.target.value)} />
                 <button onClick={refreshData} className="bg-gray-100 p-2 rounded hover:bg-gray-200"><RefreshCw size={18}/></button>

@@ -153,6 +153,12 @@ export const NewsFeed: React.FC = () => {
             const isTranslated = translatedPosts.has(post.id);
             const displayTitle = isTranslated && post.titleCN ? post.titleCN : post.title;
             const displayContent = isTranslated && post.contentCN ? post.contentCN : post.content;
+            
+            // Fix [object Object] by explicitly handling the source and excluding corrupted data
+            let displaySource = 'AI Source';
+            if (typeof post.source === 'string' && post.source !== '[object Object]') {
+                displaySource = post.source;
+            }
 
             return (
               <div key={post.id} className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-md transition duration-300">
@@ -195,7 +201,7 @@ export const NewsFeed: React.FC = () => {
                                         <a href={post.sourceUrl} target="_blank" className="flex items-center gap-1 text-blue-600 hover:underline font-bold"><ExternalLink size={12} /> Source Link</a>
                                     )}
                                 </div>
-                                <p className="text-amber-800/70 italic">Content summarized from {post.source}. Please respect copyright.</p>
+                                <p className="text-amber-800/70 italic">Content summarized from {displaySource}. Please respect copyright.</p>
                             </div>
                             
                             <button 

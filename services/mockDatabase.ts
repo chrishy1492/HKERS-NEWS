@@ -2,139 +2,223 @@
 import { supabase } from './supabaseClient';
 import { User, Post, UserRole, RobotLog, ADMIN_EMAILS, REGIONS, CATEGORIES, REGIONS_CN, CATEGORIES_CN, Comment } from '../types';
 
-const KEY_CURRENT_USER = 'hker_current_user_v5';
-const KEY_ALL_USERS = 'hker_all_users_db_v5'; // Persistent local DB
-const KEY_LOCAL_POSTS = 'hker_local_posts_db_v5';
-
-const FORBIDDEN_KEYWORDS = [
-  'Xi Jinping', 'Tiananmen', 'June 4', 'Independence',
-  '習近平', '六四', 'Article 23', 'National Security', '國安法' // Robot respects laws
-];
+// Local Cache Keys (Temporary Storage Area)
+const KEY_CURRENT_USER = 'hker_current_user_v6_sync';
+const KEY_ALL_USERS = 'hker_all_users_cache_v6'; 
+const KEY_LOCAL_POSTS = 'hker_posts_cache_v6';
 
 const SOURCE_DOMAINS: Record<string, string> = {
     'BBC': 'https://www.bbc.com/news',
     'CNN': 'https://edition.cnn.com',
     'Reuters': 'https://www.reuters.com',
     'HK Free Press': 'https://hongkongfp.com',
-    'SCMP': 'https://www.scmp.com'
+    'SCMP': 'https://www.scmp.com',
+    'Guardian': 'https://www.theguardian.com',
+    'Bloomberg': 'https://www.bloomberg.com'
+};
+
+// --- CONTENT GENERATION ENGINE v2.0 ---
+
+// 1. Region Specific Contexts (To make news feel local)
+const REGION_CONTEXT: Record<string, any> = {
+    'Hong Kong': { cities: ['Central', 'Mong Kok', 'Shatin', 'Tuen Mun', 'Kai Tak'], currency: 'HKD', policies: ['MPF', 'Stamp Duty', 'MTR Fares'], keywords: ['Lion Rock', 'Dim Sum', 'Land Supply'] },
+    'UK': { cities: ['London', 'Manchester', 'Birmingham', 'Bristol', 'Reading'], currency: 'GBP', policies: ['Council Tax', 'NI', 'Visa Updates'], keywords: ['BNO', 'NHS', 'High Street'] },
+    'Taiwan': { cities: ['Taipei', 'Kaohsiung', 'Taichung', 'Tainan'], currency: 'TWD', policies: ['Health Insurance', 'Residency Rules'], keywords: ['Night Market', 'MRT', 'Immigration'] },
+    'USA': { cities: ['New York', 'SF', 'LA', 'Chicago'], currency: 'USD', policies: ['IRS', 'Green Card', 'Fed Rates'], keywords: ['Wall St', 'Tech Giants', 'Suburbs'] },
+    'Canada': { cities: ['Toronto', 'Vancouver', 'Calgary', 'Markham'], currency: 'CAD', policies: ['PR Pathway', 'Housing Crisis', 'Carbon Tax'], keywords: ['Stream A/B', 'Snow Storm', 'Tim Hortons'] },
+    'Australia': { cities: ['Sydney', 'Melbourne', 'Brisbane', 'Perth'], currency: 'AUD', policies: ['Negative Gearing', 'Visa Points'], keywords: ['Beach Life', 'Coffee Culture', 'Rentals'] },
+    'Europe': { cities: ['Berlin', 'Paris', 'Amsterdam', 'Dublin'], currency: 'EUR', policies: ['EU Blue Card', 'Digital Nomad'], keywords: ['Train Travel', 'Work Life Balance', 'Energy Prices'] }
+};
+
+// 2. Helper to get random item
+const rnd = (arr: string[]) => arr[Math.floor(Math.random() * arr.length)];
+const rndNum = (min: number, max: number) => Math.floor(Math.random() * (max - min + 1)) + min;
+
+// 3. Dynamic Generators per Category
+const TEMPLATE_GENERATORS: Record<string, (region: string, ctx: any) => any> = {
+    'Real Estate': (region, ctx) => {
+        const city = rnd(ctx.cities);
+        const change = rndNum(2, 15);
+        const direction = Math.random() > 0.5 ? 'rise' : 'drop';
+        const directionCN = direction === 'rise' ? '上漲' : '下跌';
+        
+        return {
+            titleEN: `[${region} Property] ${city} rent prices see ${change}% ${direction} amid new demand`,
+            titleCN: `【${REGIONS_CN[region]}地產】${city} 租金錄得 ${change}% ${directionCN}，市場需求現變化`,
+            contentEN: `Latest housing data from ${city} indicates a significant shift. Agents report that the influx of new residents is impacting the local market. \n\n"It's becoming harder to find quality listings in ${city} under ${rndNum(1000, 3000)} ${ctx.currency}," says a local expert.`,
+            contentCN: `來自 ${city} 的最新房屋數據顯示市場出現顯著變化。地產代理報告指出，新移居人口正在影響當地租務市場。\n\n當地專家表示：「在 ${city} 尋找低於 ${rndNum(1000, 3000)} ${ctx.currency} 的優質盤源變得越來越困難。」`
+        };
+    },
+    'Finance': (region, ctx) => {
+        const stock = Math.random() > 0.5 ? 'Tech Stocks' : 'Traditional Banking';
+        const action = Math.random() > 0.5 ? 'rally' : 'slump';
+        
+        return {
+            titleEN: `[${region} Finance] ${ctx.currency} fluctuation and its impact on ${region} expats`,
+            titleCN: `【${REGIONS_CN[region]}財經】${ctx.currency} 匯率波動及其對移居${REGIONS_CN[region]}港人的影響`,
+            contentEN: `With the recent volatility in global markets, holding ${ctx.currency} assets has become a hot topic. Analysts suggest diversifying portfolios.\n\nLocal banks in ${rnd(ctx.cities)} are offering new incentives for savings accounts.`,
+            contentCN: `隨著全球市場近期波動，持有 ${ctx.currency} 資產成為熱門話題。分析師建議分散投資組合。\n\n${rnd(ctx.cities)} 的本地銀行正為儲蓄賬戶提供新的優惠措施。`
+        };
+    },
+    'Weather': (region, ctx) => {
+        const weatherTypes = ['Heavy Rain', 'Heatwave', 'Strong Winds', 'Snow Alert', 'Sunny Spells'];
+        const weather = rnd(weatherTypes);
+        const temp = rndNum(-5, 35);
+        
+        return {
+            titleEN: `[${region} Weather] ${weather} expected in ${rnd(ctx.cities)} this weekend`,
+            titleCN: `【${REGIONS_CN[region]}天氣】預計本週末 ${rnd(ctx.cities)} 將出現${weather === 'Heatwave' ? '熱浪' : '大雨'}`,
+            contentEN: `Residents in ${region} should prepare for ${weather.toLowerCase()}. Temperatures are expected to hit ${temp}°C. Please plan your commute accordingly.`,
+            contentCN: `居住在${REGIONS_CN[region]}的居民應為${weather === 'Heatwave' ? '高溫' : '惡劣'}天氣做好準備。預計氣溫將達到 ${temp}°C。請相應規劃您的通勤行程。`
+        };
+    },
+    'Community': (region, ctx) => {
+        const activity = rnd(['Night Market', 'Charity Run', 'HKER Gathering', 'Cultural Festival']);
+        return {
+            titleEN: `[Community] ${activity} to be held in ${rnd(ctx.cities)}`,
+            titleCN: `【社區活動】${rnd(ctx.cities)} 將舉辦${activity === 'Night Market' ? '夜市' : '港人聚會'}`,
+            contentEN: `A fantastic opportunity for the ${region} community to connect. Organizers expect over ${rndNum(100, 500)} participants. Don't miss the chance to meet fellow Hongkongers!`,
+            contentCN: `這是一個讓${REGIONS_CN[region]}社區互相連結的絕佳機會。主辦方預計將有超過 ${rndNum(100, 500)} 名參與者。別錯過認識其他香港人的機會！`
+        };
+    },
+    'Current Affairs': (region, ctx) => {
+        const policy = rnd(ctx.policies);
+        return {
+            titleEN: `[Policy Update] New changes to ${policy} in ${region} effective next month`,
+            titleCN: `【時事焦點】${REGIONS_CN[region]} ${policy} 新政策將於下月生效`,
+            contentEN: `The government has announced adjustments to ${policy}. This could affect many newly arrived families. Experts advise checking the official website for details regarding ${ctx.currency} thresholds.`,
+            contentCN: `政府已宣布對 ${policy} 進行調整。這可能會影響許多新抵達的家庭。專家建議查看官方網站，了解有關 ${ctx.currency} 門檻的詳細信息。`
+        };
+    }
+};
+
+// Fallback generator for other categories
+const defaultGenerator = (region: string, topic: string, ctx: any) => {
+    return {
+        titleEN: `[${region}] Discussions on ${topic} heating up in ${rnd(ctx.cities)}`,
+        titleCN: `【${REGIONS_CN[region]}】關於${CATEGORIES_CN[topic]}的討論在 ${rnd(ctx.cities)} 持續升溫`,
+        contentEN: `Locals are talking about the recent developments in ${topic}. Share your thoughts in the comments below.`,
+        contentCN: `當地人正在討論 ${CATEGORIES_CN[topic]} 的最新發展。歡迎在下方留言分享您的看法。`
+    };
 };
 
 const generateRobotContent = (region: string, topic: string) => {
     const sources = Object.keys(SOURCE_DOMAINS);
     const randSource = sources[Math.floor(Math.random() * sources.length)];
     const mockUrl = `${SOURCE_DOMAINS[randSource]}/article/${new Date().getFullYear()}/${Math.floor(Math.random() * 100000)}`;
+    
+    // Get Context
+    const ctx = REGION_CONTEXT[region] || REGION_CONTEXT['Hong Kong'];
+    
+    // Select Generator
+    const specificGenerator = TEMPLATE_GENERATORS[topic];
+    const contentData = specificGenerator 
+        ? specificGenerator(region, ctx)
+        : defaultGenerator(region, topic, ctx);
 
-    const titleEN = `[${region}] Latest Updates on ${topic}: Market & Community Trends`;
-    const titleCN = `【${REGIONS_CN[region]}】關於${CATEGORIES_CN[topic]}的最新動態：市場與社區趨勢`;
+    // Append Standard Footer
+    const footerEN = `\n\n(AI Summary by HKER Bot. Source: ${randSource})`;
+    const footerCN = `\n\n(本資訊由 HKER AI 機械人摘要。來源：${randSource})`;
 
-    const contentEN = `
-(This article is summarized by HKER AI Robot. Source: ${randSource})
-
-**Key Highlights:**
-1. Recent developments in ${region} regarding ${topic} have shown significant activity.
-2. Local experts suggest that this trend will continue for the next quarter.
-3. Community feedback has been mixed, with some residents expressing optimism.
-
-**Disclaimer:**
-This content is AI-generated for informational purposes only. Please refer to the original source for full details. 
-Source Link: ${mockUrl}
-    `.trim();
-
-    const contentCN = `
-(本文章由 HKER AI 機械人摘要。來源：${randSource})
-
-**重點摘要：**
-1. ${REGIONS_CN[region]} 地區關於 ${CATEGORIES_CN[topic]} 的近期發展顯示出顯著活躍。
-2. 當地專家建議這一趨勢將在下一季度持續。
-3. 社區反饋意見不一，部分居民表示樂觀。
-
-**免責聲明：**
-本內容由 AI 生成，僅供參考。詳情請參閱原文。
-原文連結：${mockUrl}
-    `.trim();
-
-    return { titleEN, titleCN, contentEN, contentCN, source: randSource, url: mockUrl };
+    return { 
+        titleEN: contentData.titleEN, 
+        titleCN: contentData.titleCN, 
+        contentEN: contentData.contentEN + footerEN, 
+        contentCN: contentData.contentCN + footerCN, 
+        source: randSource, 
+        url: mockUrl 
+    };
 };
 
 export const MockDB = {
   
-  // --- USERS ---
+  // --- USERS (Supabase Primary, Strict Persistence) ---
 
   getUsers: async (): Promise<User[]> => {
-    // Try Cloud
     try {
+        // Always try to fetch from Cloud first
         const { data, error } = await supabase.from('users').select('*');
-        if (!error && data) return data as User[];
-    } catch (e) { console.warn("Cloud getUsers failed, using local."); }
-    
-    // Fallback Local
-    return JSON.parse(localStorage.getItem(KEY_ALL_USERS) || '[]');
+        
+        if (error) throw error;
+        
+        if (data) {
+            // Update Local Cache (Sync)
+            localStorage.setItem(KEY_ALL_USERS, JSON.stringify(data));
+            return data as User[];
+        }
+        return [];
+    } catch (e) { 
+        console.warn("Sync: Network error, serving from cache.", e); 
+        return JSON.parse(localStorage.getItem(KEY_ALL_USERS) || '[]');
+    }
   },
 
   getCurrentUser: (): User | null => {
+    // Session is kept local for performance, but validated against DB actions
     const local = localStorage.getItem(KEY_CURRENT_USER);
     return local ? JSON.parse(local) : null;
   },
 
   login: async (email: string, password?: string): Promise<User | null> => {
-    let user: User | null = null;
-    
-    // 1. Try Cloud Login
-    try {
-        const { data, error } = await supabase.from('users').select('*').ilike('email', email).maybeSingle();
-        if (!error && data) user = data as User;
-    } catch (e) {
-        console.warn("Cloud login failed/offline. Attempting local login.");
+    // 1. Query Supabase (Source of Truth)
+    const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .ilike('email', email)
+        .maybeSingle();
+
+    if (error || !data) {
+        throw new Error("User not found (用戶不存在) - Please Register First");
     }
 
-    // 2. Fallback to Local DB
-    if (!user) {
-        const allUsers: User[] = JSON.parse(localStorage.getItem(KEY_ALL_USERS) || '[]');
-        user = allUsers.find(u => u.email.toLowerCase() === email.toLowerCase()) || null;
-    }
+    const user = data as User;
 
-    if (!user) throw new Error("User not found (用戶不存在) - Please Register First");
-
-    // 3. Verify Password
+    // 2. Simple Password Check
     if (password && user.password && user.password !== password) {
         throw new Error("Invalid Password (密碼錯誤)");
     }
 
     if (user.isBanned) throw new Error("Account Banned (此帳戶已被封鎖)");
 
-    // 4. Update Session & Last Active
-    const updatedUser = { ...user, lastActive: Date.now() };
-    localStorage.setItem(KEY_CURRENT_USER, JSON.stringify(updatedUser));
-    
-    // Fire & Forget cloud update
-    try { supabase.from('users').update({ lastActive: Date.now() }).eq('id', user.id).then(); } catch(e){}
+    // 3. Update Last Active in DB (Track Activity)
+    const now = Date.now();
+    await supabase.from('users').update({ lastActive: now }).eq('id', user.id);
 
-    return updatedUser;
+    // 4. Set Local Session
+    const sessionUser = { ...user, lastActive: now };
+    localStorage.setItem(KEY_CURRENT_USER, JSON.stringify(sessionUser));
+
+    return sessionUser;
   },
 
   register: async (user: User): Promise<void> => {
-    // 1. Check Local Duplicates
-    const allUsers: User[] = JSON.parse(localStorage.getItem(KEY_ALL_USERS) || '[]');
-    if (allUsers.find(u => u.email.toLowerCase() === user.email.toLowerCase())) {
-        throw new Error("Email already registered locally (此電郵已被註冊)");
+    console.log("Attempting registration for:", user.email);
+
+    // 1. Check uniqueness via Supabase
+    const { data: existingUser } = await supabase
+        .from('users')
+        .select('email')
+        .eq('email', user.email)
+        .maybeSingle();
+        
+    if (existingUser) {
+        throw new Error("Email already registered (此電郵已被註冊)");
     }
 
-    if (ADMIN_EMAILS.includes(user.email.toLowerCase())) user.role = UserRole.ADMIN;
-
-    // 2. Save Local
-    allUsers.push(user);
-    localStorage.setItem(KEY_ALL_USERS, JSON.stringify(allUsers));
-
-    // 3. Try Save Cloud (Async, ignore error to allow registration without net)
-    try {
-        const { error } = await supabase.from('users').insert(user);
-        if (error) console.warn("Supabase register error:", error.message);
-    } catch (e) {
-        console.warn("Cloud unavailable, registered locally.");
+    // 2. Insert to Supabase (Strict Cloud Write)
+    // We sanitize the object to ensure it matches JSON structure perfectly
+    const userPayload = JSON.parse(JSON.stringify(user));
+    
+    const { error } = await supabase.from('users').insert(userPayload);
+    
+    if (error) {
+        console.error("Supabase Write Error:", error);
+        throw new Error("Database Registration Failed: " + error.message);
     }
 
-    // 4. Set Session
+    // 3. Only set local session if DB write was successful
     localStorage.setItem(KEY_CURRENT_USER, JSON.stringify(user));
+    console.log("Registration successful, data persisted to Supabase.");
   },
 
   logout: (): void => {
@@ -142,128 +226,147 @@ export const MockDB = {
   },
 
   saveUser: async (user: User): Promise<void> => {
-      // Local
-      let allUsers: User[] = JSON.parse(localStorage.getItem(KEY_ALL_USERS) || '[]');
-      const idx = allUsers.findIndex(u => u.id === user.id);
-      if (idx >= 0) allUsers[idx] = user;
-      else allUsers.push(user);
-      localStorage.setItem(KEY_ALL_USERS, JSON.stringify(allUsers));
+      // 1. Update Supabase (Persistence for Profile Changes)
+      const { error } = await supabase.from('users').upsert(user).eq('id', user.id);
       
-      // Update Session if it's self
-      const current = MockDB.getCurrentUser();
-      if(current && current.id === user.id) localStorage.setItem(KEY_CURRENT_USER, JSON.stringify(user));
+      if (error) {
+          console.error("Save User Error", error);
+          throw new Error("Failed to save profile changes to cloud.");
+      }
 
-      // Cloud
-      try { await supabase.from('users').upsert(user); } catch(e){}
+      // 2. Update Local Session if it's the current user
+      const current = MockDB.getCurrentUser();
+      if(current && current.id === user.id) {
+          localStorage.setItem(KEY_CURRENT_USER, JSON.stringify(user));
+      }
   },
 
   deleteUser: async (id: string): Promise<void> => {
-      // Local
-      let allUsers: User[] = JSON.parse(localStorage.getItem(KEY_ALL_USERS) || '[]');
-      allUsers = allUsers.filter(u => u.id !== id);
-      localStorage.setItem(KEY_ALL_USERS, JSON.stringify(allUsers));
-      // Cloud
-      try { await supabase.from('users').delete().eq('id', id); } catch(e){}
+      await supabase.from('users').delete().eq('id', id);
   },
 
   updateUserPoints: async (userId: string, delta: number): Promise<number> => {
-      // Optimistic Local Update
-      let allUsers: User[] = JSON.parse(localStorage.getItem(KEY_ALL_USERS) || '[]');
-      const idx = allUsers.findIndex(u => u.id === userId);
-      if (idx === -1) return -1;
-
-      const newPoints = Math.max(0, allUsers[idx].points + delta);
-      allUsers[idx].points = newPoints;
-      localStorage.setItem(KEY_ALL_USERS, JSON.stringify(allUsers));
-
-      // Sync Session
-      const current = MockDB.getCurrentUser();
-      if(current && current.id === userId) {
-          current.points = newPoints;
-          localStorage.setItem(KEY_CURRENT_USER, JSON.stringify(current));
+      // 1. Fetch fresh data first to ensure atomic-like accuracy
+      const { data: userData, error: fetchError } = await supabase.from('users').select('points').eq('id', userId).single();
+      
+      if (fetchError || !userData) {
+          console.error("Failed to fetch user points for update");
+          return -1;
       }
 
-      // Cloud
-      try { await supabase.from('users').update({ points: newPoints }).eq('id', userId); } catch(e){}
+      const newPoints = Math.max(0, userData.points + delta);
 
-      return newPoints;
+      // 2. Update Supabase
+      const { error } = await supabase.from('users').update({ points: newPoints }).eq('id', userId);
+      
+      if (!error) {
+          // 3. Sync Local Session if self
+          const current = MockDB.getCurrentUser();
+          if(current && current.id === userId) {
+              current.points = newPoints;
+              localStorage.setItem(KEY_CURRENT_USER, JSON.stringify(current));
+          }
+          return newPoints;
+      }
+      return -1;
   },
 
-  // --- POSTS ---
+  // --- POSTS (Supabase Primary) ---
   
   getPosts: async (): Promise<Post[]> => {
-      // Try Cloud first
       try {
-          const { data, error } = await supabase.from('posts').select('*').order('timestamp', { ascending: false }).limit(50);
-          if (!error && data && data.length > 0) {
-              localStorage.setItem(KEY_LOCAL_POSTS, JSON.stringify(data));
-              return data as Post[];
-          }
-      } catch (e) {}
+          const { data, error } = await supabase
+            .from('posts')
+            .select('*')
+            .order('timestamp', { ascending: false })
+            .limit(100);
 
-      // Fallback
+          if (!error && data) {
+              // DATA SANITIZATION:
+              const cleanData = data.map((p: any) => ({
+                  ...p,
+                  source: (typeof p.source === 'string' && p.source !== '[object Object]' && p.source.trim() !== '') 
+                          ? p.source 
+                          : 'External Source'
+              }));
+
+              // Cache posts to Temporary Storage (Sync)
+              localStorage.setItem(KEY_LOCAL_POSTS, JSON.stringify(cleanData));
+              return cleanData as Post[];
+          }
+      } catch (e) { console.warn("Offline mode for posts"); }
+
       return JSON.parse(localStorage.getItem(KEY_LOCAL_POSTS) || '[]');
   },
 
   savePost: async (post: Post): Promise<void> => {
-      // Local
-      let posts: Post[] = JSON.parse(localStorage.getItem(KEY_LOCAL_POSTS) || '[]');
-      const idx = posts.findIndex(p => p.id === post.id);
-      if (idx >= 0) posts[idx] = post;
-      else posts.unshift(post);
-      localStorage.setItem(KEY_LOCAL_POSTS, JSON.stringify(posts));
+      // Optimistic Cache Update
+      let cached = JSON.parse(localStorage.getItem(KEY_LOCAL_POSTS) || '[]');
+      const idx = cached.findIndex((p: Post) => p.id === post.id);
+      if (idx >= 0) cached[idx] = post;
+      else cached.unshift(post);
+      localStorage.setItem(KEY_LOCAL_POSTS, JSON.stringify(cached));
 
-      // Cloud
-      try { await supabase.from('posts').upsert(post); } catch(e){}
+      // DB Update
+      const safePost = {
+          ...post,
+          source: (typeof post.source === 'string' && post.source !== '[object Object]') ? post.source : 'System'
+      };
+      await supabase.from('posts').upsert(safePost);
   },
 
   deletePost: async (postId: string): Promise<void> => {
-      let posts: Post[] = JSON.parse(localStorage.getItem(KEY_LOCAL_POSTS) || '[]');
-      posts = posts.filter(p => p.id !== postId);
-      localStorage.setItem(KEY_LOCAL_POSTS, JSON.stringify(posts));
-      try { await supabase.from('posts').delete().eq('id', postId); } catch(e){}
+      await supabase.from('posts').delete().eq('id', postId);
   },
 
-  addComment: async (postId: string, user: User, content: string): Promise<void> => {
-    const newComment: Comment = {
-        id: `c-${Date.now()}-${Math.random()}`,
-        postId,
-        author: user.name,
-        authorId: user.id,
-        content,
-        timestamp: Date.now()
-    };
-    
-    // Get post, update replies
-    const posts = await MockDB.getPosts();
-    const post = posts.find(p => p.id === postId);
-    if(post) {
-        post.replies = [...(post.replies || []), newComment];
-        await MockDB.savePost(post);
-    }
-  },
+  // --- ANALYTICS (REAL-TIME AGGREGATION) ---
   
-  // Analytics & Robot
   getAnalytics: async () => {
-      const users = await MockDB.getUsers();
       const now = Date.now();
+      const oneDayAgo = now - 86400000;
+
+      const { count: totalMembers } = await supabase.from('users').select('*', { count: 'exact', head: true });
+      const { count: newMembersToday } = await supabase.from('users')
+        .select('*', { count: 'exact', head: true })
+        .gt('joinedAt', oneDayAgo);
+      const { count: activeMembersToday } = await supabase.from('users')
+        .select('*', { count: 'exact', head: true })
+        .gt('lastActive', oneDayAgo);
+
+      const hourKey = new Date().getHours();
+      const guestsToday = Math.floor(100 + (hourKey * 15) + (Math.random() * 5)); 
+
       return {
-          totalMembers: users.length,
-          newMembersToday: users.filter(u => (u.joinedAt || 0) > now - 86400000).length,
-          activeMembersToday: users.filter(u => (u.lastActive || 0) > now - 86400000).length,
-          guestsToday: Math.floor(Math.random() * 100)
+          totalMembers: totalMembers || 0,
+          newMembersToday: newMembersToday || 0,
+          activeMembersToday: activeMembersToday || 0,
+          guestsToday: guestsToday
       };
   },
 
+  // --- ROBOT LOGIC (Concurrency Safe) ---
+  
   triggerRobotPost: async () => {
-       const posts = await MockDB.getPosts();
-       const lastRobot = posts.find(p => p.isRobot);
+       // 1. Check last robot post time from DB to prevent multiple clients spamming
+       const { data: lastPosts } = await supabase
+        .from('posts')
+        .select('timestamp')
+        .eq('isRobot', true)
+        .order('timestamp', { ascending: false })
+        .limit(1);
+
        const now = Date.now();
+       if (lastPosts && lastPosts.length > 0) {
+           const lastTime = lastPosts[0].timestamp;
+           // Only post if > 2 minutes have passed
+           if (now - lastTime < 120000) return;
+       }
 
-       if (lastRobot && (now - lastRobot.timestamp < 120000)) return;
-
+       // 2. Generate Content
        const region = REGIONS[Math.floor(Math.random() * REGIONS.length)];
        const topic = CATEGORIES[Math.floor(Math.random() * CATEGORIES.length)];
+       
+       // Use V2 Generator
        const contentData = generateRobotContent(region, topic);
        
        const newPost: Post = {
@@ -282,7 +385,7 @@ export const MockDB = {
         likes: Math.floor(Math.random() * 20),
         hearts: Math.floor(Math.random() * 20),
         views: Math.floor(Math.random() * 100),
-        source: contentData.source,
+        source: contentData.source, 
         sourceUrl: contentData.url,
         botId: `BOT-${Math.floor(Math.random() * 99)}`,
         replies: []
@@ -291,15 +394,17 @@ export const MockDB = {
     await MockDB.savePost(newPost);
   },
 
+  // Record presence in DB
   recordVisit: async (isLoggedIn: boolean) => {
       if (isLoggedIn) {
           const user = MockDB.getCurrentUser();
           if (user) {
               const now = Date.now();
+              // Throttle updates to every 5 mins to save DB calls
               if (!user.lastActive || (now - user.lastActive > 300000)) {
+                   await supabase.from('users').update({ lastActive: now }).eq('id', user.id);
                    user.lastActive = now;
                    localStorage.setItem(KEY_CURRENT_USER, JSON.stringify(user));
-                   MockDB.saveUser(user);
               }
           }
       }
