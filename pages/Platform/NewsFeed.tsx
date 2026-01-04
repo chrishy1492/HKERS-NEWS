@@ -30,17 +30,34 @@ export const NewsFeed: React.FC = () => {
   };
 
   useEffect(() => {
+    // 1. Initial Load
     fetchData();
-    const syncInterval = setInterval(fetchData, 5000); // 5s Sync for Mobile/Web consistency
+    MockDB.triggerRobotPost(); // Check immediately on load
+
+    // 2. Regular Sync (Foreground)
+    const syncInterval = setInterval(fetchData, 5000); 
     
-    // Robot Trigger Check
+    // 3. Robot Trigger Interval
+    // Note: This may be throttled on mobile, so we rely on visibility change as backup
     const robotCheck = setInterval(() => {
         MockDB.triggerRobotPost();
-    }, 10000);
+    }, 20000); // Check every 20s
+
+    // 4. Mobile Wake-up Handler (CRITICAL FIX)
+    const handleVisibilityChange = () => {
+        if (document.visibilityState === 'visible') {
+            console.log("📱 Mobile Wake-up: Triggering Bot Check");
+            MockDB.triggerRobotPost(); // Force check when user opens app/unlocks phone
+            fetchData();
+        }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
         clearInterval(syncInterval);
         clearInterval(robotCheck);
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, []);
 

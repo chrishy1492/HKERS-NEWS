@@ -104,6 +104,34 @@ const NEWS_TEMPLATES: Record<string, Record<string, { title: string, content: st
             { title: "Grocery inflation: Shoppers turn to discount chains", content: "Major grocers face scrutiny as Canadians change shopping habits to cope with rising food prices." }
         ]
     },
+    'USA': {
+        'Finance': [
+            { title: "Fed signals potential rate cuts later this year", content: "Wall Street reacts positively as inflation data shows signs of cooling in key sectors." },
+            { title: "Tech giants layoff fears subside as AI boom continues", content: "Silicon Valley is pivoting to AI, creating new roles despite previous cutbacks in other departments." }
+        ],
+        'Current Affairs': [
+            { title: "Election year updates: Key states in focus", content: "Campaigns ramp up in swing states as early polling shows a tight race for the upcoming election." },
+            { title: "NASA announces new lunar mission timeline", content: "Space exploration enters a new era with private sector partnerships aiming for the moon." }
+        ]
+    },
+    'Australia': {
+        'Real Estate': [
+            { title: "Sydney housing market heats up despite rate hikes", content: "Auction clearance rates remain high in NSW as supply shortages persist across the city." },
+            { title: "Rental crisis in Melbourne: Tenants struggle to find homes", content: "Vacancy rates hit record lows, pushing rental prices up significantly across Victoria." }
+        ],
+        'Economy': [
+            { title: "Mining sector boosts Aussie dollar", content: "Strong demand for iron ore and lithium supports the national currency amidst global uncertainty." }
+        ]
+    },
+    'Europe': {
+        'Travel': [
+            { title: "New ETIAS visa waiver delayed to 2025", content: "The EU confirms the new travel authorization system for non-EU visitors is pushed back to ensure smooth implementation." },
+            { title: "Paris prepares for Summer Olympics influx", content: "Hotel prices surge as the city gets ready to host the world's biggest sporting event next summer." }
+        ],
+        'Economy': [
+            { title: "ECB keeps rates steady amidst growth concerns", content: "European Central Bank balances inflation control with preventing a recession across the Eurozone." }
+        ]
+    },
     'Taiwan': {
         'Travel': [
             { title: "Night Market tourism booms as visitors return", content: "Shilin and Raohe night markets report foot traffic exceeding pre-2019 levels this weekend." }
@@ -135,10 +163,14 @@ const generateRealisticContent = (region: string) => {
         category = rnd(categories);
         template = rnd(regionData[category]);
     } else {
-        // Fallback for regions not detailed (e.g. Australia/USA)
-        const gen = rnd(GENERIC_NEWS);
-        category = gen.cat;
-        template = gen;
+        // Fallback if region not found, pick a random real template from a major region
+        // This prevents the generic fallback loop
+        const backupRegion = rnd(['USA', 'UK', 'Hong Kong']);
+        const backupData = NEWS_TEMPLATES[backupRegion];
+        const backupCats = Object.keys(backupData);
+        const backupCat = rnd(backupCats);
+        template = rnd(backupData[backupCat]);
+        category = backupCat;
     }
 
     // 2. Add dynamic elements to make it unique (prevent duplicate content detection)
