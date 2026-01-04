@@ -21,8 +21,9 @@ const SOURCE_DOMAINS: Record<string, string> = {
 
 /**
  * 將 App 的 User 物件轉換為資料庫格式 (PostgreSQL 標準)
- * 解決方案：統一使用 snake_case (avatar_id)，這是 Supabase/PostgreSQL 的標準實作。
- * 同時保留全小寫屬性作為後備，確保 100% 匹配。
+ * 解決方案：默認只使用標準 snake_case。
+ * 注意：不再同時發送 avatarid 和 avatar_id，避免 "Column does not exist" 錯誤。
+ * 若 DB 欄位為全小寫，將在 register 函數中透過 catch block 進行動態降級處理。
  */
 const toDbUser = (user: User) => {
     return {
@@ -35,17 +36,11 @@ const toDbUser = (user: User) => {
         gender: user.gender,
         role: user.role,
         points: user.points || 0,
-        // 修正：優先使用 snake_case，並提供全小寫作為相容性
         sol_address: user.solAddress || null,
-        soladdress: user.solAddress || null,
         avatar_id: user.avatarId || 1,
-        avatarid: user.avatarId || 1,
         is_banned: user.isBanned || false,
-        isbanned: user.isBanned || false,
         joined_at: user.joinedAt ? new Date(user.joinedAt).toISOString() : new Date().toISOString(),
-        joinedat: user.joinedAt ? new Date(user.joinedAt).toISOString() : new Date().toISOString(),
-        last_active: user.lastActive ? new Date(user.lastActive).toISOString() : new Date().toISOString(),
-        lastactive: user.lastActive ? new Date(user.lastActive).toISOString() : new Date().toISOString()
+        last_active: user.lastActive ? new Date(user.lastActive).toISOString() : new Date().toISOString()
     };
 };
 
@@ -60,14 +55,14 @@ const fromDbUser = (dbUser: any): User => {
         password: dbUser.password,
         address: dbUser.address,
         phone: dbUser.phone,
-        // 兼容性讀取：優先嘗試蛇形命名，再嘗試全小寫，最後嘗試駝峰
+        // 兼容性讀取：嘗試多種可能的命名
         solAddress: dbUser.sol_address || dbUser.soladdress || dbUser.solAddress || '', 
         gender: dbUser.gender,
         role: dbUser.role as UserRole,
         points: dbUser.points || 0,
         avatarId: dbUser.avatar_id || dbUser.avatarid || dbUser.avatarId || 1,      
         isBanned: dbUser.is_banned || dbUser.isbanned || dbUser.isBanned || false,
-        // 時間格式轉換: ISO String -> Number (Unix Timestamp)
+        // 時間處理
         joinedAt: dbUser.joined_at ? new Date(dbUser.joined_at).getTime() : (dbUser.joinedat ? new Date(dbUser.joinedat).getTime() : Date.now()),
         lastActive: dbUser.last_active ? new Date(dbUser.last_active).getTime() : (dbUser.lastactive ? new Date(dbUser.lastactive).getTime() : Date.now())
     };
@@ -152,11 +147,10 @@ export const MockDB = {
 
     if (user.isBanned) throw new Error("Account Banned (此帳戶已被封鎖)");
 
-    // 更新最後活躍 (使用 snake_case 優先)
     const nowIso = new Date().toISOString(); 
-    const { error: updateError } = await supabase.from('users').update({ last_active: nowIso }).eq('id', user.id);
     
-    // 如果 snake_case 失敗，嘗試全小寫
+    // 嘗試更新活躍時間，如果 snake_case 失敗則嘗試 lowercase
+    const { error: updateError } = await supabase.from('users').update({ last_active: nowIso }).eq('id', user.id);
     if (updateError) {
         await supabase.from('users').update({ lastactive: nowIso }).eq('id', user.id);
     }
@@ -181,44 +175,47 @@ export const MockDB = {
         if (checkError) throw checkError;
         if (existingUser) throw new Error("Email already registered (此電郵已被註冊)");
 
-        // 2. 轉換資料格式 (同時傳送 snake_case 與 lowercase 欄位以適應不同 DB 結構)
+        // 2. 準備 Payload (默認 snake_case)
         const dbPayload = toDbUser(user);
         
-        // 3. 寫入 Supabase (嘗試混合 Payload)
+        // 3. 嘗試寫入
         const { error: insertError } = await supabase.from('users').insert(dbPayload);
         
+        // 4. 自動回退機制 (Fallback Mechanism)
         if (insertError) {
-            console.warn("Initial insert failed, attempting strict snake_case fallback...", insertError.message);
+            console.warn("Schema mismatch detected (Standard snake_case failed), attempting fallback to lowercase...", insertError.message);
             
-            // 嚴格備案：只傳送標準 snake_case 欄位
-            const strictSnakePayload = {
-                id: user.id,
-                name: user.name,
-                email: user.email,
-                password: user.password,
-                address: user.address,
-                phone: user.phone,
-                gender: user.gender,
-                role: user.role,
-                points: user.points || 0,
-                sol_address: user.solAddress || null,
-                avatar_id: user.avatarId || 1,
-                is_banned: user.isBanned || false,
-                joined_at: new Date(user.joinedAt || Date.now()).toISOString(),
-                last_active: new Date(user.lastActive || Date.now()).toISOString()
+            // 如果 avatar_id 報錯，嘗試全小寫版本 (avatarid)
+            const fallbackPayload = {
+                ...dbPayload,
+                avatarid: user.avatarId || 1,
+                soladdress: user.solAddress || null,
+                isbanned: user.isBanned || false,
+                joinedat: dbPayload.joined_at,
+                lastactive: dbPayload.last_active
             };
+            
+            // 移除原本的 snake_case 鍵，防止 "Column does not exist" 錯誤再次發生
+            delete (fallbackPayload as any).avatar_id;
+            delete (fallbackPayload as any).sol_address;
+            delete (fallbackPayload as any).is_banned;
+            delete (fallbackPayload as any).joined_at;
+            delete (fallbackPayload as any).last_active;
 
-            const { error: retryError } = await supabase.from('users').insert(strictSnakePayload);
-            if (retryError) throw retryError;
+            const { error: retryError } = await supabase.from('users').insert(fallbackPayload);
+            if (retryError) {
+                // 如果兩者都失敗，拋出原始錯誤以便調試
+                throw new Error(`Registration failed on both schema formats. DB Error: ${retryError.message}`);
+            }
         }
 
-        // 4. 註冊成功，更新本地 Session
+        // 5. 成功後更新本地緩存
         localStorage.setItem(KEY_CURRENT_USER, JSON.stringify(user));
         console.log("Registration Successful.");
 
     } catch (err: any) {
-        console.error("Supabase Registration Error Details:", err);
-        throw new Error(`Registration Failed: ${err.message || 'Unknown DB Error'}`);
+        console.error("Registration Error Details:", err);
+        throw new Error(err.message || 'Registration Failed');
     }
   },
 
@@ -227,31 +224,24 @@ export const MockDB = {
   },
 
   saveUser: async (user: User): Promise<void> => {
-      // 類似 Register，我們先嘗試混合，失敗則嘗試嚴格模式
       const dbPayload = toDbUser(user);
+      // 同樣應用重試邏輯
       const { error } = await supabase.from('users').upsert(dbPayload).eq('id', user.id);
       
       if (error) {
-          console.warn("Save User failed, retrying strict snake_case...");
-          const strictSnakePayload = {
-                id: user.id,
-                name: user.name,
-                email: user.email,
-                password: user.password,
-                address: user.address,
-                phone: user.phone,
-                gender: user.gender,
-                role: user.role,
-                points: user.points,
-                sol_address: user.solAddress,
-                avatar_id: user.avatarId,
-                last_active: new Date().toISOString()
-          };
-          const { error: retryError } = await supabase.from('users').upsert(strictSnakePayload).eq('id', user.id);
-          if (retryError) {
-              console.error("Save User Error", retryError);
-              throw new Error("Failed to save profile changes.");
-          }
+           console.warn("Update failed, retrying with lowercase schema...");
+           const fallbackPayload = {
+               ...dbPayload,
+               avatarid: user.avatarId,
+               soladdress: user.solAddress,
+               lastactive: new Date().toISOString()
+           };
+           delete (fallbackPayload as any).avatar_id;
+           delete (fallbackPayload as any).sol_address;
+           delete (fallbackPayload as any).last_active;
+           
+           const { error: retryError } = await supabase.from('users').upsert(fallbackPayload).eq('id', user.id);
+           if (retryError) throw new Error("Failed to save profile changes.");
       }
 
       const current = MockDB.getCurrentUser();
@@ -259,7 +249,7 @@ export const MockDB = {
           localStorage.setItem(KEY_CURRENT_USER, JSON.stringify(user));
       }
   },
-  
+
   deleteUser: async (id: string): Promise<void> => {
       await supabase.from('users').delete().eq('id', id);
   },
@@ -316,7 +306,7 @@ export const MockDB = {
       };
       await supabase.from('posts').upsert(safePost);
   },
-  
+
   deletePost: async (postId: string): Promise<void> => {
       await supabase.from('posts').delete().eq('id', postId);
   },
@@ -327,21 +317,19 @@ export const MockDB = {
       const oneDayAgo = new Date(Date.now() - 86400000).toISOString();
       const { count: totalMembers } = await supabase.from('users').select('*', { count: 'exact', head: true });
       
-      // 嘗試 snake_case 查詢
-      let newMembersQuery = await supabase.from('users').select('*', { count: 'exact', head: true }).gt('joined_at', oneDayAgo);
-      if (newMembersQuery.error) {
-           newMembersQuery = await supabase.from('users').select('*', { count: 'exact', head: true }).gt('joinedat', oneDayAgo);
-      }
+      // 使用 .or() 同時兼容兩種欄位命名風格
+      const { count: newMembersToday } = await supabase.from('users')
+        .select('*', { count: 'exact', head: true })
+        .or(`joined_at.gt.${oneDayAgo},joinedat.gt.${oneDayAgo}`);
 
-      let activeMembersQuery = await supabase.from('users').select('*', { count: 'exact', head: true }).gt('last_active', oneDayAgo);
-      if (activeMembersQuery.error) {
-           activeMembersQuery = await supabase.from('users').select('*', { count: 'exact', head: true }).gt('lastactive', oneDayAgo);
-      }
+      const { count: activeMembersToday } = await supabase.from('users')
+        .select('*', { count: 'exact', head: true })
+        .or(`last_active.gt.${oneDayAgo},lastactive.gt.${oneDayAgo}`);
 
       return {
           totalMembers: totalMembers || 0,
-          newMembersToday: newMembersQuery.count || 0,
-          activeMembersToday: activeMembersQuery.count || 0,
+          newMembersToday: newMembersToday || 0,
+          activeMembersToday: activeMembersToday || 0,
           guestsToday: Math.floor(100 + Math.random() * 50)
       };
   },
@@ -396,8 +384,9 @@ export const MockDB = {
               const now = Date.now();
               if (!user.lastActive || (now - user.lastActive > 300000)) {
                    const nowIso = new Date(now).toISOString();
-                   // 優先 snake_case
+                   // 嘗試標準更新
                    const { error } = await supabase.from('users').update({ last_active: nowIso }).eq('id', user.id);
+                   // 如果失敗，嘗試回退更新
                    if (error) {
                         await supabase.from('users').update({ lastactive: nowIso }).eq('id', user.id);
                    }
