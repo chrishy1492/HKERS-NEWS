@@ -1,3 +1,4 @@
+
 import { supabase } from './supabaseClient';
 import { User, Post, UserRole, RobotLog, ADMIN_EMAILS, REGIONS, CATEGORIES, REGIONS_CN, CATEGORIES_CN, Comment } from '../types';
 
@@ -6,6 +7,9 @@ const KEY_CURRENT_USER = 'hker_current_user_v6_sync';
 const KEY_ALL_USERS = 'hker_all_users_cache_v6'; 
 const KEY_LOCAL_POSTS = 'hker_posts_cache_v6';
 
+// Global Lock for Robot Execution (Prevents Race Conditions on Mobile Wake-up)
+let isBotProcessing = false;
+
 const SOURCE_DOMAINS: Record<string, string> = {
     'BBC': 'https://www.bbc.com/news',
     'CNN': 'https://edition.cnn.com',
@@ -13,15 +17,13 @@ const SOURCE_DOMAINS: Record<string, string> = {
     'HK Free Press': 'https://hongkongfp.com',
     'SCMP': 'https://www.scmp.com',
     'Guardian': 'https://www.theguardian.com',
-    'Bloomberg': 'https://www.bloomberg.com'
+    'Bloomberg': 'https://www.bloomberg.com',
+    'Yahoo Finance': 'https://hk.finance.yahoo.com',
+    'RTHK': 'https://news.rthk.hk'
 };
 
-// --- DATA MAPPING LAYER (Transparent Mapping Layer) ---
+// --- DATA MAPPING LAYER ---
 
-/**
- * 將 App 的 User 物件轉換為資料庫格式 (PostgreSQL 標準)
- * 解決方案：保持標準命名，但所有擴充欄位皆設為可選，以便在 register 邏輯中動態過濾。
- */
 const toDbUser = (user: User) => {
     return {
         id: user.id,
@@ -41,10 +43,6 @@ const toDbUser = (user: User) => {
     };
 };
 
-/**
- * 將資料庫物件轉換回 App 的 User 型別 (camelCase)
- * 策略：增加空值檢查 (|| '')，防止前端因缺少欄位而崩潰
- */
 const fromDbUser = (dbUser: any): User => {
     return {
         id: dbUser.id,
@@ -53,52 +51,129 @@ const fromDbUser = (dbUser: any): User => {
         password: dbUser.password,
         address: dbUser.address || '',
         phone: dbUser.phone || '',
-        // 兼容性讀取：嘗試多種可能的命名
         solAddress: dbUser.sol_address || dbUser.soladdress || dbUser.solAddress || '', 
         gender: dbUser.gender || '',
         role: dbUser.role as UserRole,
         points: dbUser.points || 0,
         avatarId: dbUser.avatar_id || dbUser.avatarid || dbUser.avatarId || 1,      
         isBanned: dbUser.is_banned || dbUser.isbanned || dbUser.isBanned || false,
-        // 時間處理
         joinedAt: dbUser.joined_at ? new Date(dbUser.joined_at).getTime() : (dbUser.joinedat ? new Date(dbUser.joinedat).getTime() : Date.now()),
         lastActive: dbUser.last_active ? new Date(dbUser.last_active).getTime() : (dbUser.lastactive ? new Date(dbUser.lastactive).getTime() : Date.now())
     };
 };
 
-// --- 機器人內容生成邏輯 ---
-const REGION_CONTEXT: Record<string, any> = {
-    'Hong Kong': { cities: ['Central', 'Mong Kok', 'Shatin', 'Tuen Mun', 'Kai Tak'], currency: 'HKD', policies: ['MPF', 'Stamp Duty', 'MTR Fares'], keywords: ['Lion Rock', 'Dim Sum', 'Land Supply'] },
-    'UK': { cities: ['London', 'Manchester', 'Birmingham', 'Bristol', 'Reading'], currency: 'GBP', policies: ['Council Tax', 'NI', 'Visa Updates'], keywords: ['BNO', 'NHS', 'High Street'] },
-    'Taiwan': { cities: ['Taipei', 'Kaohsiung', 'Taichung', 'Tainan'], currency: 'TWD', policies: ['Health Insurance', 'Residency Rules'], keywords: ['Night Market', 'MRT', 'Immigration'] },
-    'USA': { cities: ['New York', 'SF', 'LA', 'Chicago'], currency: 'USD', policies: ['IRS', 'Green Card', 'Fed Rates'], keywords: ['Wall St', 'Tech Giants', 'Suburbs'] },
-    'Canada': { cities: ['Toronto', 'Vancouver', 'Calgary', 'Markham'], currency: 'CAD', policies: ['PR Pathway', 'Housing Crisis', 'Carbon Tax'], keywords: ['Stream A/B', 'Snow Storm', 'Tim Hortons'] },
-    'Australia': { cities: ['Sydney', 'Melbourne', 'Brisbane', 'Perth'], currency: 'AUD', policies: ['Negative Gearing', 'Visa Points'], keywords: ['Beach Life', 'Coffee Culture', 'Rentals'] },
-    'Europe': { cities: ['Berlin', 'Paris', 'Amsterdam', 'Dublin'], currency: 'EUR', policies: ['EU Blue Card', 'Digital Nomad'], keywords: ['Train Travel', 'Work Life Balance', 'Energy Prices'] }
+// --- 擬真新聞引擎 (REALISTIC NEWS ENGINE) ---
+// 定義針對不同地區、不同類別的真實語境模板，避免「假新聞」感。
+const NEWS_TEMPLATES: Record<string, Record<string, { title: string, content: string }[]>> = {
+    'Hong Kong': {
+        'Real Estate': [
+            { title: "Kai Tak new launches see strong demand despite market cooling", content: "Hundreds queued up for the latest residential project in Kai Tak, signaling resilient demand for prime urban locations despite high interest rates." },
+            { title: "Rental index climbs again: Tenants face higher renewal costs", content: "Residential rents in Hong Kong have risen for the 6th consecutive month, driven by the influx of professionals and students returning to the city." },
+            { title: "Northern Metropolis: Gov pushes forward with land resumption", content: "The development bureau announced new timelines for land resumption in the New Territories to accelerate the Northern Metropolis plan." }
+        ],
+        'Finance': [
+            { title: "HSI rebounds as tech stocks lead the charge", content: "The Hang Seng Index closed higher today, boosted by strong earnings reports from major technology firms and positive sentiment from mainland policies." },
+            { title: "Green Bonds: Hong Kong solidifies hub status", content: "Issuance of green bonds in Hong Kong reached a record high this quarter, attracting global ESG investors and cementing the city's status as a green finance hub." },
+            { title: "HKMA keeps watch on currency peg amidst Fed rate volatility", content: "The Monetary Authority reiterated its commitment to the linked exchange rate system despite external pressures and fluctuating US interest rates." }
+        ],
+        'Current Affairs': [
+            { title: "Plastic ban implementation: Restaurants adapt to new rules", content: "Eateries across the city are switching to paper and wooden alternatives as the single-use plastic ban comes into full effect, receiving mixed reactions from the public." },
+            { title: "Tourism revival: Visitor numbers hit post-pandemic peak", content: "The Tourism Board reports a significant surge in arrivals during the Golden Week holiday, with hotels reaching 90% occupancy." }
+        ]
+    },
+    'UK': {
+        'Finance': [
+            { title: "UK inflation drops to 2-year low, easing cost of living crisis", content: "Office for National Statistics data shows a welcome decline in inflation, giving relief to households, though food prices remain high." },
+            { title: "London Stock Exchange eyes new tech listings", content: "Reforms are underway to attract more technology companies to list in London post-Brexit, aiming to revitalize the financial market." }
+        ],
+        'Real Estate': [
+            { title: "London rents hit record high: Average exceeds £2,600", content: "Tenants are facing unprecedented rental costs in the capital due to a severe shortage of available stock and high mortgage rates for landlords." },
+            { title: "Manchester property boom continues with new regeneration projects", content: "The northern powerhouse sees property values rise faster than the national average, attracting investors from Asia and the Middle East." }
+        ],
+        'Community': [
+            { title: "BN(O) community groups launch cultural festival in Sutton", content: "A new festival celebrating Hong Kong culture and food drew thousands of locals and newcomers this weekend, fostering community integration." }
+        ]
+    },
+    'Canada': {
+        'Real Estate': [
+            { title: "Toronto housing market cools as inventory rises", content: "Buyers are taking a wait-and-see approach, leading to an accumulation of listings in the GTA as interest rates remain restrictive." },
+            { title: "Vancouver introduces stricter short-term rental rules", content: "New provincial regulations aim to return short-term rental units to the long-term housing market to alleviate the housing crisis." }
+        ],
+        'Finance': [
+            { title: "Bank of Canada holds rates steady, signals potential cuts", content: "The central bank maintained its policy rate today, citing progress in the fight against inflation but warning that risks remain." }
+        ]
+    },
+    'USA': {
+        'Finance': [
+            { title: "Fed signals potential rate cuts later this year", content: "Wall Street reacts positively as inflation data shows signs of cooling in key sectors, raising hopes for a soft landing." },
+            { title: "Tech giants pivot: AI investment drives market rally", content: "Major tech firms are shifting resources to artificial intelligence, fueling a stock market surge and creating new demands for chip manufacturing." }
+        ],
+        'Current Affairs': [
+            { title: "Election year updates: Key swing states in focus", content: "Early polling indicates a tight race in battleground states as campaign season heats up, with economy being the top voter concern." }
+        ]
+    },
+    'Australia': {
+        'Real Estate': [
+            { title: "Sydney housing prices defy rate hikes", content: "Despite higher interest rates, property values in Sydney continue to inch upwards due to low supply and strong population growth." }
+        ],
+        'Economy': [
+            { title: "Resource exports drive trade surplus", content: "Strong demand for iron ore and LNG continues to support the Australian economy despite global economic headwinds." }
+        ]
+    },
+    'Europe': {
+        'Travel': [
+            { title: "ETIAS visa waiver launch delayed again", content: "The EU has pushed back the start date for its new travel authorization system to ensure smooth border operations and system readiness." }
+        ]
+    },
+    'Taiwan': {
+        'Travel': [
+            { title: "Taiwan tourism goal: 12 million visitors in 2024", content: "The Tourism Administration launches new campaigns to attract international travelers, focusing on culinary and cultural experiences." }
+        ]
+    }
 };
 
-const rnd = (arr: string[]) => arr[Math.floor(Math.random() * arr.length)];
+// Fallback for generic content to avoid errors
+const GENERIC_NEWS = [
+    { cat: 'Technology', title: "Global chip shortage eases, but AI chips remain scarce", content: "Supply chains are normalizing, though demand for high-end AI processors continues to outstrip supply." },
+    { cat: 'Finance', title: "Gold prices stabilize near all-time highs", content: "Geopolitical uncertainty keeps gold as a favored safe-haven asset for investors." }
+];
 
-const generateRobotContent = (region: string, topic: string) => {
+const rnd = (arr: any[]) => arr[Math.floor(Math.random() * arr.length)];
+
+const generateRealisticContent = (region: string) => {
+    const regionData = NEWS_TEMPLATES[region];
+    let category = 'General';
+    let template = null;
+
+    if (regionData) {
+        const categories = Object.keys(regionData);
+        category = rnd(categories);
+        template = rnd(regionData[category]);
+    } else {
+        // Fallback: pick a random real template from a major region if specific region data is missing
+        const backupRegion = rnd(['USA', 'UK', 'Hong Kong']);
+        const backupData = NEWS_TEMPLATES[backupRegion];
+        const backupCat = rnd(Object.keys(backupData));
+        template = rnd(backupData[backupCat]);
+        category = backupCat;
+    }
+
+    // Add unique identifier to prevent duplicate content detection
+    const dynamicSuffix = ` (Report #${1000 + Math.floor(Math.random()*9000)})`;
     const sources = Object.keys(SOURCE_DOMAINS);
-    const randSource = sources[Math.floor(Math.random() * sources.length)];
+    const randSource = rnd(sources);
     const mockUrl = `${SOURCE_DOMAINS[randSource]}/article/${new Date().getFullYear()}/${Math.floor(Math.random() * 100000)}`;
-    const ctx = REGION_CONTEXT[region] || REGION_CONTEXT['Hong Kong'];
-    
-    const contentData = {
-        titleEN: `[${region}] Discussions on ${topic} heating up`,
-        titleCN: `【${REGIONS_CN[region]}】關於${CATEGORIES_CN[topic]}的討論持續升溫`,
-        contentEN: `Locals in ${rnd(ctx.cities)} are talking about ${topic}.`,
-        contentCN: `在 ${rnd(ctx.cities)} 的居民正熱烈討論 ${CATEGORIES_CN[topic]}。`
-    };
 
-    return { ...contentData, source: randSource, url: mockUrl };
+    return {
+        title: template.title,
+        content: template.content + dynamicSuffix, 
+        category,
+        source: randSource,
+        url: mockUrl
+    };
 };
 
 export const MockDB = {
-  
-  // --- 用戶管理 ---
-
   getUsers: async (): Promise<User[]> => {
     try {
         const { data, error } = await supabase.from('users').select('*');
@@ -110,7 +185,6 @@ export const MockDB = {
         }
         return [];
     } catch (e) { 
-        console.warn("Sync: Network error, serving from cache.", e); 
         return JSON.parse(localStorage.getItem(KEY_ALL_USERS) || '[]');
     }
   },
@@ -118,156 +192,68 @@ export const MockDB = {
   getCurrentUser: (): User | null => {
     const local = localStorage.getItem(KEY_CURRENT_USER);
     if (!local) return null;
-    try {
-        return JSON.parse(local);
-    } catch {
-        return null;
-    }
+    try { return JSON.parse(local); } catch { return null; }
   },
 
   login: async (email: string, password?: string): Promise<User | null> => {
-    const { data, error } = await supabase
-        .from('users')
-        .select('*')
-        .ilike('email', email)
-        .maybeSingle();
-
-    if (error || !data) {
-        throw new Error("User not found (用戶不存在) - Please Register First");
-    }
-
+    const { data, error } = await supabase.from('users').select('*').ilike('email', email).maybeSingle();
+    if (error || !data) throw new Error("User not found (用戶不存在) - Please Register First");
     const user = fromDbUser(data);
-
-    if (password && user.password && user.password !== password) {
-        throw new Error("Invalid Password (密碼錯誤)");
-    }
-
+    if (password && user.password && user.password !== password) throw new Error("Invalid Password (密碼錯誤)");
     if (user.isBanned) throw new Error("Account Banned (此帳戶已被封鎖)");
-
-    const nowIso = new Date().toISOString(); 
-    // 使用非破壞性更新，失敗不阻斷登入流程
-    try {
-        await supabase.from('users').update({ last_active: nowIso }).eq('id', user.id);
-    } catch (e) { console.warn("Update activity failed"); }
-
+    
+    try { await supabase.from('users').update({ last_active: new Date().toISOString() }).eq('id', user.id); } catch(e) {}
+    
     const sessionUser = { ...user, lastActive: Date.now() };
     localStorage.setItem(KEY_CURRENT_USER, JSON.stringify(sessionUser));
-
     return sessionUser;
   },
 
   register: async (user: User): Promise<void> => {
-    console.log("Starting Robust Registration for:", user.email);
-
     try {
-        // 1. 檢查重複
-        const { data: existingUser, error: checkError } = await supabase
-            .from('users')
-            .select('id')
-            .eq('email', user.email)
-            .maybeSingle();
-            
-        if (checkError) throw checkError;
+        const { data: existingUser } = await supabase.from('users').select('id').eq('email', user.email).maybeSingle();
         if (existingUser) throw new Error("Email already registered (此電郵已被註冊)");
 
-        // 2. 嘗試層級化寫入策略
         const dbPayload = toDbUser(user);
-        
-        // 嘗試 1: 全欄位寫入 (snake_case)
         const { error: error1 } = await supabase.from('users').insert(dbPayload);
         
         if (error1) {
-            console.warn("Attempt 1 (snake_case) failed:", error1.message);
-            
-            // 嘗試 2: 全小寫欄位寫入
-            const lowercasePayload = {
-                id: user.id,
-                name: user.name,
-                email: user.email,
-                password: user.password,
-                role: user.role,
-                points: user.points || 0,
-                avatarid: user.avatarId || 1,
-                soladdress: user.solAddress || null,
-                isbanned: user.isBanned || false,
-                joinedat: dbPayload.joined_at,
-                lastactive: dbPayload.last_active
+            console.warn("Snake_case failed, trying minimal fallback");
+            const minimalPayload = {
+                id: user.id, name: user.name, email: user.email, password: user.password, role: user.role
             };
-            const { error: error2 } = await supabase.from('users').insert(lowercasePayload);
-            
-            if (error2) {
-                console.warn("Attempt 2 (lowercase) failed:", error2.message);
-                
-                // 嘗試 3: 終極降級模式 (只傳送核心必填欄位)
-                // 假設 avatar_id 等擴充欄位是導致快取錯誤的主因，這裡將其完全移除
-                const minimalPayload = {
-                    id: user.id,
-                    name: user.name,
-                    email: user.email,
-                    password: user.password,
-                    role: user.role
-                };
-                console.log("Attempting Minimal Registration (Final Fallback)...");
-                const { error: error3 } = await supabase.from('users').insert(minimalPayload);
-                
-                if (error3) {
-                    throw new Error(`Critical DB Error: ${error3.message}. Please check if 'users' table exists.`);
-                }
-            }
+            const { error: error3 } = await supabase.from('users').insert(minimalPayload);
+            if (error3) throw new Error(`Registration Failed: ${error3.message}`);
         }
-
         localStorage.setItem(KEY_CURRENT_USER, JSON.stringify(user));
-        console.log("Registration Successful via robust fallback.");
-
     } catch (err: any) {
-        console.error("Critical Registration Failure:", err);
         throw new Error(err.message || 'Registration Failed');
     }
   },
 
-  logout: (): void => {
-    localStorage.removeItem(KEY_CURRENT_USER);
-  },
+  logout: (): void => { localStorage.removeItem(KEY_CURRENT_USER); },
 
   saveUser: async (user: User): Promise<void> => {
-      const dbPayload = toDbUser(user);
-      // Upsert 同樣使用 try...catch 避免因個別欄位不匹配導致無法存檔
       try {
-          const { error } = await supabase.from('users').upsert(dbPayload).eq('id', user.id);
+          const { error } = await supabase.from('users').upsert(toDbUser(user)).eq('id', user.id);
           if (error) throw error;
       } catch (e) {
-          console.error("Save Profile Error, trying minimal upsert", e);
+          console.error("Save Profile Error", e);
           const minimal = { id: user.id, name: user.name, email: user.email };
           await supabase.from('users').upsert(minimal).eq('id', user.id);
       }
-
       const current = MockDB.getCurrentUser();
-      if(current && current.id === user.id) {
-          localStorage.setItem(KEY_CURRENT_USER, JSON.stringify(user));
-      }
+      if(current && current.id === user.id) localStorage.setItem(KEY_CURRENT_USER, JSON.stringify(user));
   },
   
-  deleteUser: async (id: string): Promise<void> => {
-      await supabase.from('users').delete().eq('id', id);
-  },
+  deleteUser: async (id: string): Promise<void> => { await supabase.from('users').delete().eq('id', id); },
 
   updateUserPoints: async (userId: string, delta: number): Promise<number> => {
-      // 1. Get current points
-      const { data: userData, error: fetchError } = await supabase.from('users').select('points').eq('id', userId).single();
-      
-      if (fetchError || !userData) {
-          console.error("Failed to fetch user points for update");
-          return -1;
-      }
-
-      // 2. Calculate new points
+      const { data: userData } = await supabase.from('users').select('points').eq('id', userId).single();
+      if (!userData) return -1;
       const newPoints = Math.max(0, (userData.points || 0) + delta);
-
-      // 3. Update (Robust)
       const { error } = await supabase.from('users').update({ points: newPoints }).eq('id', userId);
-      
       if (!error) {
-          // Sync Local Session if it's current user
           const current = MockDB.getCurrentUser();
           if(current && current.id === userId) {
               current.points = newPoints;
@@ -277,26 +263,19 @@ export const MockDB = {
       }
       return -1;
   },
-
-  // --- 貼文管理 ---
   
   getPosts: async (): Promise<Post[]> => {
       try {
-          const { data, error } = await supabase
-            .from('posts')
-            .select('*')
-            .order('timestamp', { ascending: false })
-            .limit(100);
-
+          const { data, error } = await supabase.from('posts').select('*').order('timestamp', { ascending: false }).limit(100);
           if (!error && data) {
               const cleanData = data.map((p: any) => ({
                   ...p,
-                  source: (typeof p.source === 'string' && p.source !== '[object Object]') ? p.source : 'External Source'
+                  source: (typeof p.source === 'string' && p.source !== '[object Object]') ? p.source : 'System'
               }));
               localStorage.setItem(KEY_LOCAL_POSTS, JSON.stringify(cleanData));
               return cleanData as Post[];
           }
-      } catch (e) { console.warn("Offline mode for posts"); }
+      } catch (e) { }
       return JSON.parse(localStorage.getItem(KEY_LOCAL_POSTS) || '[]');
   },
 
@@ -308,88 +287,91 @@ export const MockDB = {
       await supabase.from('posts').upsert(safePost);
   },
   
-  deletePost: async (postId: string): Promise<void> => {
-      await supabase.from('posts').delete().eq('id', postId);
-  },
-
-  // --- 分析與機器人 ---
+  deletePost: async (postId: string): Promise<void> => { await supabase.from('posts').delete().eq('id', postId); },
   
   getAnalytics: async () => {
       try {
-          const oneDayAgo = new Date(Date.now() - 86400000).toISOString();
-          const { count: totalMembers } = await supabase.from('users').select('*', { count: 'exact', head: true });
-          
-          // Simplified queries to avoid schema crashes
-          return {
-              totalMembers: totalMembers || 0,
-              newMembersToday: 0, // Placeholder to prevent crash if joined_at missing
-              activeMembersToday: 0, // Placeholder
-              guestsToday: Math.floor(100 + Math.random() * 50)
-          };
-      } catch (e) {
-          return { totalMembers: 0, newMembersToday: 0, activeMembersToday: 0, guestsToday: 0 };
-      }
+          const { count } = await supabase.from('users').select('*', { count: 'exact', head: true });
+          return { totalMembers: count || 0, newMembersToday: 0, activeMembersToday: 0, guestsToday: Math.floor(100 + Math.random() * 50) };
+      } catch (e) { return { totalMembers: 0, newMembersToday: 0, activeMembersToday: 0, guestsToday: 0 }; }
   },
 
+  // --- ENHANCED ROBOT LOGIC WITH MUTEX LOCK (MOBILE FIX) ---
   triggerRobotPost: async () => {
-       const { data: lastPosts } = await supabase
-        .from('posts')
-        .select('timestamp')
-        .eq('isRobot', true)
-        .order('timestamp', { ascending: false })
-        .limit(1);
-
-       const now = Date.now();
-       if (lastPosts && lastPosts.length > 0) {
-           const lastTime = lastPosts[0].timestamp;
-           if (now - lastTime < 120000) return; // 2 min cooldown
+       // 1. MUTEX LOCK: 防止多個事件監聽器同時觸發導致的重複執行
+       if (isBotProcessing) {
+           console.log("🔒 Bot logic skipped: Execution Locked (Prevents Double Posting)");
+           return;
        }
+       isBotProcessing = true;
 
-       const region = REGIONS[Math.floor(Math.random() * REGIONS.length)];
-       const topic = CATEGORIES[Math.floor(Math.random() * CATEGORIES.length)];
-       const contentData = generateRobotContent(region, topic);
-       
-       const newPost: Post = {
-        id: `bot-${now}-${Math.random().toString(36).substr(2, 5)}`,
-        title: contentData.titleEN,
-        titleCN: contentData.titleCN,
-        content: contentData.contentEN,
-        contentCN: contentData.contentCN,
-        region: region,
-        category: topic,
-        author: `${region} AI Robot`,
-        authorId: 'system-bot',
-        isRobot: true,
-        timestamp: now,
-        displayDate: new Date(now).toLocaleString(),
-        likes: Math.floor(Math.random() * 20),
-        hearts: Math.floor(Math.random() * 20),
-        views: Math.floor(Math.random() * 100),
-        source: contentData.source, 
-        sourceUrl: contentData.url,
-        botId: `BOT-${Math.floor(Math.random() * 99)}`,
-        replies: []
-    };
-    
-    await MockDB.savePost(newPost);
+       try {
+           // 2. MOBILE OPTIMIZATION: 最小化查詢 (只查 timestamp，不查內容)
+           const { data: lastPosts, error } = await supabase
+            .from('posts')
+            .select('timestamp')
+            .eq('isRobot', true)
+            .order('timestamp', { ascending: false })
+            .limit(1);
+
+           if (error) {
+               console.warn("Bot Network Check Failed - Low Connectivity?");
+               return; 
+           }
+
+           const now = Date.now();
+           // COOLDOWN: 20 Minutes (1200000ms) - 避免用戶頻繁開關 App 時洗版
+           const COOLDOWN = 1200000;
+           
+           if (lastPosts && lastPosts.length > 0) {
+               const lastTime = lastPosts[0].timestamp;
+               if (now - lastTime < COOLDOWN) return; 
+           }
+
+           // 3. GENERATE REALISTIC CONTENT
+           const region = REGIONS[Math.floor(Math.random() * REGIONS.length)];
+           const newsData = generateRealisticContent(region);
+           
+           const newPost: Post = {
+                id: `bot-${now}-${crypto.randomUUID().split('-')[0]}`,
+                title: newsData.title,
+                titleCN: "",
+                content: newsData.content,
+                contentCN: "", 
+                region: region,
+                category: newsData.category,
+                author: `${region} News Bot`,
+                authorId: 'system-bot',
+                isRobot: true,
+                timestamp: now,
+                displayDate: new Date(now).toLocaleString(),
+                likes: Math.floor(Math.random() * 15),
+                hearts: Math.floor(Math.random() * 5),
+                views: Math.floor(Math.random() * 200) + 50,
+                source: newsData.source, 
+                sourceUrl: newsData.url,
+                botId: `BOT-${Math.floor(Math.random() * 99)}`,
+                replies: []
+            };
+            
+            console.log("🤖 Robot Posting:", newPost.title);
+            await MockDB.savePost(newPost);
+            
+       } catch (err) {
+           console.error("Critical Bot Error:", err);
+       } finally {
+           // Release Lock
+           isBotProcessing = false;
+       }
   },
   
   recordVisit: async (isLoggedIn: boolean) => {
       if (isLoggedIn) {
           const user = MockDB.getCurrentUser();
           if (user) {
-              const now = Date.now();
-              // Update every 5 mins max
-              if (!user.lastActive || (now - user.lastActive > 300000)) {
-                   const nowIso = new Date(now).toISOString();
-                   // Try non-blocking update
-                   try {
-                       await supabase.from('users').update({ last_active: nowIso }).eq('id', user.id);
-                   } catch (e) { /* ignore schema errors for background tasks */ }
-                   
-                   user.lastActive = now;
-                   localStorage.setItem(KEY_CURRENT_USER, JSON.stringify(user));
-              }
+               try { await supabase.from('users').update({ last_active: new Date().toISOString() }).eq('id', user.id); } catch (e) {}
+               user.lastActive = Date.now();
+               localStorage.setItem(KEY_CURRENT_USER, JSON.stringify(user));
           }
       }
   }
