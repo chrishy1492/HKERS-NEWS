@@ -8,7 +8,9 @@ const KEY_ALL_USERS = 'hker_all_users_cache_v6';
 const KEY_LOCAL_POSTS = 'hker_posts_cache_v6';
 
 // Global Lock for Robot Execution
+// FIX: Added timestamp to track how long the lock has been held
 let isBotProcessing = false;
+let botLockTimestamp = 0;
 
 const SOURCE_DOMAINS: Record<string, string> = {
     'BBC': 'https://www.bbc.com/news',
@@ -22,33 +24,19 @@ const SOURCE_DOMAINS: Record<string, string> = {
     'RTHK': 'https://news.rthk.hk'
 };
 
-// --- CRITICAL FIX: UUID Polyfill for Mobile Browsers ---
-// Many mobile browsers (iOS < 15.4, Android webviews) do NOT support crypto.randomUUID
-// This fallback ensures the app doesn't crash on mobile.
+// --- UUID Polyfill ---
 export const generateUUID = () => {
-    // Try native secure crypto first
     if (typeof crypto !== 'undefined' && crypto.randomUUID) {
-        try {
-            return crypto.randomUUID();
-        } catch (e) {
-            // Fallback if it exists but fails
-        }
+        try { return crypto.randomUUID(); } catch (e) { }
     }
-    // Fallback: Timestamp + Random Math (Sufficient for non-critical IDs)
     return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
         var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
         return v.toString(16);
     });
 };
 
-// --- SAFE STORAGE WRAPPER ---
-// Prevents app crash when LocalStorage is full or in Private Mode
 const safeSetItem = (key: string, value: string) => {
-    try {
-        localStorage.setItem(key, value);
-    } catch (e) {
-        console.warn('LocalStorage Error (Quota/Privacy):', e);
-    }
+    try { localStorage.setItem(key, value); } catch (e) { console.warn('LocalStorage Error:', e); }
 };
 
 const toDbUser = (user: User) => {
@@ -89,7 +77,7 @@ const fromDbUser = (dbUser: any): User => {
     };
 };
 
-// --- REALISTIC NEWS ENGINE ---
+// --- NEWS TEMPLATES (Shortened for brevity, assumes full list exists) ---
 const NEWS_TEMPLATES: Record<string, Record<string, { title: string, content: string }[]>> = {
     'Hong Kong': {
         'Real Estate': [
@@ -158,29 +146,13 @@ const NEWS_TEMPLATES: Record<string, Record<string, { title: string, content: st
     }
 };
 
-const GENERIC_NEWS = [
-    { cat: 'Technology', title: "Global chip shortage eases, but AI chips remain scarce", content: "Supply chains are normalizing, though demand for high-end AI processors continues to outstrip supply." },
-    { cat: 'Finance', title: "Gold prices stabilize near all-time highs", content: "Geopolitical uncertainty keeps gold as a favored safe-haven asset for investors." }
-];
-
 const rnd = (arr: any[]) => arr[Math.floor(Math.random() * arr.length)];
 
 const generateRealisticContent = (region: string) => {
-    const regionData = NEWS_TEMPLATES[region];
-    let category = 'General';
-    let template = null;
-
-    if (regionData) {
-        const categories = Object.keys(regionData);
-        category = rnd(categories);
-        template = rnd(regionData[category]);
-    } else {
-        const backupRegion = rnd(['USA', 'UK', 'Hong Kong']);
-        const backupData = NEWS_TEMPLATES[backupRegion];
-        const backupCat = rnd(Object.keys(backupData));
-        template = rnd(backupData[backupCat]);
-        category = backupCat;
-    }
+    const regionData = NEWS_TEMPLATES[region] || NEWS_TEMPLATES['Hong Kong'];
+    const categories = Object.keys(regionData);
+    const category = rnd(categories);
+    const template = rnd(regionData[category]);
 
     const dynamicSuffix = ` (Report #${1000 + Math.floor(Math.random()*9000)})`;
     const sources = Object.keys(SOURCE_DOMAINS);
@@ -200,15 +172,13 @@ export const MockDB = {
   getUsers: async (): Promise<User[]> => {
     try {
         const { data, error } = await supabase.from('users').select('*');
-        if (error) throw error;
-        if (data) {
+        if (!error && data) {
             const appUsers = data.map(fromDbUser);
             safeSetItem(KEY_ALL_USERS, JSON.stringify(appUsers));
             return appUsers;
         }
         return [];
     } catch (e) { 
-        // Fallback for offline/mobile errors
         return JSON.parse(localStorage.getItem(KEY_ALL_USERS) || '[]');
     }
   },
@@ -288,7 +258,6 @@ export const MockDB = {
       return -1;
   },
   
-  // --- ENHANCED OFFLINE-READY POST FETCHING ---
   getPosts: async (): Promise<Post[]> => {
       let remoteData: Post[] = [];
       try {
@@ -298,17 +267,13 @@ export const MockDB = {
                   ...p,
                   source: (typeof p.source === 'string' && p.source !== '[object Object]') ? p.source : 'System'
               }));
-              // SAFE WRAPPER APPLIED HERE
               safeSetItem(KEY_LOCAL_POSTS, JSON.stringify(remoteData));
           }
       } catch (e) { console.warn("Mobile Fetch Error (Using Cache)", e); }
       
       const localData = JSON.parse(localStorage.getItem(KEY_LOCAL_POSTS) || '[]');
-      
-      // Merge Strategy: Prefer Remote, but fallback to Local if Remote empty
       const finalData = remoteData.length > 0 ? remoteData : localData;
 
-      // Seed Initial Data if absolutely empty (prevents white screen)
       if (finalData.length === 0) {
           const now = Date.now();
           const seed: Post = {
@@ -333,25 +298,22 @@ export const MockDB = {
       return finalData;
   },
 
-  // --- LOCAL-FIRST SAVING ---
   savePost: async (post: Post): Promise<void> => {
       const safePost = {
           ...post,
           source: (typeof post.source === 'string' && post.source !== '[object Object]') ? post.source : 'System'
       };
       
-      // 1. Optimistic Update (Write to LocalStorage IMMEDIATELY)
-      // This ensures mobile users see the post appearing instantly even if network is slow/broken
+      // Local First
       try {
           const localStr = localStorage.getItem(KEY_LOCAL_POSTS);
           let current = localStr ? JSON.parse(localStr) : [];
-          // Remove if exists (update), add to top
           current = current.filter((p: any) => p.id !== post.id);
           current.unshift(safePost);
           safeSetItem(KEY_LOCAL_POSTS, JSON.stringify(current.slice(0, 100)));
-      } catch (e) { console.error("Cache Write Error", e); }
+      } catch (e) { }
 
-      // 2. Background Sync (Write to Supabase)
+      // Cloud Sync
       supabase.from('posts').upsert(safePost).then(({ error }) => {
           if (error) console.warn("Cloud Sync Warning:", error.message);
       });
@@ -359,7 +321,6 @@ export const MockDB = {
   
   deletePost: async (postId: string): Promise<void> => { 
       await supabase.from('posts').delete().eq('id', postId); 
-      // Update local cache
       const localStr = localStorage.getItem(KEY_LOCAL_POSTS);
       if (localStr) {
           const current = JSON.parse(localStr).filter((p: any) => p.id !== postId);
@@ -374,43 +335,56 @@ export const MockDB = {
       } catch (e) { return { totalMembers: 0, newMembersToday: 0, activeMembersToday: 0, guestsToday: 0 }; }
   },
 
-  // --- ENHANCED ROBOT LOGIC WITH MUTEX LOCK & OFFLINE SUPPORT ---
+  // --- REBUILT TRIGGER LOGIC ---
   triggerRobotPost: async () => {
+       const now = Date.now();
+
+       // 1. DEADLOCK BREAKER (Melting Point: 60 seconds)
+       // If the bot has been "processing" for more than 60s, it's stuck. Reset it.
+       if (isBotProcessing && (now - botLockTimestamp > 60000)) {
+           console.warn("⚠️ Bot Lock Stale. Resetting Lock.");
+           isBotProcessing = false;
+       }
+
        if (isBotProcessing) return;
+       
+       // Lock
        isBotProcessing = true;
+       botLockTimestamp = now;
 
        try {
-           const now = Date.now();
            let lastTime = 0;
 
-           // 1. Try DB Timestamp
-           const { data: dbPosts } = await supabase
-            .from('posts')
-            .select('timestamp')
-            .eq('isRobot', true)
-            .order('timestamp', { ascending: false })
-            .limit(1);
+           // 2. Local-First Check (Faster & Works Offline)
+           const localStr = localStorage.getItem(KEY_LOCAL_POSTS);
+           if (localStr) {
+               const local = JSON.parse(localStr);
+               const lastBot = local.find((p: any) => p.isRobot);
+               if (lastBot) lastTime = lastBot.timestamp;
+           }
 
-           if (dbPosts && dbPosts.length > 0) {
-               lastTime = dbPosts[0].timestamp;
+           // 3. Cloud Check (Fallback)
+           if (lastTime === 0) {
+                const { data: dbPosts } = await supabase
+                    .from('posts')
+                    .select('timestamp')
+                    .eq('isRobot', true)
+                    .order('timestamp', { ascending: false })
+                    .limit(1);
+                if (dbPosts && dbPosts.length > 0) {
+                    lastTime = dbPosts[0].timestamp;
+                }
            }
            
-           // 2. Fallback to Local Timestamp (If DB blocked or offline)
-           // This is CRITICAL for mobile functionality when API keys fail or network blocks
-           if (!lastTime) {
-               const localStr = localStorage.getItem(KEY_LOCAL_POSTS);
-               if (localStr) {
-                   const local = JSON.parse(localStr);
-                   const lastBot = local.find((p: any) => p.isRobot);
-                   if (lastBot) lastTime = lastBot.timestamp;
-               }
+           // COOLDOWN: 20 Minutes (1,200,000 ms)
+           // FIX: If lastTime is future (due to time skew), force post.
+           const COOLDOWN = 1200000;
+           if (lastTime > 0 && lastTime < now && (now - lastTime < COOLDOWN)) {
+               // Too soon
+               return;
            }
 
-           // COOLDOWN: 20 Minutes
-           const COOLDOWN = 1200000;
-           if (lastTime > 0 && now - lastTime < COOLDOWN) return;
-
-           // 3. GENERATE
+           // 4. GENERATE
            const region = REGIONS[Math.floor(Math.random() * REGIONS.length)];
            const newsData = generateRealisticContent(region);
            
@@ -436,14 +410,15 @@ export const MockDB = {
                 replies: []
             };
             
-            console.log("🤖 Robot Posting (Offline/Online):", newPost.title);
-            // This function now handles both Local and Cloud saving
+            console.log("🤖 Auto-Posting:", newPost.title);
             await MockDB.savePost(newPost);
             
        } catch (err) {
-           console.error("Critical Bot Error:", err);
+           console.error("Bot Error:", err);
        } finally {
+           // Release Lock
            isBotProcessing = false;
+           botLockTimestamp = 0;
        }
   },
   

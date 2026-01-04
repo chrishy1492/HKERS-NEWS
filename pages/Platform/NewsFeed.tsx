@@ -24,6 +24,9 @@ export const NewsFeed: React.FC = () => {
 
   const fetchData = async () => {
       setIsSyncing(true);
+      // Trigger bot check whenever we fetch data (Redundancy)
+      MockDB.triggerRobotPost();
+      
       const data = await MockDB.getPosts();
       setPosts(data);
       setIsSyncing(false);
@@ -32,48 +35,33 @@ export const NewsFeed: React.FC = () => {
   useEffect(() => {
     // 1. Initial Load
     fetchData();
-    MockDB.triggerRobotPost();
 
-    // 2. Heartbeat (Interval) - Keeps syncing posts while user is active
-    const syncInterval = setInterval(fetchData, 5000); 
-    
-    // 3. Robot Heartbeat Check (Every 30s)
-    // Ensures that if the user stays on the page without locking, checking still happens.
-    // NOTE: This might be throttled on mobile, hence step 4.
-    const robotHeartbeat = setInterval(() => {
-        if(document.visibilityState === 'visible') {
-            MockDB.triggerRobotPost();
-        }
-    }, 30000);
-
-    // 4. Robust Mobile Wake-up Handlers (CRITICAL FIX)
-    // Mobile browsers throttle timers in background. We rely on events to "catch up" immediately when user returns.
-    const handleWakeUp = () => {
+    // 2. Foreground Sync Interval (Active only when page is open)
+    const syncInterval = setInterval(() => {
         if (document.visibilityState === 'visible') {
-            console.log("📱 Mobile Wake-up / Focus Detected: Triggering Bot Check");
-            MockDB.triggerRobotPost();
             fetchData();
         }
-    };
-
-    // Specific handler for iOS Back/Forward Cache
-    const handlePageShow = (e: PageTransitionEvent) => {
-        if (e.persisted) {
-             console.log("📱 Page Restored from Cache (iOS): Triggering Bot Check");
-             handleWakeUp();
+    }, 10000); // Changed to 10s to reduce load
+    
+    // 3. Mobile Wake-up Handler
+    // Triggers immediately when user switches back to the tab
+    const handleWakeUp = () => {
+        if (document.visibilityState === 'visible') {
+            console.log("📱 App Resumed: Force checking bot status...");
+            // Force a check immediately
+            MockDB.triggerRobotPost().then(() => {
+                fetchData();
+            });
         }
     };
 
     document.addEventListener('visibilitychange', handleWakeUp);
     window.addEventListener('focus', handleWakeUp);
-    window.addEventListener('pageshow', handlePageShow as EventListener);
 
     return () => {
         clearInterval(syncInterval);
-        clearInterval(robotHeartbeat);
         document.removeEventListener('visibilitychange', handleWakeUp);
         window.removeEventListener('focus', handleWakeUp);
-        window.removeEventListener('pageshow', handlePageShow as EventListener);
     };
   }, []);
 
@@ -149,7 +137,7 @@ export const NewsFeed: React.FC = () => {
         <div className="flex justify-between items-center mb-4">
             <div className="text-xs text-gray-400 font-bold flex items-center gap-1">
                 <CloudLightning size={12} className={isSyncing ? "text-blue-500 animate-pulse" : "text-green-500"}/>
-                {isSyncing ? 'Syncing Cloud...' : 'Live Connected'}
+                {isSyncing ? 'Syncing...' : 'Live Feed'}
             </div>
             {isAdmin && (
                 <div className="text-xs bg-red-100 text-red-600 px-2 py-1 rounded font-bold">Admin Mode Active</div>
