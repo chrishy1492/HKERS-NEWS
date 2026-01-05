@@ -43,17 +43,13 @@ export const NewsFeed: React.FC = () => {
   };
 
   useEffect(() => {
-    // 1. Initial Load
     fetchData();
-
-    // 2. Foreground Sync Interval (Active only when page is open)
     const syncInterval = setInterval(() => {
         if (document.visibilityState === 'visible') {
             fetchData();
         }
-    }, 10000); // 10s Interval
+    }, 10000); 
     
-    // 3. Mobile Wake-up Handler
     const handleWakeUp = () => {
         if (document.visibilityState === 'visible') {
             console.log("📱 App Resumed: Force checking bot status...");
@@ -96,14 +92,11 @@ export const NewsFeed: React.FC = () => {
         post.hearts++;
     }
     
-    // Optimistic Update
     const newPosts = [...posts];
     newPosts[postIndex] = post;
     setPosts(newPosts);
     
-    // Cloud Save
     await MockDB.savePost(post);
-    // Rewards
     await MockDB.updateUserPoints(user.id, 150);
   };
 
@@ -180,8 +173,10 @@ export const NewsFeed: React.FC = () => {
       <div className="space-y-6 pb-10">
         {displayPosts.map(post => {
             const isTranslated = translatedPosts.has(post.id);
-            const displayTitle = isTranslated && post.titleCN ? post.titleCN : post.title;
-            const displayContent = isTranslated && post.contentCN ? post.contentCN : post.content;
+            // Robust check for translated content existence
+            const hasTranslation = post.titleCN && post.contentCN && post.titleCN.length > 0;
+            const displayTitle = (isTranslated && hasTranslation) ? post.titleCN : post.title;
+            const displayContent = (isTranslated && hasTranslation) ? post.contentCN : post.content;
             
             let displaySource = 'AI Source';
             if (typeof post.source === 'string' && post.source !== '[object Object]') {
@@ -224,7 +219,7 @@ export const NewsFeed: React.FC = () => {
                         <div className="flex flex-col gap-2 mb-4">
                             <div className="bg-amber-50 p-3 rounded-lg border border-amber-100 text-xs">
                                 <div className="flex justify-between items-center mb-1">
-                                    <span className="font-bold text-amber-700 flex items-center gap-1"><ShieldAlert size={12}/> AI Summary</span>
+                                    <span className="font-bold text-amber-700 flex items-center gap-1"><ShieldAlert size={12}/> AI Key Points</span>
                                     {post.sourceUrl && (
                                         <a href={post.sourceUrl} target="_blank" className="flex items-center gap-1 text-blue-600 hover:underline font-bold"><ExternalLink size={12} /> Source Link</a>
                                     )}
@@ -234,9 +229,9 @@ export const NewsFeed: React.FC = () => {
                             
                             <button 
                                 onClick={() => toggleTranslation(post.id)} 
-                                className="self-start flex items-center gap-2 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-full text-xs font-bold hover:bg-blue-100 transition"
+                                className={`self-start flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold transition ${isTranslated ? 'bg-red-50 text-red-600 hover:bg-red-100' : 'bg-blue-50 text-blue-700 hover:bg-blue-100'}`}
                             >
-                                <Languages size={14} /> {isTranslated ? 'Show Original (English)' : '翻譯成中文 (Translate)'}
+                                <Languages size={14} /> {isTranslated ? '顯示原文 (Show Original)' : '翻譯成中文 (Translate)'}
                             </button>
                         </div>
                     )}

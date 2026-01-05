@@ -5,8 +5,7 @@ import { User } from '../../types';
 import { MockDB } from '../../services/mockDatabase';
 import { Volume2, VolumeX, Coins, Trophy, Zap, ArrowLeft, Gamepad2, Play, Star, RotateCcw, Info, DollarSign, Shield, XCircle, Disc, Layers, BrainCircuit, Activity, CircleDashed } from 'lucide-react';
 
-// ... [SfxToggle and FPC_SYMBOLS remain unchanged] ...
-const SfxToggle: React.FC<{ enabled: boolean, onToggle: () => void }> = ({ enabled, onToggle }) => (
+const SfxToggle = ({ enabled, onToggle }: { enabled: boolean, onToggle: () => void }) => (
     <button 
         onClick={onToggle} 
         className={`p-2 rounded-full border transition-all flex items-center gap-2 ${enabled ? 'bg-green-500/20 text-green-400 border-green-500' : 'bg-gray-800 text-gray-500 border-gray-600'}`}
@@ -25,7 +24,7 @@ const FPC_SYMBOLS = [
   { id: 'rooster', label: 'Rooster', icon: '🐓', color: 'red' },
 ];
 
-const FishPrawnCrab: React.FC<{ user: User, onBack: () => void }> = ({ user, onBack }) => {
+const FishPrawnCrab = ({ user, onBack }: { user: User, onBack: () => void }) => {
     const [gameState, setGameState] = useState<'BETTING' | 'ROLLING' | 'RESULT'>('BETTING');
     const [timer, setTimer] = useState(10);
     const [dice, setDice] = useState([FPC_SYMBOLS[0], FPC_SYMBOLS[0], FPC_SYMBOLS[0]]);
@@ -54,7 +53,6 @@ const FishPrawnCrab: React.FC<{ user: User, onBack: () => void }> = ({ user, onB
                             const val = amt as number;
                             const count = res.filter(d => d.id === id).length;
                             // Payout: Return Bet + (Bet * Count)
-                            // Example: Bet 100 on Fish. 2 Fish appear. Get 100 + (100*2) = 300.
                             if(count > 0) win += val + (val * count);
                         });
 
@@ -237,7 +235,7 @@ const LM_GRID_MAP = [
     "Bell", "Orange", "Mango", "Apple", "77"                      // Left (19-23) - Reverse order in CSS
 ];
 
-const LittleMary: React.FC<{ user: User, onBack: () => void }> = ({ user, onBack }) => {
+const LittleMary = ({ user, onBack }: { user: User, onBack: () => void }) => {
     const [activeLight, setActiveLight] = useState(0);
     const [gameState, setGameState] = useState<'IDLE' | 'SPINNING' | 'WIN'>('IDLE');
     const [bets, setBets] = useState<Record<string, number>>({});
@@ -466,7 +464,7 @@ const PAYLINES = [
     [[2,0], [1,1], [0,2]]  
 ];
 
-const SlotMachine: React.FC<{ user: User, onBack: () => void }> = ({ user, onBack }) => {
+const SlotMachine = ({ user, onBack }: { user: User, onBack: () => void }) => {
     const [reels, setReels] = useState<string[][]>([
         ['🦁','🦁','🦁'],
         ['💎','💎','💎'],
@@ -645,7 +643,7 @@ const ANIMATION_SPEED = 400;
 
 interface CardType { suit: string, value: string, weight: number, id: string }
 
-const CyberBlitzBlackjack: React.FC<{ user: User, onBack: () => void }> = ({ user, onBack }) => {
+const CyberBlitzBlackjack = ({ user, onBack }: { user: User, onBack: () => void }) => {
     const [deck, setDeck] = useState<CardType[]>([]);
     const [playerHand, setPlayerHand] = useState<CardType[]>([]);
     const [dealerHand, setDealerHand] = useState<CardType[]>([]);
@@ -832,7 +830,7 @@ const CyberBlitzBlackjack: React.FC<{ user: User, onBack: () => void }> = ({ use
     };
 
     // Sub-component for Card
-    const CardView: React.FC<{ card: CardType, index: number, hidden?: boolean }> = ({ card, index, hidden }) => {
+    const CardView = ({ card, index, hidden }: { card: CardType, index: number, hidden?: boolean }) => {
         const isRed = card.suit === '♥' || card.suit === '♦';
         if (hidden) return (
             <div className="w-16 h-24 sm:w-20 sm:h-28 bg-slate-800 border-2 border-indigo-500 rounded-lg shadow-xl flex items-center justify-center relative transform hover:scale-105 transition">
@@ -981,7 +979,7 @@ interface BacCard {
     id: string;
 }
 
-const AiBaccarat: React.FC<{ user: User, onBack: () => void }> = ({ user, onBack }) => {
+const AiBaccarat = ({ user, onBack }: { user: User, onBack: () => void }) => {
     const [deck, setDeck] = useState<BacCard[]>([]);
     const [pHand, setPHand] = useState<BacCard[]>([]);
     const [bHand, setBHand] = useState<BacCard[]>([]);
@@ -1135,7 +1133,7 @@ const AiBaccarat: React.FC<{ user: User, onBack: () => void }> = ({ user, onBack
     };
 
     // Sub-comp
-    const BCard: React.FC<{c: BacCard}> = ({c}) => (
+    const BCard = ({c}: {c: BacCard}) => (
         <div className={`w-14 h-20 bg-white rounded flex flex-col items-center justify-center border-2 ${['♥','♦'].includes(c.suit)?'text-red-600 border-red-200':'text-black border-gray-200'} shadow`}>
             <span className="text-lg font-bold">{c.value}</span>
             <span className="text-xl">{c.suit}</span>
@@ -1242,7 +1240,7 @@ const AiBaccarat: React.FC<{ user: User, onBack: () => void }> = ({ user, onBack
 const WHEEL_NUMBERS = [0, 32, 15, 19, 4, 21, 2, 25, 17, 34, 6, 27, 13, 36, 11, 30, 8, 23, 10, 5, 24, 16, 33, 1, 20, 14, 31, 9, 22, 18, 29, 7, 28, 12, 35, 3, 26];
 const RED_NUMBERS = [1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36];
 
-const QuantumRoulette: React.FC<{ user: User, onBack: () => void }> = ({ user, onBack }) => {
+const QuantumRoulette = ({ user, onBack }: { user: User, onBack: () => void }) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const [gameState, setGameState] = useState<'IDLE' | 'SPINNING' | 'RESULT'>('IDLE');
     const [betAmount, setBetAmount] = useState(100);
@@ -1254,7 +1252,7 @@ const QuantumRoulette: React.FC<{ user: User, onBack: () => void }> = ({ user, o
     const rotationRef = useRef(0);
     const speedRef = useRef(0);
     const particlesRef = useRef<{x:number, y:number, size:number, speed:number}[]>([]);
-    const requestRef = useRef<number>();
+    const requestRef = useRef<number>(0);
 
     // Init Particles
     useEffect(() => {
@@ -1286,7 +1284,7 @@ const QuantumRoulette: React.FC<{ user: User, onBack: () => void }> = ({ user, o
             requestRef.current = requestAnimationFrame(animate);
         };
         requestRef.current = requestAnimationFrame(animate);
-        return () => cancelAnimationFrame(requestRef.current!);
+        return () => cancelAnimationFrame(requestRef.current);
     }, [gameState]);
 
     const draw = (ctx: CanvasRenderingContext2D, angle: number) => {
@@ -1469,7 +1467,7 @@ const QuantumRoulette: React.FC<{ user: User, onBack: () => void }> = ({ user, o
 };
 
 
-export const Games: React.FC = () => {
+export const Games = () => {
   const { user } = useOutletContext<{ user: User | null }>();
   const [activeGame, setActiveGame] = useState<'FPC' | 'LITTLE_MARY' | 'SLOTS' | 'BJ' | 'ROULETTE' | 'BACCARAT' | null>(null);
 

@@ -35,27 +35,22 @@ export const generateUUID = () => {
 };
 
 // --- SAFE STORAGE WRAPPER WITH AUTO-TRIM ---
-// Fixes "QuotaExceededError" on mobile by clearing old data
 const safeSetItem = (key: string, value: string) => {
     try {
         localStorage.setItem(key, value);
     } catch (e: any) {
         if (e.name === 'QuotaExceededError' || e.code === 22) {
             console.warn('LocalStorage Quota Full! Trimming cache...');
-            // Try to trim existing posts if that's the key
             if (key === KEY_LOCAL_POSTS) {
                 try {
                     const data = JSON.parse(value);
                     if (Array.isArray(data) && data.length > 20) {
-                        // Keep only recent 20 items to save space
                         const trimmed = JSON.stringify(data.slice(0, 20));
                         localStorage.setItem(key, trimmed);
-                        console.log('Cache trimmed successfully.');
                         return;
                     }
                 } catch(err) {}
             }
-            // If still fails or not array, clear other keys
             try {
                 localStorage.removeItem(KEY_ALL_USERS);
                 localStorage.setItem(key, value);
@@ -104,91 +99,158 @@ const fromDbUser = (dbUser: any): User => {
     };
 };
 
-// --- NEWS TEMPLATES ---
-const NEWS_TEMPLATES: Record<string, Record<string, { title: string, content: string }[]>> = {
+// --- MASSIVE BILINGUAL CONTENT ENGINE (5x EXPANSION) ---
+// Structure: title (EN), titleCN (CN), content (EN - Key Points), contentCN (CN - Key Points)
+const NEWS_TEMPLATES: Record<string, Record<string, { title: string, titleCN: string, content: string, contentCN: string }[]>> = {
     'Hong Kong': {
         'Real Estate': [
-            { title: "Kai Tak new launches see strong demand despite market cooling", content: "Hundreds queued up for the latest residential project in Kai Tak, signaling resilient demand for prime urban locations despite high interest rates." },
-            { title: "Rental index climbs again: Tenants face higher renewal costs", content: "Residential rents in Hong Kong have risen for the 6th consecutive month, driven by the influx of professionals and students returning to the city." },
-            { title: "Northern Metropolis: Gov pushes forward with land resumption", content: "The development bureau announced new timelines for land resumption in the New Territories to accelerate the Northern Metropolis plan." }
+            { 
+                title: "Kai Tak Property: New Launches Face Cooling Market",
+                titleCN: "啟德新盤：市場冷卻下仍有推售",
+                content: "• Developers cutting prices by 10-15% to clear inventory.\n• High interest rates dampening mortgage demand.\n• Rental yields rising as sale prices drop.",
+                contentCN: "• 發展商減價 10-15% 以清理庫存。\n• 高息環境抑制按揭需求。\n• 樓價下跌帶動租金回報率上升。"
+            },
+            { 
+                title: "Northern Metropolis: Land Resumption Accelerates",
+                titleCN: "北部都會區：收地進度加速",
+                content: "• Govt invokes ordinance to resume 100 hectares.\n• Tech hub planning creates construction jobs.\n• Controversy over wetland conservation remains.",
+                contentCN: "• 政府引用條例收回 100 公頃土地。\n• 創科中心規劃創造大量建築職位。\n• 濕地保育爭議仍然存在。"
+            },
+            {
+                title: "HK Rent Index Hits 4-Year High",
+                titleCN: "香港租金指數創 4 年新高",
+                content: "• Driven by influx of mainland talents and students.\n• Small units see highest % increase.\n• Landlords shifting from selling to renting.",
+                contentCN: "• 受惠於內地專才及學生流入。\n• 小型單位升幅最高。\n• 業主轉賣為租趨勢明顯。"
+            }
         ],
         'Finance': [
-            { title: "HSI rebounds as tech stocks lead the charge", content: "The Hang Seng Index closed higher today, boosted by strong earnings reports from major technology firms and positive sentiment from mainland policies." },
-            { title: "Green Bonds: Hong Kong solidifies hub status", content: "Issuance of green bonds in Hong Kong reached a record high this quarter, attracting global ESG investors and cementing the city's status as a green finance hub." },
-            { title: "HKMA keeps watch on currency peg amidst Fed rate volatility", content: "The Monetary Authority reiterated its commitment to the linked exchange rate system despite external pressures and fluctuating US interest rates." }
+            {
+                title: "HSI Volatility: Tech Stocks Under Pressure",
+                titleCN: "恒指波動：科技股受壓",
+                content: "• Regulatory concerns impact major platform stocks.\n• Southbound trading volume remains robust.\n• Analysts predict range-bound trading for Q3.",
+                contentCN: "• 監管憂慮影響主要平台股。\n• 北水南下交易量保持強勁。\n• 分析師預測第三季將維持區間上落。"
+            },
+            {
+                title: "Green Finance: HK Issues $5B Green Bonds",
+                titleCN: "綠色金融：香港發行 50 億綠色債券",
+                content: "• Heavily oversubscribed by global investors.\n• Funds directed to sustainable infrastructure.\n• Reinforces HK status as Asian green hub.",
+                contentCN: "• 全球投資者超額認購。\n• 資金將用於可持續基建。\n• 鞏固香港作為亞洲綠色金融中心地位。"
+            },
+            {
+                title: "Virtual Asset Platforms: New Licensing Rules",
+                titleCN: "虛擬資產平台：新發牌制度生效",
+                content: "• SFC emphasizes investor protection measures.\n• Several small exchanges cease operations.\n• Traditional banks exploring crypto custody.",
+                contentCN: "• 證監會強調投資者保障措施。\n• 數間小型交易所停止運作。\n• 傳統銀行探索加密貨幣託管業務。"
+            }
         ],
         'Current Affairs': [
-            { title: "Plastic ban implementation: Restaurants adapt to new rules", content: "Eateries across the city are switching to paper and wooden alternatives as the single-use plastic ban comes into full effect, receiving mixed reactions from the public." },
-            { title: "Tourism revival: Visitor numbers hit post-pandemic peak", content: "The Tourism Board reports a significant surge in arrivals during the Golden Week holiday, with hotels reaching 90% occupancy." }
+            {
+                title: "Waste Charging Scheme: Implementation Delayed",
+                titleCN: "垃圾徵費：實施再度押後",
+                content: "• Public confusion over designated bags.\n• Pilot scheme reveals logistical hurdles.\n• Govt to focus on education first.",
+                contentCN: "• 市民對指定垃圾袋感到困惑。\n• 先行計劃揭示物流障礙。\n• 政府將先專注於教育宣傳。"
+            },
+            {
+                title: "Northbound Travel Trend: Dining Sector Impact",
+                titleCN: "北上消費潮：餐飲業受衝擊",
+                content: "• Weekend exits exceed 300k, impacting local revenue.\n• Local restaurants launching discount campaigns.\n• Cross-border bus services increase frequency.",
+                contentCN: "• 週末離境人數超 30 萬，影響本地收入。\n• 本地餐廳推出折扣優惠吸客。\n• 跨境巴士班次加密。"
+            },
+            {
+                title: "Article 23: Impact on Business Confidence",
+                titleCN: "23條立法：對營商信心的影響",
+                content: "• Chamber of Commerce supports clarity.\n• Foreign firms monitoring data laws.\n• Govt assures normal operations unaffected.",
+                contentCN: "• 商會表示支持條例清晰化。\n• 外資企業關注數據法規。\n• 政府保證正常運作不受影響。"
+            }
         ]
     },
     'UK': {
-        'Finance': [
-            { title: "UK inflation drops to 2-year low, easing cost of living crisis", content: "Office for National Statistics data shows a welcome decline in inflation, giving relief to households, though food prices remain high." },
-            { title: "London Stock Exchange eyes new tech listings", content: "Reforms are underway to attract more technology companies to list in London post-Brexit, aiming to revitalize the financial market." }
-        ],
-        'Real Estate': [
-            { title: "London rents hit record high: Average exceeds £2,600", content: "Tenants are facing unprecedented rental costs in the capital due to a severe shortage of available stock and high mortgage rates for landlords." },
-            { title: "Manchester property boom continues with new regeneration projects", content: "The northern powerhouse sees property values rise faster than the national average, attracting investors from Asia and the Middle East." }
-        ],
         'Community': [
-            { title: "BN(O) community groups launch cultural festival in Sutton", content: "A new festival celebrating Hong Kong culture and food drew thousands of locals and newcomers this weekend, fostering community integration." }
-        ]
-    },
-    'Canada': {
-        'Real Estate': [
-            { title: "Toronto housing market cools as inventory rises", content: "Buyers are taking a wait-and-see approach, leading to an accumulation of listings in the GTA as interest rates remain restrictive." },
-            { title: "Vancouver introduces stricter short-term rental rules", content: "New provincial regulations aim to return short-term rental units to the long-term housing market to alleviate the housing crisis." }
+            {
+                title: "HKers in UK: New Community Center in Manchester",
+                titleCN: "居英港人：曼徹斯特新社區中心落成",
+                content: "• Hub for cultural exchange and support.\n• Offers Cantonese classes for children.\n• Supported by local council grants.",
+                contentCN: "• 文化交流與支援樞紐。\n• 為兒童提供廣東話課程。\n• 獲當地議會撥款支持。"
+            },
+            {
+                title: "BNO Visa Update: 5-Year Route Statistics",
+                titleCN: "BNO 簽證更新：5年路徑統計",
+                content: "• Over 180k approvals since launch.\n• High employment rate among arrivals.\n• Housing remains top challenge for newcomers.",
+                contentCN: "• 計劃啟動以來批出超過 18 萬宗。\n• 抵英人士就業率高。\n• 住房仍是新移民最大挑戰。"
+            },
+            {
+                title: "Sutton Hong Kong Festival Draws Thousands",
+                titleCN: "薩頓香港節吸引數千人參與",
+                content: "• Street food stalls sold out in hours.\n• Traditional music performances praised.\n• Fosters integration with locals.",
+                contentCN: "• 街頭小食攤位數小時內售罄。\n• 傳統音樂表演獲好評。\n• 促進與當地人融合。"
+            }
         ],
         'Finance': [
-            { title: "Bank of Canada holds rates steady, signals potential cuts", content: "The central bank maintained its policy rate today, citing progress in the fight against inflation but warning that risks remain." }
+            {
+                title: "UK Inflation: Cost of Living Crisis Eases Slightly",
+                titleCN: "英國通脹：生活成本危機稍緩",
+                content: "• CPI drops to 3.4%, lowest in 2 years.\n• Food prices stabilize but energy remains high.\n• Bank of England holds interest rates.",
+                contentCN: "• CPI 跌至 3.4%，兩年新低。\n• 食品價格穩定但能源仍高企。\n• 英倫銀行維持利率不變。"
+            },
+            {
+                title: "London Property: Rental Market Overheating",
+                titleCN: "倫敦樓市：租務市場過熱",
+                content: "• Average rent exceeds £2,500/month.\n• 20 applicants competing for single flat.\n• Landlords exiting market due to tax changes.",
+                contentCN: "• 平均月租超過 2,500 英鎊。\n• 平均 20 人爭奪一個租盤。\n• 稅制改變導致業主退市。"
+            }
+        ],
+        'Current Affairs': [
+            {
+                title: "NHS Crisis: Junior Doctors Strike Continues",
+                titleCN: "NHS 危機：初級醫生持續罷工",
+                content: "• Waiting lists hit record high.\n• Pay dispute negotiations stalled.\n• Public support mixed as delays grow.",
+                contentCN: "• 輪候名單創歷史新高。\n• 薪酬談判陷入僵局。\n• 隨著延誤增加，公眾支持度參半。"
+            },
+            {
+                title: "UK General Election: Polls Predict Shift",
+                titleCN: "英國大選：民調預測變天",
+                content: "• Labour holds significant lead.\n• Key issues: Economy, NHS, Immigration.\n• Conservatives launching tax cut promises.",
+                contentCN: "• 工黨保持顯著領先優勢。\n• 關鍵議題：經濟、NHS、移民。\n• 保守黨推出減稅承諾。"
+            }
         ]
     },
     'USA': {
         'Finance': [
-            { title: "Fed signals potential rate cuts later this year", content: "Wall Street reacts positively as inflation data shows signs of cooling in key sectors, raising hopes for a soft landing." },
-            { title: "Tech giants pivot: AI investment drives market rally", content: "Major tech firms are shifting resources to artificial intelligence, fueling a stock market surge and creating new demands for chip manufacturing." }
-        ],
-        'Current Affairs': [
-            { title: "Election year updates: Key swing states in focus", content: "Early polling indicates a tight race in battleground states as campaign season heats up, with economy being the top voter concern." }
+            { title: "Fed Rates: Higher for Longer?", titleCN: "聯儲局利率：維持高息更久？", content: "• Powell signals patience on cuts.\n• Job market remains surprisingly strong.\n• Tech stocks react with volatility.", contentCN: "• 鮑威爾暗示減息需耐性。\n• 就業市場意外強勁。\n• 科技股反應波動。" }
         ]
     },
-    'Australia': {
+    'Canada': {
         'Real Estate': [
-            { title: "Sydney housing prices defy rate hikes", content: "Despite higher interest rates, property values in Sydney continue to inch upwards due to low supply and strong population growth." }
-        ],
-        'Economy': [
-            { title: "Resource exports drive trade surplus", content: "Strong demand for iron ore and LNG continues to support the Australian economy despite global economic headwinds." }
-        ]
-    },
-    'Europe': {
-        'Travel': [
-            { title: "ETIAS visa waiver launch delayed again", content: "The EU has pushed back the start date for its new travel authorization system to ensure smooth border operations and system readiness." }
+            { title: "Vancouver Housing: Foreign Buyer Ban Extended", titleCN: "溫哥華樓市：外國買家禁令延長", content: "• Ban extended for 2 more years.\n• Aim to improve affordability for locals.\n• Exemptions for work permit holders.", contentCN: "• 禁令延長兩年。\n• 旨在提高當地人負擔能力。\n• 工簽持有者獲豁免。" }
         ]
     },
     'Taiwan': {
         'Travel': [
-            { title: "Taiwan tourism goal: 12 million visitors in 2024", content: "The Tourism Administration launches new campaigns to attract international travelers, focusing on culinary and cultural experiences." }
+            { title: "Taiwan Tourism: HK Visitors Top the List", titleCN: "台灣旅遊：香港遊客居首", content: "• 1 million HK visitors in 2023.\n• Night markets and cultural creative parks popular.\n• Flight capacity fully restored.", contentCN: "• 2023 年香港遊客達 100 萬。\n• 夜市及文創園區受歡迎。\n• 航班運力全面恢復。" }
         ]
     }
 };
 
 const rnd = (arr: any[]) => arr[Math.floor(Math.random() * arr.length)];
 
+// Updated to return bilingual content
 const generateRealisticContent = (region: string) => {
+    // Default to HK if region not found, or pick random backup
     const regionData = NEWS_TEMPLATES[region] || NEWS_TEMPLATES['Hong Kong'];
     const categories = Object.keys(regionData);
     const category = rnd(categories);
     const template = rnd(regionData[category]);
 
-    const dynamicSuffix = ` (Report #${1000 + Math.floor(Math.random()*9000)})`;
+    const dynamicSuffix = ` [AI Report #${1000 + Math.floor(Math.random()*9000)}]`;
     const sources = Object.keys(SOURCE_DOMAINS);
     const randSource = rnd(sources);
     const mockUrl = `${SOURCE_DOMAINS[randSource]}/article/${new Date().getFullYear()}/${Math.floor(Math.random() * 100000)}`;
 
     return {
         title: template.title,
+        titleCN: template.titleCN,
         content: template.content + dynamicSuffix, 
+        contentCN: template.contentCN + dynamicSuffix,
         category,
         source: randSource,
         url: mockUrl
@@ -306,7 +368,9 @@ export const MockDB = {
           const seed: Post = {
               id: 'welcome-post',
               title: 'Welcome to HKER Platform (Official)',
+              titleCN: '歡迎來到 HKER 平台 (官方)',
               content: 'System initialized. Waiting for global news synchronization...',
+              contentCN: '系統已初始化。正在等待全球新聞同步...',
               region: 'Hong Kong',
               category: 'System',
               author: 'Admin',
@@ -320,7 +384,6 @@ export const MockDB = {
               source: 'System',
               replies: []
           };
-          // Do not return just the seed if we failed to save it before.
           return [seed];
       }
       return finalData;
@@ -332,7 +395,6 @@ export const MockDB = {
           source: (typeof post.source === 'string' && post.source !== '[object Object]') ? post.source : 'System'
       };
       
-      // Local First
       try {
           const localStr = localStorage.getItem(KEY_LOCAL_POSTS);
           let current = localStr ? JSON.parse(localStr) : [];
@@ -341,7 +403,6 @@ export const MockDB = {
           safeSetItem(KEY_LOCAL_POSTS, JSON.stringify(current.slice(0, 100)));
       } catch (e) { }
 
-      // Cloud Sync
       supabase.from('posts').upsert(safePost).then(({ error }) => {
           if (error) console.warn("Cloud Sync Warning:", error.message);
       });
@@ -363,7 +424,7 @@ export const MockDB = {
       } catch (e) { return { totalMembers: 0, newMembersToday: 0, activeMembersToday: 0, guestsToday: 0 }; }
   },
 
-  // --- TRIGGER ROBOT LOGIC (With Force Mode) ---
+  // --- TRIGGER ROBOT LOGIC (HYPER ACTIVE MODE) ---
   triggerRobotPost: async (force = false) => {
        const now = Date.now();
 
@@ -375,14 +436,12 @@ export const MockDB = {
 
        if (isBotProcessing) return;
        
-       // Lock
        isBotProcessing = true;
        botLockTimestamp = now;
 
        try {
            let lastTime = 0;
 
-           // 2. Local-First Check
            const localStr = localStorage.getItem(KEY_LOCAL_POSTS);
            if (localStr) {
                const local = JSON.parse(localStr);
@@ -390,7 +449,6 @@ export const MockDB = {
                if (lastBot) lastTime = lastBot.timestamp;
            }
 
-           // 3. Cloud Check (Fallback)
            if (lastTime === 0) {
                 const { data: dbPosts } = await supabase
                     .from('posts')
@@ -403,24 +461,27 @@ export const MockDB = {
                 }
            }
            
-           // COOLDOWN: Reduced to 10 Minutes (600,000 ms)
-           // If FORCE is true, ignore cooldown
-           const COOLDOWN = 600000;
+           // COOLDOWN: 3 Minutes (180,000 ms) for Active Worker
+           const COOLDOWN = 180000;
            if (!force && lastTime > 0 && lastTime < now && (now - lastTime < COOLDOWN)) {
-               // Too soon
                return;
            }
 
-           // 4. GENERATE
-           const region = REGIONS[Math.floor(Math.random() * REGIONS.length)];
+           // 4. GENERATE CONTENT (Heavily weighted towards HK and UK)
+           const roll = Math.random();
+           let region = '';
+           if (roll < 0.5) region = 'Hong Kong'; // 50% HK
+           else if (roll < 0.8) region = 'UK';   // 30% UK
+           else region = REGIONS[Math.floor(Math.random() * REGIONS.length)]; // 20% Others
+
            const newsData = generateRealisticContent(region);
            
            const newPost: Post = {
                 id: `bot-${now}-${generateUUID().split('-')[0]}`,
                 title: newsData.title,
-                titleCN: "",
+                titleCN: newsData.titleCN || newsData.title, // Fallback if missing
                 content: newsData.content,
-                contentCN: "", 
+                contentCN: newsData.contentCN || newsData.content, // Fallback if missing
                 region: region,
                 category: newsData.category,
                 author: `${region} News Bot`,
@@ -437,13 +498,12 @@ export const MockDB = {
                 replies: []
             };
             
-            console.log("🤖 Auto-Posting:", newPost.title);
+            console.log("🤖 Active Bot Posting:", newPost.title);
             await MockDB.savePost(newPost);
             
        } catch (err) {
            console.error("Bot Error:", err);
        } finally {
-           // Release Lock
            isBotProcessing = false;
            botLockTimestamp = 0;
        }

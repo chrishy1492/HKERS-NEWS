@@ -13,6 +13,10 @@ import {
     BarChart3, Zap, Lock, Globe, Database, Server, UserCheck, CloudSun, Flower2, Languages
 } from 'lucide-react';
 
+const ClockIcon = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+);
+
 // HELPER: Strict Date Validation to prevent Library Crash
 const isValidDate = (y: number, m: number, d: number) => {
     if (isNaN(y) || isNaN(m) || isNaN(d)) return false;
@@ -927,10 +931,6 @@ const QuantumView: React.FC<{onBack: () => void}> = ({onBack}) => {
         </div>
     );
 };
-
-const ClockIcon = () => (
-    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-);
 
 // MAIN HUB
 export const Fortune: React.FC = () => {
