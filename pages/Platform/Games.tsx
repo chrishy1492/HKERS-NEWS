@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { useOutletContext, useNavigate } from 'react-router-dom';
 import { User } from '../../types';
@@ -675,6 +674,22 @@ const ANIMATION_SPEED = 400;
 
 interface CardType { suit: string, value: string, weight: number, id: string }
 
+const CardView = ({ card, index, hidden }: { card: CardType, index: number, hidden?: boolean }) => {
+    const isRed = card.suit === '♥' || card.suit === '♦';
+    if (hidden) return (
+        <div className="w-16 h-24 sm:w-20 sm:h-28 bg-slate-800 border-2 border-indigo-500 rounded-lg shadow-xl flex items-center justify-center relative transform hover:scale-105 transition">
+            <Zap className="text-indigo-500 animate-pulse" />
+        </div>
+    );
+    return (
+        <div className={`w-16 h-24 sm:w-20 sm:h-28 bg-white rounded-lg shadow-xl flex flex-col justify-between p-1.5 relative transform transition hover:-translate-y-2 select-none ${isRed ? 'text-red-600' : 'text-slate-900'}`}>
+            <div className="text-sm font-bold leading-none">{card.value}</div>
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-2xl">{card.suit}</div>
+            <div className="text-sm font-bold leading-none self-end rotate-180">{card.value}</div>
+        </div>
+    );
+};
+
 const CyberBlitzBlackjack = ({ user, onBack }: { user: User, onBack: () => void }) => {
     const [deck, setDeck] = useState<CardType[]>([]);
     const [playerHand, setPlayerHand] = useState<CardType[]>([]);
@@ -871,23 +886,6 @@ const CyberBlitzBlackjack = ({ user, onBack }: { user: User, onBack: () => void 
         setMessage('');
     };
 
-    // Sub-component for Card
-    const CardView = ({ card, index, hidden }: { card: CardType, index: number, hidden?: boolean }) => {
-        const isRed = card.suit === '♥' || card.suit === '♦';
-        if (hidden) return (
-            <div className="w-16 h-24 sm:w-20 sm:h-28 bg-slate-800 border-2 border-indigo-500 rounded-lg shadow-xl flex items-center justify-center relative transform hover:scale-105 transition">
-                <Zap className="text-indigo-500 animate-pulse" />
-            </div>
-        );
-        return (
-            <div className={`w-16 h-24 sm:w-20 sm:h-28 bg-white rounded-lg shadow-xl flex flex-col justify-between p-1.5 relative transform transition hover:-translate-y-2 select-none ${isRed ? 'text-red-600' : 'text-slate-900'}`}>
-                <div className="text-sm font-bold leading-none">{card.value}</div>
-                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-2xl">{card.suit}</div>
-                <div className="text-sm font-bold leading-none self-end rotate-180">{card.value}</div>
-            </div>
-        );
-    };
-
     return (
         <div className="min-h-[600px] bg-slate-950 text-white font-sans overflow-hidden flex flex-col items-center justify-center relative rounded-3xl border-4 border-indigo-900 shadow-2xl animate-fade-in-up max-w-2xl mx-auto">
             <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-indigo-900/20 via-slate-950 to-slate-950 pointer-events-none" />
@@ -1029,6 +1027,13 @@ interface BacCard {
     points: number;
     id: string;
 }
+
+const BCard = ({c}: {c: BacCard}) => (
+    <div className={`w-14 h-20 bg-white rounded flex flex-col items-center justify-center border-2 ${['♥','♦'].includes(c.suit)?'text-red-600 border-red-200':'text-black border-gray-200'} shadow`}>
+        <span className="text-lg font-bold">{c.value}</span>
+        <span className="text-xl">{c.suit}</span>
+    </div>
+);
 
 const AiBaccarat = ({ user, onBack }: { user: User, onBack: () => void }) => {
     const [deck, setDeck] = useState<BacCard[]>([]);
@@ -1184,14 +1189,6 @@ const AiBaccarat = ({ user, onBack }: { user: User, onBack: () => void }) => {
             setResultMsg('');
         }, 3000);
     };
-
-    // Sub-comp
-    const BCard = ({c}: {c: BacCard}) => (
-        <div className={`w-14 h-20 bg-white rounded flex flex-col items-center justify-center border-2 ${['♥','♦'].includes(c.suit)?'text-red-600 border-red-200':'text-black border-gray-200'} shadow`}>
-            <span className="text-lg font-bold">{c.value}</span>
-            <span className="text-xl">{c.suit}</span>
-        </div>
-    );
 
     return (
         <div className="bg-[#0a0a0c] p-2 rounded-3xl shadow-2xl border-4 border-[#2d4a3e] animate-fade-in-up max-w-3xl mx-auto min-h-[600px] flex flex-col relative overflow-hidden font-sans text-gray-200">
