@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useOutletContext, useNavigate } from 'react-router-dom';
 import { User } from '../../types';
 import { MockDB } from '../../services/mockDatabase';
-import { Volume2, VolumeX, Coins, Trophy, Zap, ArrowLeft, Gamepad2, Play, Star, RotateCcw, Info, DollarSign, Shield, XCircle, Disc, Layers, BrainCircuit, Activity, CircleDashed } from 'lucide-react';
+import { Volume2, VolumeX, Coins, Trophy, Zap, ArrowLeft, Gamepad2, Play, Star, RotateCcw, Info, DollarSign, Shield, XCircle, Disc, Layers, BrainCircuit, Activity, CircleDashed, Plus } from 'lucide-react';
 
 const SfxToggle = ({ enabled, onToggle }: { enabled: boolean, onToggle: () => void }) => (
     <button 
@@ -26,7 +26,7 @@ const FPC_SYMBOLS = [
 
 const FishPrawnCrab = ({ user, onBack }: { user: User, onBack: () => void }) => {
     const [gameState, setGameState] = useState<'BETTING' | 'ROLLING' | 'RESULT'>('BETTING');
-    const [timer, setTimer] = useState(10);
+    const [timer, setTimer] = useState(20);
     const [dice, setDice] = useState([FPC_SYMBOLS[0], FPC_SYMBOLS[0], FPC_SYMBOLS[0]]);
     const [bets, setBets] = useState<Record<string, number>>({});
     const [selectedChip, setSelectedChip] = useState(100);
@@ -67,7 +67,7 @@ const FishPrawnCrab = ({ user, onBack }: { user: User, onBack: () => void }) => 
                         setBets({}); 
                         setLastWin(0); 
                         setGameState('BETTING');
-                        return 15; // Next betting time
+                        return 20; // Next betting time
                     }
                 }
                 return prev - 1;
@@ -92,6 +92,7 @@ const FishPrawnCrab = ({ user, onBack }: { user: User, onBack: () => void }) => 
 
     const handleBet = async (id: string) => {
         if (gameState !== 'BETTING') return;
+        if (selectedChip <= 0) return alert("Please enter a valid bet amount");
         
         // 1. Check Balance
         const currentPoints = MockDB.getCurrentUser()?.points || 0;
@@ -189,22 +190,34 @@ const FishPrawnCrab = ({ user, onBack }: { user: User, onBack: () => void }) => 
             </div>
 
             {/* Chip Selector */}
-            <div className="flex justify-center gap-3 z-10 bg-black/40 p-4 rounded-full border border-white/10 backdrop-blur-sm mx-auto">
-                {[100, 500, 1000, 5000].map(v => (
-                    <button 
-                        key={v} 
-                        onClick={() => setSelectedChip(v)} 
-                        disabled={gameState !== 'BETTING'}
-                        className={`
-                            w-14 h-14 rounded-full font-bold text-xs border-4 shadow-lg transition transform hover:scale-110
-                            ${selectedChip === v 
-                                ? 'bg-yellow-500 text-black border-white scale-110 -translate-y-2 shadow-yellow-500/50' 
-                                : 'bg-gray-800 text-gray-400 border-gray-600 hover:border-gray-400'}
-                        `}
-                    >
-                        {v}
-                    </button>
-                ))}
+            <div className="flex flex-wrap justify-center items-center gap-3 z-10 bg-black/40 p-4 rounded-3xl border border-white/10 backdrop-blur-sm mx-auto">
+                <div className="flex gap-2">
+                    {[100, 500, 1000, 5000].map(v => (
+                        <button 
+                            key={v} 
+                            onClick={() => setSelectedChip(v)} 
+                            disabled={gameState !== 'BETTING'}
+                            className={`
+                                w-12 h-12 md:w-14 md:h-14 rounded-full font-bold text-xs border-4 shadow-lg transition transform hover:scale-110
+                                ${selectedChip === v 
+                                    ? 'bg-yellow-500 text-black border-white scale-110 -translate-y-2 shadow-yellow-500/50' 
+                                    : 'bg-gray-800 text-gray-400 border-gray-600 hover:border-gray-400'}
+                            `}
+                        >
+                            {v}
+                        </button>
+                    ))}
+                </div>
+                <div className="w-px h-10 bg-gray-600 mx-2"></div>
+                <div className="flex flex-col">
+                    <label className="text-[9px] text-gray-400 font-bold uppercase mb-1">Custom Amount</label>
+                    <input 
+                        type="number" 
+                        value={selectedChip} 
+                        onChange={(e) => setSelectedChip(parseInt(e.target.value) || 0)}
+                        className="bg-black/50 border border-gray-600 text-white text-center w-24 py-2 rounded-lg text-sm font-bold focus:border-yellow-500 outline-none"
+                    />
+                </div>
             </div>
             
             <div className="text-center mt-4 text-[10px] text-gray-500 font-mono">
@@ -255,6 +268,8 @@ const LittleMary = ({ user, onBack }: { user: User, onBack: () => void }) => {
 
     const handleBet = async (itemName: string) => {
         if (gameState !== 'IDLE' || itemName === "Luck") return;
+        if (selectedChip <= 0) return alert("Invalid bet amount");
+
         const currentPoints = MockDB.getCurrentUser()?.points || 0;
         if (currentPoints < selectedChip) {
             alert("Insufficient Points!");
@@ -410,23 +425,32 @@ const LittleMary = ({ user, onBack }: { user: User, onBack: () => void }) => {
                             ))}
                         </div>
 
-                        <div className="mt-2 flex items-center justify-between gap-2 bg-black/50 p-2 rounded-lg border border-white/5">
-                            <div className="flex gap-1">
-                                {[100, 500, 1000].map(v => (
-                                    <button 
-                                        key={v} 
-                                        onClick={() => setSelectedChip(v)} 
-                                        className={`w-8 h-8 rounded-full text-[10px] font-bold border transition ${selectedChip===v ? 'bg-yellow-500 border-yellow-300 text-black scale-110' : 'bg-gray-700 border-gray-600 text-gray-400'}`}
-                                    >
-                                        {v}
-                                    </button>
-                                ))}
+                        <div className="mt-2 flex flex-col gap-2 bg-black/50 p-2 rounded-lg border border-white/5">
+                            <div className="flex items-center justify-between gap-2">
+                                <div className="flex gap-1">
+                                    {[100, 500, 1000].map(v => (
+                                        <button 
+                                            key={v} 
+                                            onClick={() => setSelectedChip(v)} 
+                                            className={`w-8 h-8 rounded-full text-[10px] font-bold border transition ${selectedChip===v ? 'bg-yellow-500 border-yellow-300 text-black scale-110' : 'bg-gray-700 border-gray-600 text-gray-400'}`}
+                                        >
+                                            {v}
+                                        </button>
+                                    ))}
+                                </div>
+                                <input 
+                                    type="number" 
+                                    value={selectedChip} 
+                                    onChange={(e) => setSelectedChip(parseInt(e.target.value) || 0)}
+                                    className="w-20 bg-gray-900 border border-gray-600 text-white text-center h-8 rounded text-xs font-bold focus:border-yellow-500 outline-none"
+                                    placeholder="Bet"
+                                />
                             </div>
                             <button 
                                 onClick={spin}
                                 disabled={gameState !== 'IDLE'}
                                 className={`
-                                    flex-1 h-10 rounded-lg font-black tracking-widest shadow-lg active:scale-95 transition-all
+                                    w-full h-8 rounded-lg font-black tracking-widest shadow-lg active:scale-95 transition-all
                                     ${gameState === 'IDLE' ? 'bg-red-600 hover:bg-red-500 text-white shadow-red-900/50' : 'bg-gray-700 text-gray-500'}
                                 `}
                             >
@@ -492,6 +516,7 @@ const SlotMachine = ({ user, onBack }: { user: User, onBack: () => void }) => {
             if(!spinning) alert("Insufficient Points!");
             return;
         }
+        if (bet <= 0) return alert("Invalid bet");
         
         const newPts = await MockDB.updateUserPoints(user.id, -bet); // ATOMIC DEDUCT
         if(newPts === -1) return;
@@ -598,8 +623,8 @@ const SlotMachine = ({ user, onBack }: { user: User, onBack: () => void }) => {
                     </div>
                 </div>
 
-                <div className="flex items-center gap-4">
-                    <div className="flex gap-2">
+                <div className="flex flex-col gap-4">
+                    <div className="flex flex-wrap items-center gap-2 justify-center">
                         {[100, 500, 1000, 5000].map(v => (
                              <button 
                                 key={v}
@@ -610,11 +635,18 @@ const SlotMachine = ({ user, onBack }: { user: User, onBack: () => void }) => {
                                 {v}
                              </button>
                         ))}
+                        <input 
+                            type="number" 
+                            value={bet} 
+                            onChange={(e) => setBet(parseInt(e.target.value) || 0)} 
+                            className="w-24 bg-gray-900 border border-gray-600 text-white text-center py-2 rounded text-sm font-bold focus:border-yellow-500 outline-none"
+                            placeholder="Custom"
+                        />
                     </div>
                     <button 
                         onClick={spin}
                         disabled={spinning || user.points < bet}
-                        className={`flex-1 py-4 rounded-lg font-black text-xl tracking-widest shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2
+                        className={`w-full py-4 rounded-lg font-black text-xl tracking-widest shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2
                             ${spinning ? 'bg-gray-600 text-gray-400 cursor-not-allowed' : 'bg-gradient-to-r from-red-600 to-red-800 text-white hover:from-red-500 hover:to-red-700 border-b-4 border-red-900'}
                         `}
                     >
@@ -650,6 +682,7 @@ const CyberBlitzBlackjack = ({ user, onBack }: { user: User, onBack: () => void 
     const [gameState, setGameState] = useState<'BETTING' | 'PLAYING' | 'DEALER_TURN' | 'GAME_OVER'>('BETTING');
     const [message, setMessage] = useState('');
     const [currentBet, setCurrentBet] = useState(0);
+    const [customInput, setCustomInput] = useState<string>('');
     const [showRules, setShowRules] = useState(false);
     const [sfxEnabled, setSfxEnabled] = useState(true);
 
@@ -686,6 +719,7 @@ const CyberBlitzBlackjack = ({ user, onBack }: { user: User, onBack: () => void 
     // Betting Logic (Real-time Deduction)
     const placeBet = async (amount: number | 'ALL') => {
         const betAmount = amount === 'ALL' ? user.points : amount;
+        if (betAmount <= 0) return;
         if (user.points < betAmount) {
             setMessage("INSUFFICIENT FUNDS (餘額不足)");
             return;
@@ -696,6 +730,14 @@ const CyberBlitzBlackjack = ({ user, onBack }: { user: User, onBack: () => void 
         if (newPoints !== -1) {
             setCurrentBet(prev => prev + betAmount);
             setMessage("");
+        }
+    };
+
+    const handleCustomBet = () => {
+        const val = parseInt(customInput);
+        if (val > 0) {
+            placeBet(val);
+            setCustomInput('');
         }
     };
 
@@ -921,8 +963,17 @@ const CyberBlitzBlackjack = ({ user, onBack }: { user: User, onBack: () => void 
                                 ))}
                             </div>
                             <div className="flex gap-2">
-                                <button onClick={clearBet} className="flex-1 py-3 rounded bg-red-900/30 text-red-400 hover:bg-red-900/50 text-xs font-bold">RESET</button>
-                                <button onClick={dealGame} disabled={currentBet===0} className="flex-[2] py-3 rounded bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-bold flex items-center justify-center gap-2 shadow-[0_0_15px_#4f46e5]">
+                                <input 
+                                    type="number" 
+                                    placeholder="Amount" 
+                                    value={customInput} 
+                                    onChange={e=>setCustomInput(e.target.value)} 
+                                    className="bg-slate-800 border border-slate-700 rounded px-2 w-24 text-center outline-none focus:border-indigo-500"
+                                />
+                                <button onClick={handleCustomBet} className="px-3 bg-indigo-900/50 hover:bg-indigo-900 text-indigo-300 rounded text-xs font-bold border border-indigo-800">ADD</button>
+                                <div className="flex-1"></div>
+                                <button onClick={clearBet} className="px-4 py-3 rounded bg-red-900/30 text-red-400 hover:bg-red-900/50 text-xs font-bold">RESET</button>
+                                <button onClick={dealGame} disabled={currentBet===0} className="px-6 py-3 rounded bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-bold flex items-center justify-center gap-2 shadow-[0_0_15px_#4f46e5]">
                                     <Play size={16} fill="currentColor" /> DEAL
                                 </button>
                             </div>
@@ -984,6 +1035,7 @@ const AiBaccarat = ({ user, onBack }: { user: User, onBack: () => void }) => {
     const [pHand, setPHand] = useState<BacCard[]>([]);
     const [bHand, setBHand] = useState<BacCard[]>([]);
     const [bets, setBets] = useState<{player: number, banker: number, tie: number}>({ player: 0, banker: 0, tie: 0 });
+    const [selectedChip, setSelectedChip] = useState(100);
     const [gameState, setGameState] = useState<'BETTING' | 'DEALING' | 'RESULT'>('BETTING');
     const [resultMsg, setResultMsg] = useState('');
     const [aiProbs, setAiProbs] = useState({ p: 45, b: 45, t: 10 });
@@ -1018,13 +1070,14 @@ const AiBaccarat = ({ user, onBack }: { user: User, onBack: () => void }) => {
         return () => clearInterval(int);
     }, [gameState]);
 
-    const handleBet = async (type: 'player' | 'banker' | 'tie', amount: number) => {
+    const handleBet = async (type: 'player' | 'banker' | 'tie') => {
         if (gameState !== 'BETTING') return;
-        if (user.points < amount) return alert("Insufficient Points");
+        if (selectedChip <= 0) return alert("Select a valid chip amount");
+        if (user.points < selectedChip) return alert("Insufficient Points");
 
-        const newPts = await MockDB.updateUserPoints(user.id, -amount);
+        const newPts = await MockDB.updateUserPoints(user.id, -selectedChip);
         if (newPts !== -1) {
-            setBets(prev => ({ ...prev, [type]: prev[type] + amount }));
+            setBets(prev => ({ ...prev, [type]: prev[type] + selectedChip }));
         }
     };
 
@@ -1196,17 +1249,17 @@ const AiBaccarat = ({ user, onBack }: { user: User, onBack: () => void }) => {
 
                  {/* BET ZONES */}
                  <div className="grid grid-cols-3 gap-4 w-full max-w-xl px-4">
-                     <button onClick={() => handleBet('player', 100)} disabled={gameState!=='BETTING'} className={`bg-blue-900/30 border-2 ${bets.player > 0 ? 'border-blue-400 bg-blue-900/50' : 'border-blue-900/50'} rounded-xl p-4 hover:bg-blue-900/60 transition group relative`}>
+                     <button onClick={() => handleBet('player')} disabled={gameState!=='BETTING'} className={`bg-blue-900/30 border-2 ${bets.player > 0 ? 'border-blue-400 bg-blue-900/50' : 'border-blue-900/50'} rounded-xl p-4 hover:bg-blue-900/60 transition group relative`}>
                          <div className="text-blue-400 font-bold text-xl">PLAYER</div>
                          <div className="text-xs text-gray-500">1 : 1</div>
                          {bets.player > 0 && <div className="absolute top-2 right-2 bg-yellow-500 text-black text-xs font-bold px-2 rounded-full">${bets.player}</div>}
                      </button>
-                     <button onClick={() => handleBet('tie', 100)} disabled={gameState!=='BETTING'} className={`bg-green-900/30 border-2 ${bets.tie > 0 ? 'border-green-400 bg-green-900/50' : 'border-green-900/50'} rounded-xl p-4 hover:bg-green-900/60 transition group relative`}>
+                     <button onClick={() => handleBet('tie')} disabled={gameState!=='BETTING'} className={`bg-green-900/30 border-2 ${bets.tie > 0 ? 'border-green-400 bg-green-900/50' : 'border-green-900/50'} rounded-xl p-4 hover:bg-green-900/60 transition group relative`}>
                          <div className="text-green-400 font-bold text-xl">TIE</div>
                          <div className="text-xs text-gray-500">1 : 8</div>
                          {bets.tie > 0 && <div className="absolute top-2 right-2 bg-yellow-500 text-black text-xs font-bold px-2 rounded-full">${bets.tie}</div>}
                      </button>
-                     <button onClick={() => handleBet('banker', 100)} disabled={gameState!=='BETTING'} className={`bg-red-900/30 border-2 ${bets.banker > 0 ? 'border-red-400 bg-red-900/50' : 'border-red-900/50'} rounded-xl p-4 hover:bg-red-900/60 transition group relative`}>
+                     <button onClick={() => handleBet('banker')} disabled={gameState!=='BETTING'} className={`bg-red-900/30 border-2 ${bets.banker > 0 ? 'border-red-400 bg-red-900/50' : 'border-red-900/50'} rounded-xl p-4 hover:bg-red-900/60 transition group relative`}>
                          <div className="text-red-400 font-bold text-xl">BANKER</div>
                          <div className="text-xs text-gray-500">1 : 0.95</div>
                          {bets.banker > 0 && <div className="absolute top-2 right-2 bg-yellow-500 text-black text-xs font-bold px-2 rounded-full">${bets.banker}</div>}
@@ -1215,11 +1268,29 @@ const AiBaccarat = ({ user, onBack }: { user: User, onBack: () => void }) => {
              </div>
 
              {/* FOOTER CONTROLS */}
-             <div className="bg-gray-900/80 p-4 mt-4 flex items-center justify-between border-t border-gray-800 z-10">
-                 <div className="flex gap-2">
-                     <button onClick={()=>handleBet('player', 100)} className="w-10 h-10 rounded-full bg-blue-600 text-white font-bold border-2 border-blue-300 shadow hover:scale-110 transition flex items-center justify-center text-xs">100</button>
-                     <button onClick={()=>handleBet('player', 500)} className="w-10 h-10 rounded-full bg-purple-600 text-white font-bold border-2 border-purple-300 shadow hover:scale-110 transition flex items-center justify-center text-xs">500</button>
-                     <button onClick={()=>handleBet('player', 1000)} className="w-10 h-10 rounded-full bg-red-600 text-white font-bold border-2 border-red-300 shadow hover:scale-110 transition flex items-center justify-center text-xs">1k</button>
+             <div className="bg-gray-900/80 p-4 mt-4 flex flex-col md:flex-row items-center justify-between border-t border-gray-800 z-10 gap-4">
+                 {/* CHIP SELECTOR */}
+                 <div className="flex items-center gap-3 bg-black/40 p-2 rounded-full">
+                     <span className="text-[10px] font-bold text-gray-500 uppercase ml-2">Chip</span>
+                     {[100, 500, 1000].map(v => (
+                         <button 
+                            key={v} 
+                            onClick={()=>setSelectedChip(v)} 
+                            className={`w-10 h-10 rounded-full font-bold border-2 shadow transition flex items-center justify-center text-xs
+                                ${selectedChip === v ? 'bg-yellow-500 text-black border-white scale-110' : 'bg-gray-800 text-gray-400 border-gray-600'}
+                            `}
+                         >
+                            {v}
+                         </button>
+                     ))}
+                     <div className="w-px h-6 bg-gray-700"></div>
+                     <input 
+                        type="number" 
+                        value={selectedChip} 
+                        onChange={(e) => setSelectedChip(parseInt(e.target.value) || 0)}
+                        className="bg-transparent border border-gray-600 text-white text-center w-20 h-8 rounded text-sm font-bold focus:border-yellow-500 outline-none"
+                        placeholder="Custom"
+                     />
                  </div>
 
                  <div className="flex gap-3">
@@ -1450,7 +1521,7 @@ const QuantumRoulette = ({ user, onBack }: { user: User, onBack: () => void }) =
                     <div className="flex items-center gap-4">
                         <div className="flex-1 flex flex-col">
                             <label className="text-[10px] text-cyan-600 mb-1">BET AMOUNT</label>
-                            <input type="number" value={betAmount} onChange={e=>setBetAmount(parseInt(e.target.value))} className="bg-black border border-cyan-700 text-cyan-400 p-2 rounded text-center outline-none focus:border-cyan-400"/>
+                            <input type="number" value={betAmount} onChange={e=>setBetAmount(parseInt(e.target.value) || 0)} className="bg-black border border-cyan-700 text-cyan-400 p-2 rounded text-center outline-none focus:border-cyan-400"/>
                         </div>
                         <button 
                             onClick={spin}
