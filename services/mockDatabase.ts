@@ -3,157 +3,167 @@ import { supabase } from './supabaseClient';
 import { User, Post, UserRole } from '../types';
 import { GoogleGenAI, Type } from "@google/genai";
 
-// Local Cache Keys (Fallback only)
-const KEY_CURRENT_USER = 'hker_current_user_v9_secure';
-const KEY_ALL_USERS = 'hker_all_users_cache_v9'; 
-const KEY_LOCAL_POSTS = 'hker_posts_cache_v9';
+// Local Cache Keys
+const KEY_CURRENT_USER = 'hker_current_user_v11_stable';
+const KEY_ALL_USERS = 'hker_all_users_cache_v11'; 
+const KEY_LOCAL_POSTS = 'hker_posts_cache_v11';
 
-// Global Lock for Robot Execution
+// Global Lock for Bot
 let isBotProcessing = false;
 
 // Initialize Gemini API
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
-// --- Configuration Arrays ---
+// --- 地區與主題設定 ---
 const NEWS_REGIONS = [
-    'Hong Kong', 'Taiwan', 'United Kingdom', 'USA', 'Canada', 'Australia', 'Europe'
+    '中國香港', '台灣', '英國', '美國', '加拿大', '澳洲', '歐洲'
 ];
 
 const NEWS_TOPICS = [
-    'Real Estate', 'Current Affairs', 'Finance', 'Entertainment', 
-    'Travel', 'Digital/Tech', 'Cars/Automotive', 'Religion/Culture', 
-    'Shopping Offers', 'Campus/Education', 'Weather', 'Community Events'
+    '地產', '時事', '財經', '娛樂', '旅遊', '數碼', '汽車', '宗教', '優惠', '校園', '天氣', '社區活動'
 ];
 
-// --- UUID Helper ---
+// --- 工具函式：強力清洗 JSON 字串 ---
+const cleanJsonString = (raw: string): string => {
+    if (!raw) return "{}";
+    let cleaned = raw.trim();
+    // 移除 Markdown 標記
+    cleaned = cleaned.replace(/```json/gi, '').replace(/```/g, '');
+    
+    // 尋找第一個 { 和最後一個 }
+    const startIdx = cleaned.indexOf('{');
+    const endIdx = cleaned.lastIndexOf('}');
+    
+    if (startIdx !== -1 && endIdx !== -1) {
+        return cleaned.substring(startIdx, endIdx + 1);
+    }
+    return cleaned;
+};
+
 export const generateUUID = () => {
     if (typeof crypto !== 'undefined' && crypto.randomUUID) {
         try { return crypto.randomUUID(); } catch (e) { }
     }
-    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-        var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+        const r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
         return v.toString(16);
     });
 };
 
-// --- SAFE STORAGE WRAPPER ---
 const safeSetItem = (key: string, value: string) => {
     try {
         localStorage.setItem(key, value);
     } catch (e: any) {
-        console.warn('LocalStorage Quota Full, clearing old caches...');
         localStorage.removeItem(KEY_ALL_USERS);
         try { localStorage.setItem(key, value); } catch (e2) {}
     }
 };
 
-const fromDbUser = (dbUser: any): User => {
-    return {
-        id: dbUser.id,
-        name: dbUser.name,
-        email: dbUser.email,
-        password: dbUser.password,
-        address: dbUser.address || '',
-        phone: dbUser.phone || '',
-        solAddress: dbUser.sol_address || dbUser.soladdress || '', 
-        gender: dbUser.gender || '',
-        role: dbUser.role as UserRole,
-        points: dbUser.points || 0,
-        avatarId: dbUser.avatar_id || dbUser.avatarid || 1,      
-        isBanned: dbUser.is_banned || dbUser.isbanned || false,
-        joinedAt: dbUser.joined_at ? new Date(dbUser.joined_at).getTime() : Date.now(),
-        lastActive: dbUser.last_active ? new Date(dbUser.last_active).getTime() : Date.now()
-    };
-};
+const fromDbUser = (dbUser: any): User => ({
+    id: dbUser.id,
+    name: dbUser.name,
+    email: dbUser.email,
+    password: dbUser.password,
+    address: dbUser.address || '',
+    phone: dbUser.phone || '',
+    solAddress: dbUser.sol_address || '', 
+    gender: dbUser.gender || '',
+    role: dbUser.role as UserRole,
+    points: dbUser.points || 0,
+    avatarId: dbUser.avatar_id || 1,      
+    isBanned: dbUser.is_banned || false,
+    joinedAt: dbUser.joined_at ? new Date(dbUser.joined_at).getTime() : Date.now(),
+    lastActive: dbUser.last_active ? new Date(dbUser.last_active).getTime() : Date.now()
+});
 
-const toDbUser = (user: User) => {
-    return {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        password: user.password,
-        address: user.address || null,
-        phone: user.phone || null,
-        role: user.role,
-        points: user.points || 0,
-        sol_address: user.solAddress || null,
-        avatar_id: user.avatarId || 1,
-        is_banned: user.isBanned || false,
-        last_active: new Date().toISOString()
-    };
-};
+const toDbUser = (user: User) => ({
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    password: user.password,
+    address: user.address || null,
+    phone: user.phone || null,
+    role: user.role,
+    points: user.points || 0,
+    sol_address: user.solAddress || null,
+    avatar_id: user.avatarId || 1,
+    is_banned: user.isBanned || false,
+    last_active: new Date().toISOString()
+});
 
-// --- CORE: REAL-TIME AI NEWS ENGINE ---
-const fetchRealNewsFromGemini = async (targetRegion: string, targetTopic: string) => {
+// --- 實時新聞搜尋與生成 (Updated to Gemini 3 Flash) ---
+const fetchRealNewsFromGemini = async (region: string, topic: string) => {
     try {
-        console.log(`📡 AI Bot searching: [${targetRegion}] - [${targetTopic}] (Last 24h)...`);
-        
-        const response = await ai.models.generateContent({
-            model: "gemini-3-flash-preview",
-            contents: `You are a professional 24/7 news editor robot.
-            TASK: Search for ONE headline news story from the LAST 24 HOURS.
-            TARGET REGION: "${targetRegion}"
-            TARGET TOPIC: "${targetTopic}"
-            
-            STRICT CONSTRAINTS:
-            1. TIME: The news MUST be from the last 24 hours. NO old news.
-            2. RELEVANCE: Ensure the news matches the "${targetTopic}" category in "${targetRegion}".
-            3. OUTPUT: JSON format strictly.
-            4. LANGUAGES: Generate titles and content in BOTH Traditional Chinese (HK/TW style) and English.
-            5. CONTENT: Keep it professional and informative. Use bullet points for content.
+        const prompt = `
+            You are a professional 24/7 Global News Editor Robot. 
+            CURRENT TASK: Use Google Search to find ONE major headline from the LAST 24 HOURS.
+            REGION: "${region}"
+            TOPIC: "${topic}"
 
-            JSON Schema (Strict):
+            REQUIREMENTS:
+            1. The news MUST have happened within the last 24 hours.
+            2. Languages: Output titles and content in BOTH Traditional Chinese (HK/TW style) and English.
+            3. Response MUST be a valid, parseable JSON object. Do not include markdown formatting like \`\`\`json.
+
+            JSON Schema:
             {
                 "title": "English Headline",
                 "titleCN": "繁體中文標題",
-                "content": "Summary in English (max 3 bullet points)",
-                "contentCN": "繁體中文摘要 (最多3點)",
-                "category": "${targetTopic}",
-                "sourceName": "Name of the news source found"
-            }`,
+                "content": "English summary (2-3 short bullet points)",
+                "contentCN": "繁體中文摘要 (2-3 句)",
+                "category": "${topic}",
+                "sourceName": "Actual News Agency Name"
+            }
+        `;
+
+        // Updated API Call Syntax
+        const response = await ai.models.generateContent({
+            model: "gemini-3-flash-preview",
+            contents: prompt,
             config: {
                 tools: [{ googleSearch: {} }],
-                responseMimeType: "application/json",
-                responseSchema: {
-                    type: Type.OBJECT,
-                    properties: {
-                        title: { type: Type.STRING },
-                        titleCN: { type: Type.STRING },
-                        content: { type: Type.STRING },
-                        contentCN: { type: Type.STRING },
-                        category: { type: Type.STRING },
-                        sourceName: { type: Type.STRING }
-                    },
-                    required: ['title', 'titleCN', 'content', 'contentCN']
-                }
+                responseMimeType: "application/json"
             }
         });
 
-        const data = JSON.parse(response.text);
-
-        // Grounding / Source Verification
-        let sourceUrl = "";
-        let sourceName = data.sourceName || "Google Search";
+        const responseText = response.text;
         
+        // Robust Cleaning
+        const cleanedJson = cleanJsonString(responseText || "{}");
+        let data;
+        
+        try {
+            data = JSON.parse(cleanedJson);
+        } catch (e) {
+            console.warn("First JSON parse failed, attempting fallback...", e);
+            // Fallback: simple object if parsing fails completely
+            return {
+                title: "System Update",
+                titleCN: "系統更新",
+                content: "News feed is synchronizing. Please check back later.",
+                contentCN: "新聞源正在同步中，請稍後再試。",
+                category: topic,
+                sourceName: "System"
+            };
+        }
+
+        let sourceUrl = "";
         const grounding = response.candidates?.[0]?.groundingMetadata;
         if (grounding?.groundingChunks) {
             const webChunk = grounding.groundingChunks.find((c: any) => c.web?.uri);
-            if (webChunk) {
-                sourceUrl = webChunk.web.uri;
-                sourceName = webChunk.web.title || sourceName;
-            }
+            if (webChunk) sourceUrl = webChunk.web.uri;
         }
 
-        return { ...data, source: sourceName, url: sourceUrl };
+        return { ...data, url: sourceUrl };
 
     } catch (error) {
-        console.error("Gemini News Error:", error);
+        console.error("Gemini Search Error:", error);
         throw error;
     }
 };
 
 export const MockDB = {
-  // --- USER AUTHENTICATION ---
+  // --- AUTHENTICATION ---
   getUsers: async (): Promise<User[]> => {
     try {
         const { data, error } = await supabase.from('users').select('*');
@@ -162,7 +172,7 @@ export const MockDB = {
             safeSetItem(KEY_ALL_USERS, JSON.stringify(appUsers));
             return appUsers;
         }
-    } catch (e) { console.warn("Sync Users Failed", e); }
+    } catch (e) {}
     return JSON.parse(localStorage.getItem(KEY_ALL_USERS) || '[]');
   },
 
@@ -174,14 +184,11 @@ export const MockDB = {
 
   login: async (email: string, password?: string): Promise<User | null> => {
     const { data, error } = await supabase.from('users').select('*').ilike('email', email).maybeSingle();
-    if (error || !data) throw new Error("User not found (用戶不存在)");
-    
+    if (error || !data) throw new Error("User not found");
     const user = fromDbUser(data);
-    if (password && user.password && user.password !== password) throw new Error("Invalid Password (密碼錯誤)");
-    if (user.isBanned) throw new Error("Account Banned (此帳戶已被封鎖)");
-    
-    try { await supabase.from('users').update({ last_active: new Date().toISOString() }).eq('id', user.id); } catch(e) {}
-    
+    if (password && user.password && user.password !== password) throw new Error("Invalid Password");
+    if (user.isBanned) throw new Error("Account Banned");
+    supabase.from('users').update({ last_active: new Date().toISOString() }).eq('id', user.id).then();
     const sessionUser = { ...user, lastActive: Date.now() };
     safeSetItem(KEY_CURRENT_USER, JSON.stringify(sessionUser));
     return sessionUser;
@@ -189,26 +196,154 @@ export const MockDB = {
 
   register: async (user: User): Promise<void> => {
       const { data } = await supabase.from('users').select('id').eq('email', user.email).maybeSingle();
-      if (data) throw new Error("Email already registered (此電郵已被註冊)");
-
-      const { error } = await supabase.from('users').insert(toDbUser(user));
-      if (error) throw new Error(error.message);
-      
+      if (data) throw new Error("Email exists");
+      await supabase.from('users').insert(toDbUser(user));
       safeSetItem(KEY_CURRENT_USER, JSON.stringify(user));
   },
 
   logout: (): void => { localStorage.removeItem(KEY_CURRENT_USER); },
 
   saveUser: async (user: User): Promise<void> => {
-      try {
-          await supabase.from('users').upsert(toDbUser(user)).eq('id', user.id);
-      } catch (e) { console.error(e); }
+      const { error } = await supabase.from('users').update(toDbUser(user)).eq('id', user.id);
+      if (error) throw new Error(error.message);
+      
       const current = MockDB.getCurrentUser();
-      if(current && current.id === user.id) safeSetItem(KEY_CURRENT_USER, JSON.stringify(user));
+      if (current && current.id === user.id) {
+          safeSetItem(KEY_CURRENT_USER, JSON.stringify(user));
+      }
   },
-  
-  deleteUser: async (id: string): Promise<void> => { await supabase.from('users').delete().eq('id', id); },
 
+  deleteUser: async (userId: string): Promise<void> => {
+      const { error } = await supabase.from('users').delete().eq('id', userId);
+      if (error) throw new Error(error.message);
+      
+      const current = MockDB.getCurrentUser();
+      if (current && current.id === userId) {
+          MockDB.logout();
+      }
+  },
+
+  // --- POSTS (Cloud First) ---
+  getPosts: async (): Promise<Post[]> => {
+      try {
+          const { data, error } = await supabase
+            .from('posts')
+            .select('*')
+            .order('timestamp', { ascending: false })
+            .limit(50);
+          
+          if (!error && data) {
+              const remotePosts = data.map((p: any) => ({
+                  ...p,
+                  source: typeof p.source === 'string' ? p.source : 'System'
+              }));
+              safeSetItem(KEY_LOCAL_POSTS, JSON.stringify(remotePosts));
+              return remotePosts;
+          }
+      } catch (e) {}
+      const localStr = localStorage.getItem(KEY_LOCAL_POSTS);
+      return localStr ? JSON.parse(localStr) : [];
+  },
+
+  savePost: async (post: Post): Promise<void> => {
+      const safePost = { ...post, source: post.isRobot ? (post.source || 'AI News Bot') : 'User' };
+      await supabase.from('posts').upsert(safePost);
+      
+      const localStr = localStorage.getItem(KEY_LOCAL_POSTS);
+      let current = localStr ? JSON.parse(localStr) : [];
+      current = current.filter((p: any) => p.id !== post.id);
+      current.unshift(safePost);
+      safeSetItem(KEY_LOCAL_POSTS, JSON.stringify(current.slice(0, 50)));
+  },
+
+  deletePost: async (postId: string): Promise<void> => { 
+      await supabase.from('posts').delete().eq('id', postId);
+      const localStr = localStorage.getItem(KEY_LOCAL_POSTS);
+      if (localStr) {
+          const current = JSON.parse(localStr).filter((p: any) => p.id !== postId);
+          safeSetItem(KEY_LOCAL_POSTS, JSON.stringify(current));
+      }
+  },
+
+  // --- ROBOT ENGINE (FIXED & OPTIMIZED) ---
+  triggerRobotPost: async (force = false) => {
+       if (isBotProcessing) return; 
+       isBotProcessing = true;
+
+       try {
+           const now = Date.now();
+           
+           // 1. 檢查雲端最後發布時間
+           const { data: latest } = await supabase
+                .from('posts')
+                .select('timestamp')
+                .eq('isRobot', true)
+                .order('timestamp', { ascending: false })
+                .limit(1);
+            
+           let lastTime = 0;
+           if (latest && latest.length > 0) {
+               lastTime = latest[0].timestamp;
+           }
+
+           // 2. 冷卻檢查：調整為 30 分鐘 (1800000ms)，增加活躍度
+           const COOLDOWN = 1800000; 
+           if (!force && lastTime > 0 && (now - lastTime < COOLDOWN)) {
+               console.log(`🤖 Bot resting. Next check in: ${((COOLDOWN - (now - lastTime))/60000).toFixed(1)} mins`);
+               return; 
+           }
+
+           // 3. 隨機地區與主題
+           const region = NEWS_REGIONS[Math.floor(Math.random() * NEWS_REGIONS.length)];
+           const topic = NEWS_TOPICS[Math.floor(Math.random() * NEWS_TOPICS.length)];
+
+           console.log(`🤖 Bot Active: Fetching 24h News for [${region}] - [${topic}]`);
+
+           // 4. Gemini 搜尋
+           const newsData = await fetchRealNewsFromGemini(region, topic);
+           
+           // 5. 建立與儲存貼文
+           const newPost: Post = {
+                id: `bot-${now}-${generateUUID().split('-')[0]}`,
+                title: newsData.title,
+                titleCN: newsData.titleCN || newsData.title, 
+                content: newsData.content,
+                contentCN: newsData.contentCN || newsData.content, 
+                region: region,
+                category: topic,
+                author: `${region} 實時報導`,
+                authorId: 'system-bot',
+                isRobot: true,
+                timestamp: now,
+                displayDate: new Date(now).toLocaleString(),
+                likes: Math.floor(Math.random() * 20),
+                hearts: 0,
+                views: Math.floor(Math.random() * 150) + 30,
+                source: newsData.sourceName || "Global News", 
+                sourceUrl: newsData.url,
+                botId: `GEMINI-3-FLASH-V6`,
+                replies: []
+            };
+            
+            console.log(`✅ Bot Success: ${newPost.titleCN}`);
+            await MockDB.savePost(newPost);
+            
+       } catch (err) {
+           console.error("❌ Bot Process Interrupted:", err);
+       } finally {
+           // CRITICAL: Always release lock
+           isBotProcessing = false;
+       }
+  },
+
+  getAnalytics: async () => {
+      try {
+          const { count } = await supabase.from('users').select('*', { count: 'exact', head: true });
+          return { totalMembers: count || 0, newMembersToday: 0, activeMembersToday: 0, guestsToday: 0 };
+      } catch (e) { return { totalMembers: 0, newMembersToday: 0, activeMembersToday: 0, guestsToday: 0 }; }
+  },
+
+  // Missing helper from previous version
   updateUserPoints: async (userId: string, delta: number): Promise<number> => {
       const { data } = await supabase.from('users').select('points').eq('id', userId).single();
       if (!data) return -1;
@@ -223,7 +358,6 @@ export const MockDB = {
       return newPoints;
   },
 
-  // --- WITHDRAWAL SYSTEM POST ---
   createWithdrawalPost: async (user: User, amount: number) => {
        const now = Date.now();
        const post: Post = {
@@ -247,140 +381,7 @@ export const MockDB = {
        };
        await MockDB.savePost(post);
   },
-
-  // --- POSTS MANAGEMENT (CLOUD FIRST STRATEGY) ---
-  getPosts: async (): Promise<Post[]> => {
-      try {
-          // CLOUD FIRST: Fetch from Supabase
-          const { data, error } = await supabase
-            .from('posts')
-            .select('*')
-            .order('timestamp', { ascending: false })
-            .limit(50);
-
-          if (!error && data && data.length > 0) {
-              const remotePosts = data.map((p: any) => ({
-                  ...p,
-                  source: (typeof p.source === 'string' && p.source !== '[object Object]') ? p.source : 'System'
-              }));
-              safeSetItem(KEY_LOCAL_POSTS, JSON.stringify(remotePosts));
-              return remotePosts;
-          }
-      } catch (e) {
-          console.warn("Cloud Fetch Error, falling back to local cache", e);
-      }
-      
-      const localStr = localStorage.getItem(KEY_LOCAL_POSTS);
-      return localStr ? JSON.parse(localStr) : [];
-  },
-
-  savePost: async (post: Post): Promise<void> => {
-      const safePost = {
-          ...post,
-          source: post.isRobot ? (post.source || 'AI News Bot') : 'User'
-      };
-
-      const { error } = await supabase.from('posts').upsert(safePost);
-      
-      if (error) {
-          console.error("Failed to save post to Cloud:", error);
-          throw error;
-      }
-
-      try {
-          const localStr = localStorage.getItem(KEY_LOCAL_POSTS);
-          let current = localStr ? JSON.parse(localStr) : [];
-          current = current.filter((p: any) => p.id !== post.id);
-          current.unshift(safePost);
-          safeSetItem(KEY_LOCAL_POSTS, JSON.stringify(current.slice(0, 50)));
-      } catch (e) {}
-  },
   
-  deletePost: async (postId: string): Promise<void> => { 
-      await supabase.from('posts').delete().eq('id', postId);
-      const localStr = localStorage.getItem(KEY_LOCAL_POSTS);
-      if (localStr) {
-          const current = JSON.parse(localStr).filter((p: any) => p.id !== postId);
-          safeSetItem(KEY_LOCAL_POSTS, JSON.stringify(current));
-      }
-  },
-
-  // --- ROBOT AUTO-POSTING ENGINE ---
-  triggerRobotPost: async (force = false) => {
-       if (isBotProcessing) return; 
-       isBotProcessing = true;
-
-       try {
-           const now = Date.now();
-           
-           // 1. Check Cloud for latest bot post
-           const { data: latestBotPost } = await supabase
-                .from('posts')
-                .select('timestamp')
-                .eq('isRobot', true)
-                .order('timestamp', { ascending: false })
-                .limit(1);
-            
-           let lastTime = 0;
-           if (latestBotPost && latestBotPost.length > 0) {
-               lastTime = latestBotPost[0].timestamp;
-           }
-
-           // 2. Cooldown: 55 minutes (3300000ms) to ensure hourly updates
-           const COOLDOWN = 3300000; 
-           
-           if (!force && lastTime > 0 && (now - lastTime < COOLDOWN)) {
-               console.log("🤖 Bot Cooldown: Next active scan in approx.", ((COOLDOWN - (now - lastTime))/60000).toFixed(0), "mins");
-               return; 
-           }
-
-           // 3. Randomize Region and Topic
-           const region = NEWS_REGIONS[Math.floor(Math.random() * NEWS_REGIONS.length)];
-           const topic = NEWS_TOPICS[Math.floor(Math.random() * NEWS_TOPICS.length)];
-
-           // 4. Fetch from Gemini
-           const newsData = await fetchRealNewsFromGemini(region, topic);
-           
-           // 5. Construct Post
-           const newPost: Post = {
-                id: `bot-${now}-${generateUUID().split('-')[0]}`,
-                title: newsData.title,
-                titleCN: newsData.titleCN || newsData.title, 
-                content: newsData.content,
-                contentCN: newsData.contentCN || newsData.content, 
-                region: region,
-                category: newsData.category || topic,
-                author: `${region} Daily Bot`,
-                authorId: 'system-bot',
-                isRobot: true,
-                timestamp: now,
-                displayDate: new Date(now).toLocaleString(),
-                likes: Math.floor(Math.random() * 8),
-                hearts: 0,
-                views: Math.floor(Math.random() * 80) + 10,
-                source: newsData.source, 
-                sourceUrl: newsData.url,
-                botId: `GEMINI-GLOBAL-V3`,
-                replies: []
-            };
-            
-            console.log(`🤖 AI Posting News Success: ${newPost.title}`);
-            await MockDB.savePost(newPost);
-            
-       } catch (err) {
-           console.error("Bot Trigger Error:", err);
-       } finally {
-           isBotProcessing = false;
-       }
-  },
-  
-  getAnalytics: async () => {
-      try {
-          const { count } = await supabase.from('users').select('*', { count: 'exact', head: true });
-          return { totalMembers: count || 0, newMembersToday: 0, activeMembersToday: 0, guestsToday: 0 };
-      } catch (e) { return { totalMembers: 0, newMembersToday: 0, activeMembersToday: 0, guestsToday: 0 }; }
-  },
-
   recordVisit: async (isLoggedIn: boolean) => {
       if (isLoggedIn) {
           const user = MockDB.getCurrentUser();
