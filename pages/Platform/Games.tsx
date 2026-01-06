@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { useOutletContext, useNavigate } from 'react-router-dom';
 import { User } from '../../types';
@@ -674,7 +675,7 @@ const ANIMATION_SPEED = 400;
 
 interface CardType { suit: string, value: string, weight: number, id: string }
 
-const CardView = ({ card, index, hidden }: { card: CardType, index: number, hidden?: boolean }) => {
+const CardView: React.FC<{ card: CardType, index: number, hidden?: boolean }> = ({ card, index, hidden }) => {
     const isRed = card.suit === '♥' || card.suit === '♦';
     if (hidden) return (
         <div className="w-16 h-24 sm:w-20 sm:h-28 bg-slate-800 border-2 border-indigo-500 rounded-lg shadow-xl flex items-center justify-center relative transform hover:scale-105 transition">
@@ -1028,7 +1029,7 @@ interface BacCard {
     id: string;
 }
 
-const BCard = ({c}: {c: BacCard}) => (
+const BCard: React.FC<{c: BacCard}> = ({c}) => (
     <div className={`w-14 h-20 bg-white rounded flex flex-col items-center justify-center border-2 ${['♥','♦'].includes(c.suit)?'text-red-600 border-red-200':'text-black border-gray-200'} shadow`}>
         <span className="text-lg font-bold">{c.value}</span>
         <span className="text-xl">{c.suit}</span>
