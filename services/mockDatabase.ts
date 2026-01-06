@@ -16,7 +16,7 @@ const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 // --- 地區與主題設定 ---
 const NEWS_REGIONS = [
-    '中國香港', '台灣', '英國', '美國', '加拿大', '澳洲', '歐洲'
+    '中國香港', '台灣', '英國', '美國', '加拿大', '澳洲', '歐洲', '日本', '韓國'
 ];
 
 const NEWS_TOPICS = [
@@ -27,7 +27,7 @@ const NEWS_TOPICS = [
 const cleanJsonString = (raw: string): string => {
     if (!raw) return "{}";
     let cleaned = raw.trim();
-    // 移除 Markdown 標記
+    // 移除 Markdown 標記 (包括 ```json, ```, 等)
     cleaned = cleaned.replace(/```json/gi, '').replace(/```/g, '');
     
     // 尋找第一個 { 和最後一個 }
@@ -37,7 +37,7 @@ const cleanJsonString = (raw: string): string => {
     if (startIdx !== -1 && endIdx !== -1) {
         return cleaned.substring(startIdx, endIdx + 1);
     }
-    return cleaned;
+    return "{}"; // 若找不到有效的 JSON 結構，回傳空物件字串
 };
 
 export const generateUUID = () => {
@@ -91,7 +91,7 @@ const toDbUser = (user: User) => ({
     last_active: new Date().toISOString()
 });
 
-// --- 實時新聞搜尋與生成 (Updated to Gemini 3 Flash) ---
+// --- 實時新聞搜尋與生成 (Updated to Gemini 3 Flash / Correct SDK Usage) ---
 const fetchRealNewsFromGemini = async (region: string, topic: string) => {
     try {
         const prompt = `
@@ -103,7 +103,7 @@ const fetchRealNewsFromGemini = async (region: string, topic: string) => {
             REQUIREMENTS:
             1. The news MUST have happened within the last 24 hours.
             2. Languages: Output titles and content in BOTH Traditional Chinese (HK/TW style) and English.
-            3. Response MUST be a valid, parseable JSON object. Do not include markdown formatting like \`\`\`json.
+            3. Response MUST be a valid, parseable JSON object. Do not include markdown formatting.
 
             JSON Schema:
             {
@@ -116,7 +116,7 @@ const fetchRealNewsFromGemini = async (region: string, topic: string) => {
             }
         `;
 
-        // Updated API Call Syntax
+        // CORRECT SDK USAGE: ai.models.generateContent
         const response = await ai.models.generateContent({
             model: "gemini-3-flash-preview",
             contents: prompt,
@@ -126,25 +126,17 @@ const fetchRealNewsFromGemini = async (region: string, topic: string) => {
             }
         });
 
-        const responseText = response.text;
-        
-        // Robust Cleaning
-        const cleanedJson = cleanJsonString(responseText || "{}");
+        // Robust Cleaning & Parsing
+        const cleanedJson = cleanJsonString(response.text || "{}");
         let data;
         
         try {
             data = JSON.parse(cleanedJson);
+            // Basic validation
+            if (!data.titleCN && !data.title) throw new Error("Empty Data");
         } catch (e) {
-            console.warn("First JSON parse failed, attempting fallback...", e);
-            // Fallback: simple object if parsing fails completely
-            return {
-                title: "System Update",
-                titleCN: "系統更新",
-                content: "News feed is synchronizing. Please check back later.",
-                contentCN: "新聞源正在同步中，請稍後再試。",
-                category: topic,
-                sourceName: "System"
-            };
+            console.warn("Gemini JSON Parse Failed, using fallback:", e);
+            throw new Error("JSON_PARSE_ERROR");
         }
 
         let sourceUrl = "";
@@ -157,8 +149,17 @@ const fetchRealNewsFromGemini = async (region: string, topic: string) => {
         return { ...data, url: sourceUrl };
 
     } catch (error) {
-        console.error("Gemini Search Error:", error);
-        throw error;
+        console.error("Gemini Search/Parse Error:", error);
+        // Fallback Data to ensure bot doesn't crash completely
+        return {
+            title: `Community Update: ${topic}`,
+            titleCN: `社區動態：${region} ${topic} 討論`,
+            content: "We are aggregating the latest updates for this topic. Please check back shortly or share your own insights.",
+            contentCN: "系統正在整合最新資訊，歡迎各位會員分享您的見解。",
+            category: topic,
+            sourceName: "HKER Community Bot",
+            url: ""
+        };
     }
 };
 
@@ -286,8 +287,8 @@ export const MockDB = {
                lastTime = latest[0].timestamp;
            }
 
-           // 2. 冷卻檢查：調整為 30 分鐘 (1800000ms)，增加活躍度
-           const COOLDOWN = 1800000; 
+           // 2. 冷卻檢查：調整為 15 分鐘 (900000ms)，確保每小時有多次檢查
+           const COOLDOWN = 900000; 
            if (!force && lastTime > 0 && (now - lastTime < COOLDOWN)) {
                console.log(`🤖 Bot resting. Next check in: ${((COOLDOWN - (now - lastTime))/60000).toFixed(1)} mins`);
                return; 
@@ -299,7 +300,7 @@ export const MockDB = {
 
            console.log(`🤖 Bot Active: Fetching 24h News for [${region}] - [${topic}]`);
 
-           // 4. Gemini 搜尋
+           // 4. Gemini 搜尋 (含容錯機制)
            const newsData = await fetchRealNewsFromGemini(region, topic);
            
            // 5. 建立與儲存貼文
@@ -321,17 +322,17 @@ export const MockDB = {
                 views: Math.floor(Math.random() * 150) + 30,
                 source: newsData.sourceName || "Global News", 
                 sourceUrl: newsData.url,
-                botId: `GEMINI-3-FLASH-V6`,
+                botId: `GEMINI-3-FLASH-V7-STABLE`,
                 replies: []
             };
             
-            console.log(`✅ Bot Success: ${newPost.titleCN}`);
+            console.log(`✅ Bot Posting: ${newPost.titleCN}`);
             await MockDB.savePost(newPost);
             
        } catch (err) {
-           console.error("❌ Bot Process Interrupted:", err);
+           console.error("❌ Bot Process Interrupted (Unexpected):", err);
        } finally {
-           // CRITICAL: Always release lock
+           // CRITICAL: Always release lock to prevent stalling
            isBotProcessing = false;
        }
   },
@@ -343,7 +344,6 @@ export const MockDB = {
       } catch (e) { return { totalMembers: 0, newMembersToday: 0, activeMembersToday: 0, guestsToday: 0 }; }
   },
 
-  // Missing helper from previous version
   updateUserPoints: async (userId: string, delta: number): Promise<number> => {
       const { data } = await supabase.from('users').select('points').eq('id', userId).single();
       if (!data) return -1;
