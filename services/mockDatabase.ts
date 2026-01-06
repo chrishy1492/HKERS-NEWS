@@ -25,59 +25,157 @@ const CATEGORY_CONFIG: Record<string, string> = {
     'Financial Economy': 'finance', 'Technology & Digital': 'digital', 'Community & Life': 'community'
 };
 
-// --- CES 2026 DEMO DATA (For "Professional Engineer" Preview) ---
+// --- CES 2026 HIGH-FIDELITY GLOBAL DATA ---
 const CES_DEMO_DATA: Post[] = [
     {
-        id: "2026-ces-01",
-        title: "CES 2026：Nvidia 發佈 Rubin 架構 GPU，AI 推理效能躍升",
-        titleCN: "CES 2026：Nvidia 發佈 Rubin 架構 GPU，AI 推理效能躍升",
-        content: "Nvidia announces Rubin architecture.",
-        contentCN: "Nvidia 發佈 Rubin 架構。",
+        id: "2026-nv-rubin-platform",
+        title: "Nvidia 推出 Vera Rubin 平台：AI 推理性能提升 5 倍，引領超級運算新世代",
+        titleCN: "Nvidia 推出 Vera Rubin 平台：AI 推理性能提升 5 倍，引領超級運算新世代",
+        content: "Nvidia announces Vera Rubin Platform.",
         processedSummary: [
-            { label: "核心技術", detail: "全新 Rubin 架構，採用台積電 3nm 節點，首度集成 HBM4 記憶體技術。" },
-            { label: "性能提升", detail: "大語言模型（LLM）推理速度較前代 Blackwell 提升約 3 倍，大幅降低延遲。" },
-            { label: "節能表現", detail: "在相同算力下，每瓦性能提升 25%，有助於降低數據中心營運成本。" },
-            { label: "上市日期", detail: "預計 2026 年下半年進入量產階段，年底前供應首批企業客戶。" }
+          { label: "晶片發布", detail: "包含 Rubin GPU 及全新 Vera CPU 在內的 6 款新晶片正式亮相。" },
+          { label: "效能指標", detail: "AI 推理性能較 Blackwell 提升 3-5 倍，模型訓練成本降低 10 倍。" },
+          { label: "技術創新", detail: "首度採用 NVLink 6 互連技術，支援下一代 AI 超級電腦架構。" },
+          { label: "量產時程", detail: "預計於 2026 年下半年進入大規模量產階段。" }
         ],
-        background: "這是 CES 2026 最受關注的硬件發佈，確立了 AI 基礎設施在未來兩年的技術方向。",
+        background: "這是 CES 2026 開幕日最重磅的消息，定義了未來兩年 AI 基礎設施的發展藍圖。",
         region: "us",
         category: "digital",
         author: "AI Analysis Bot",
         authorId: "system-bot",
         isRobot: true,
-        timestamp: Date.now() + 100000000, // Future timestamp to pass 36h filter for demo
-        displayDate: "2026-01-06 15:00",
-        likes: 128,
-        hearts: 45,
-        views: 3042,
-        source: "The Verge / Nvidia Press",
-        sourceUrl: "https://www.theverge.com/",
+        timestamp: Date.now() + 100000000, 
+        displayDate: "2026-01-06 09:00",
+        likes: 520,
+        hearts: 180,
+        views: 12500,
+        source: "NVIDIA Newsroom / Reuters",
+        sourceUrl: "https://nvidianews.nvidia.com/news/ces-2026-vera-rubin-announcement",
         replies: []
     },
     {
-        id: "2026-hk-02",
-        title: "香港金管局啟動「數碼港元」e-HKD 第二階段試點",
-        titleCN: "香港金管局啟動「數碼港元」e-HKD 第二階段試點",
-        content: "HKMA launches e-HKD Phase 2.",
-        contentCN: "金管局啟動 e-HKD 第二階段。",
+        id: "2026-hk-property-ms",
+        title: "摩根士丹利上調香港樓市評級：預測 2026 年樓價升 10%",
+        titleCN: "摩根士丹利上調香港樓市評級：預測 2026 年樓價升 10%",
+        content: "Morgan Stanley upgrades HK property.",
         processedSummary: [
-            { label: "試點重點", detail: "測試可編程支付與離線支付功能，應用於日常消費與跨境貿易。" },
-            { label: "參與銀行", detail: "包括中銀、匯豐及數間領先虛擬銀行，擴展至更多零售商戶。" },
-            { label: "監管方向", detail: "重點研究如何與現有電子支付工具整合，提升交易效率與安全性。" }
+          { label: "評級調整", detail: "樓市評級由『中性』調升至『吸引』，標誌著新一輪上行周期開始。" },
+          { label: "價格預測", detail: "受利率見頂及剛需釋放帶動，2026 全年樓價預計上漲 10%。" },
+          { label: "市場現狀", detail: "二手樓價已回升至 14 個月高位，租金回報率創 6 年新高。" }
         ],
-        background: "此舉旨在強化香港作為國際金融中心在金融科技領域的競爭力。",
+        background: "在經歷長時間調整後，大行報告顯示機構投資者對香港地產市場信心大幅回歸。",
         region: "hk",
+        category: "property",
+        author: "AI Analysis Bot",
+        authorId: "system-bot",
+        isRobot: true,
+        timestamp: Date.now() + 98000000,
+        displayDate: "2026-01-06 11:30",
+        likes: 340,
+        hearts: 45,
+        views: 8900,
+        source: "SCMP / Bloomberg",
+        sourceUrl: "https://www.scmp.com/business/article/20260106/hk-property-outlook",
+        replies: []
+    },
+    {
+        id: "2026-intel-panther-lake",
+        title: "Intel 發布 18A 製程 Core Ultra 3：首款美國製造 AI PC 晶片",
+        titleCN: "Intel 發布 18A 製程 Core Ultra 3：首款美國製造 AI PC 晶片",
+        content: "Intel launches Panther Lake.",
+        processedSummary: [
+          { label: "製程突破", detail: "採用 Intel 18A (1.8nm 等效) 製程，為首款完全在美國境內製造的先進處理器。" },
+          { label: "AI 優化", detail: "內置全新 NPU，本地端 AI 運算能力顯著提升，支援 1 月 6 日起預購。" },
+          { label: "圖形性能", detail: "內建 GPU 效能翻倍，主要對標 Apple M5 晶片在移動端表現。" }
+        ],
+        background: "Panther Lake 被視為 Intel 晶圓代工轉型的關鍵考卷，市場反應極度正面。",
+        region: "us",
+        category: "digital",
+        author: "AI Analysis Bot",
+        authorId: "system-bot",
+        isRobot: true,
+        timestamp: Date.now() + 96000000,
+        displayDate: "2026-01-06 13:15",
+        likes: 210,
+        hearts: 60,
+        views: 5600,
+        source: "Intel Newsroom / TechCrunch",
+        sourceUrl: "https://www.intel.com/news/ces-2026-panther-lake",
+        replies: []
+    },
+    {
+        id: "2026-au-heatwave",
+        title: "澳洲爆發極端熱浪：部分地區氣溫突破 45°C，火災風險達最高級",
+        titleCN: "澳洲爆發極端熱浪：部分地區氣溫突破 45°C，火災風險達最高級",
+        content: "Australia Heatwave.",
+        processedSummary: [
+          { label: "極端氣溫", detail: "全國近半地區氣溫超過 45°C，為 2020 年『黑夏』以來最嚴重情況。" },
+          { label: "應急預警", detail: "多個州份進入緊急狀態，嚴禁一切野外用火，電力系統面臨負荷高峰。" },
+          { label: "生態影響", detail: "極端乾旱加劇，農業與野生動物棲息地受到嚴重威脅。" }
+        ],
+        background: "全球氣候變遷持續惡化，南半球的夏季極端天氣頻率顯著上升。",
+        region: "au",
+        category: "weather",
+        author: "AI Analysis Bot",
+        authorId: "system-bot",
+        isRobot: true,
+        timestamp: Date.now() + 94000000,
+        displayDate: "2026-01-06 15:00",
+        likes: 150,
+        hearts: 200,
+        views: 7800,
+        source: "ABC News / Reuters",
+        sourceUrl: "https://www.abc.net.au/news/2026-01-06/extreme-heatwave-australia",
+        replies: []
+    },
+    {
+        id: "2026-ca-wage-increase",
+        title: "加拿大聯邦最低工資今起調升至 $17.50，應對生活成本上漲",
+        titleCN: "加拿大聯邦最低工資今起調升至 $17.50，應對生活成本上漲",
+        content: "Canada wage increase.",
+        processedSummary: [
+          { label: "政策生效", detail: "2026 年 1 月 6 日起生效，旨在緩解通脹對中低收入者的壓力。" },
+          { label: "福利調整", detail: "各項政府補貼與福利支付亦同步進行指數化上調，漲幅約 2%。" },
+          { label: "企業反應", detail: "餐飲及零售業預計成本將有所上升，可能帶動部分終端價格調整。" }
+        ],
+        background: "聯邦政府試圖在維持經濟競爭力與保障勞工權益之間取得平衡。",
+        region: "ca",
         category: "finance",
         author: "AI Analysis Bot",
         authorId: "system-bot",
         isRobot: true,
+        timestamp: Date.now() + 92000000,
+        displayDate: "2026-01-06 08:00",
+        likes: 400,
+        hearts: 20,
+        views: 6500,
+        source: "CBC / Global News",
+        sourceUrl: "https://www.cbc.ca/news/canada/minimum-wage-increase-2026",
+        replies: []
+    },
+    {
+        id: "2026-eu-snow",
+        title: "歐洲強烈寒潮來襲：英法多地雪災導致交通大面積中斷",
+        titleCN: "歐洲強烈寒潮來襲：英法多地雪災導致交通大面積中斷",
+        content: "Europe Snowstorm.",
+        processedSummary: [
+          { label: "雪災影響", detail: "倫敦及巴黎多個機場航班取消，跨國鐵路 Eurostar 出現嚴重延誤。" },
+          { label: "氣溫驟降", detail: "寒潮席捲英國、法國及荷蘭，氣溫較往年同期平均水平低 10-12°C。" },
+          { label: "基礎設施", detail: "部分地區出現電力供應不穩，政府發布最高級別寒冷預警。" }
+        ],
+        background: "北極震盪加劇，導致歐洲出現近年罕見的劇烈寒潮與暴雪。",
+        region: "eu",
+        category: "weather",
+        author: "AI Analysis Bot",
+        authorId: "system-bot",
+        isRobot: true,
         timestamp: Date.now() + 90000000,
-        displayDate: "2026-01-06 09:30",
-        likes: 89,
-        hearts: 12,
-        views: 1560,
-        source: "RTHK / HKMA",
-        sourceUrl: "https://www.hkma.gov.hk/",
+        displayDate: "2026-01-06 17:45",
+        likes: 280,
+        hearts: 100,
+        views: 9200,
+        source: "BBC / Euronews",
+        sourceUrl: "https://www.bbc.com/news/world-europe-20260106",
         replies: []
     }
 ];
@@ -164,10 +262,9 @@ const fetchRealNewsFromGemini = async (searchRegion: string, searchTopic: string
                 "sourceName": "Source Name (e.g. Reuters, RTHK)",
                 "background": "A 1-2 sentence context summary (Traditional Chinese).",
                 "processedSummary": [
-                    { "label": "Entity/Fact 1", "detail": "Details..." },
-                    { "label": "Entity/Fact 2", "detail": "Details..." },
-                    { "label": "Entity/Fact 3", "detail": "Details..." },
-                    { "label": "Entity/Fact 4", "detail": "Details..." }
+                    { "label": "Key Entity 1", "detail": "Details..." },
+                    { "label": "Key Entity 2", "detail": "Details..." },
+                    { "label": "Key Entity 3", "detail": "Details..." }
                 ]
             }
         `;
