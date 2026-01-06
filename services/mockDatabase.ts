@@ -97,37 +97,30 @@ const toDbUser = (user: User) => ({
     last_active: new Date().toISOString()
 });
 
-// --- REAL NEWS GENERATION ENGINE (Deep Analysis Mode) ---
+// --- REAL NEWS GENERATION ENGINE (Fair Use / Entity Extraction Mode) ---
 const fetchRealNewsFromGemini = async (searchRegion: string, searchTopic: string, regionCode: string, categoryCode: string) => {
     try {
-        // Updated Prompt for 10x Content Length & Structure
+        // Updated Prompt for Anti-Copyright / Structured Summary
         const prompt = `
-            ROLE: Senior Global News Analyst Bot (24/7 Monitoring).
-            TASK: Search for ONE major, REAL news event that happened in the LAST 24 HOURS.
-            REGION: "${searchRegion}"
-            TOPIC: "${searchTopic}"
-
-            STRICT REQUIREMENTS:
-            1. TIME: Must be within 36 hours. If no major news, find the most significant recent trend.
-            2. FORMAT: Output a JSON object.
-            3. CONTENT: The 'contentCN' (Chinese) must be a LONG-FORM Deep Analysis (approx 800-1000 chars).
-            4. STRUCTURE: The content must use the following headers:
-               - 【第一章：新聞背景與核心事實】(Core Facts)
-               - 【第二章：深度數據分析】(Data Analysis)
-               - 【第三章：對市場/社會的影響】(Impact)
-               - 【第四章：未來 36 小時預測】(Forecast)
-               - 【第五章：AI 總結】(Conclusion)
-            5. TONE: Professional, Objective, Financial/Political Standard.
+            ROLE: Senior News Analyst Bot.
+            TASK: Find ONE major, REAL news event in the LAST 24 HOURS for ${searchRegion} regarding ${searchTopic}.
+            
+            STRICT RULES:
+            1. TIME: Must be within 36 hours.
+            2. ANTI-COPYRIGHT: Do NOT copy the article. Extract ENTITIES and FACTS only.
+            3. OUTPUT: JSON format strictly.
             
             JSON Schema:
             {
-                "title": "English Headline (Professional)",
-                "titleCN": "繁體中文標題 (加上【36h快訊】前綴)",
-                "content": "English Summary (Short, 1 paragraph)",
-                "contentCN": "LONG FORM ANALYSIS with 5 Chapters as requested...",
-                "sourceName": "Actual Source Name (e.g. BBC, Reuters, HK01)",
-                "region": "${regionCode}",
-                "category": "${categoryCode}"
+                "title": "Headline in Traditional Chinese (Eng if unavailable)",
+                "sourceName": "Source Name (e.g. Reuters, RTHK)",
+                "background": "A 1-2 sentence context summary (Traditional Chinese).",
+                "processedSummary": [
+                    { "label": "Key Entity 1 (e.g. Policy)", "detail": "Fact details..." },
+                    { "label": "Key Entity 2 (e.g. Data)", "detail": "Fact details..." },
+                    { "label": "Key Entity 3 (e.g. Impact)", "detail": "Fact details..." },
+                    { "label": "Key Entity 4", "detail": "Fact details..." }
+                ]
             }
         `;
 
@@ -145,7 +138,7 @@ const fetchRealNewsFromGemini = async (searchRegion: string, searchTopic: string
         
         try {
             data = JSON.parse(cleanedJson);
-            if (!data.titleCN) throw new Error("Empty Data");
+            if (!data.title) throw new Error("Empty Data");
         } catch (e) {
             console.warn("Gemini JSON Parse Failed", e);
             throw new Error("JSON_PARSE_ERROR");
@@ -158,21 +151,11 @@ const fetchRealNewsFromGemini = async (searchRegion: string, searchTopic: string
             if (webChunk) sourceUrl = webChunk.web.uri;
         }
 
-        return { ...data, url: sourceUrl };
+        return { ...data, url: sourceUrl, regionCode, categoryCode };
 
     } catch (error) {
         console.error("Gemini Error:", error);
-        // Fallback for fail-safe (Generic Update)
-        return {
-            title: `Global Market Update: ${searchRegion}`,
-            titleCN: `【系統公告】${searchRegion} ${searchTopic} 實時監測報告`,
-            content: "Monitoring...",
-            contentCN: `【第一章：系統狀態】\n目前 AI 正在深度掃描 ${searchRegion} 的最新資訊。\n\n【第二章：暫時狀態】\n由於上游新聞源更新延遲，暫未生成深度報告。\n\n【第三章：建議】\n請稍後刷新查看。`,
-            category: categoryCode,
-            region: regionCode,
-            sourceName: "HKER AI System",
-            url: ""
-        };
+        return null; // Return null on error so we don't post garbage
     }
 };
 
@@ -238,7 +221,6 @@ export const MockDB = {
 
   getPosts: async (): Promise<Post[]> => {
       try {
-          // Fetch limit 50, but we will filter for 36h in the UI/Service
           const { data, error } = await supabase
             .from('posts')
             .select('*')
@@ -248,7 +230,10 @@ export const MockDB = {
           if (!error && data) {
               const remotePosts = data.map((p: any) => ({
                   ...p,
-                  source: typeof p.source === 'string' ? p.source : 'System'
+                  source: typeof p.source === 'string' ? p.source : 'System',
+                  // Ensure these fields exist, handle legacy data
+                  processedSummary: p.processed_summary || [], 
+                  background: p.background || p.contentCN || p.content
               }));
               safeSetItem(KEY_LOCAL_POSTS, JSON.stringify(remotePosts));
               return remotePosts;
@@ -259,13 +244,20 @@ export const MockDB = {
   },
 
   savePost: async (post: Post): Promise<void> => {
-      const safePost = { ...post, source: post.isRobot ? (post.source || 'AI News Bot') : 'User' };
-      await supabase.from('posts').upsert(safePost);
+      // Map frontend camelCase to potential DB snake_case or just store as JSON
+      const dbPost = {
+          ...post,
+          processed_summary: post.processedSummary, // Map for DB if column exists, else it might be ignored
+          background: post.background,
+          source: post.isRobot ? (post.source || 'AI News Bot') : 'User'
+      };
+      
+      await supabase.from('posts').upsert(dbPost);
       
       const localStr = localStorage.getItem(KEY_LOCAL_POSTS);
       let current = localStr ? JSON.parse(localStr) : [];
       current = current.filter((p: any) => p.id !== post.id);
-      current.unshift(safePost);
+      current.unshift(post);
       safeSetItem(KEY_LOCAL_POSTS, JSON.stringify(current.slice(0, 50)));
   },
 
@@ -292,13 +284,11 @@ export const MockDB = {
            const COOLDOWN = 900000; 
            if (!force && lastTime > 0 && (now - lastTime < COOLDOWN)) return; 
 
-           // Pick Random Region/Category Names for Search
            const regionKeys = Object.keys(REGION_CONFIG);
            const catKeys = Object.keys(CATEGORY_CONFIG);
            const searchRegion = regionKeys[Math.floor(Math.random() * regionKeys.length)];
            const searchTopic = catKeys[Math.floor(Math.random() * catKeys.length)];
            
-           // Get Codes for DB Storage
            const regionCode = REGION_CONFIG[searchRegion];
            const categoryCode = CATEGORY_CONFIG[searchTopic];
 
@@ -306,29 +296,33 @@ export const MockDB = {
 
            const newsData = await fetchRealNewsFromGemini(searchRegion, searchTopic, regionCode, categoryCode);
            
-           const newPost: Post = {
-                id: `bot-${now}-${generateUUID().split('-')[0]}`,
-                title: newsData.title,
-                titleCN: newsData.titleCN || newsData.title, 
-                content: newsData.content,
-                contentCN: newsData.contentCN || newsData.content, 
-                region: newsData.region || regionCode, // Use code (hk, uk)
-                category: newsData.category || categoryCode, // Use code (finance, property)
-                author: `AI Analysis Bot`,
-                authorId: 'system-bot',
-                isRobot: true,
-                timestamp: now,
-                displayDate: new Date(now).toLocaleString(),
-                likes: Math.floor(Math.random() * 5),
-                hearts: 0,
-                views: Math.floor(Math.random() * 100) + 10,
-                source: newsData.sourceName || "Global News", 
-                sourceUrl: newsData.url,
-                botId: `GEMINI-3-FLASH-PRO`,
-                replies: []
-            };
-            
-            await MockDB.savePost(newPost);
+           if (newsData) {
+               const newPost: Post = {
+                    id: `bot-${now}-${generateUUID().split('-')[0]}`,
+                    title: newsData.title,
+                    // Store minimal content for legacy support, but rely on processedSummary
+                    content: "See processed summary.",
+                    contentCN: "詳見重點摘要。",
+                    processedSummary: newsData.processedSummary || [],
+                    background: newsData.background || "",
+                    region: newsData.regionCode,
+                    category: newsData.categoryCode,
+                    author: `AI Analysis Bot`,
+                    authorId: 'system-bot',
+                    isRobot: true,
+                    timestamp: now,
+                    displayDate: new Date(now).toLocaleString(),
+                    likes: Math.floor(Math.random() * 5),
+                    hearts: 0,
+                    views: Math.floor(Math.random() * 100) + 10,
+                    source: newsData.sourceName || "Global News", 
+                    sourceUrl: newsData.url,
+                    botId: `GEMINI-3-FLASH-PRO`,
+                    replies: []
+                };
+                
+                await MockDB.savePost(newPost);
+           }
             
        } catch (err) {
            console.error("Bot Error:", err);

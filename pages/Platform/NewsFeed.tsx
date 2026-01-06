@@ -1,18 +1,18 @@
 
 import React, { useState, useEffect } from 'react';
 import { useOutletContext, useNavigate } from 'react-router-dom';
-import { Heart, ThumbsUp, Globe, ExternalLink, Clock, Bot, MessageSquareOff, FileText, ShieldCheck, Tag, MapPin, CalendarDays, Filter, AlertCircle, ChevronDown, ChevronUp, Trash2 } from 'lucide-react';
+import { Heart, ThumbsUp, Globe, ExternalLink, Clock, Bot, MessageSquareOff, FileText, ShieldCheck, Tag, MapPin, Filter, AlertTriangle, Link as LinkIcon, Info, Trash2 } from 'lucide-react';
 import { MockDB } from '../../services/mockDatabase';
 import { Post, User, UserRole } from '../../types';
 
-// --- FILTER MAPPING (Must match MockDatabase codes) ---
+// --- MAPPING CONFIGURATION ---
 const CATEGORY_MAP: Record<string, string> = {
-    'property': '地產 (Property)',
-    'news': '時事 (News)',
-    'finance': '財經 (Finance)',
-    'digital': '數碼 (Tech)',
-    'community': '社區 (Community)',
-    'Real Estate': '地產', // Legacy compat
+    'property': '地產',
+    'news': '時事',
+    'finance': '財經',
+    'digital': '數碼',
+    'community': '社區',
+    'Real Estate': '地產', 
     'Current Affairs': '時事',
     'Finance': '財經'
 };
@@ -25,7 +25,7 @@ const REGION_MAP: Record<string, string> = {
     'ca': '加拿大',
     'au': '澳洲',
     'eu': '歐洲',
-    'Hong Kong': '中國香港', // Legacy compat
+    'Hong Kong': '中國香港', 
     'Taiwan': '台灣',
     'UK': '英國'
 };
@@ -38,10 +38,9 @@ export const NewsFeed: React.FC = () => {
   const [loading, setLoading] = useState(true);
   
   // Filter States
-  const [selectedRegion, setSelectedRegion] = useState('all');
-  const [selectedTopic, setSelectedTopic] = useState('all');
-  const [isSyncing, setIsSyncing] = useState(false);
-
+  const [selectedRegionCode, setSelectedRegionCode] = useState('all');
+  const [selectedTopicCode, setSelectedTopicCode] = useState('all');
+  
   const fetchAndFilterPosts = async () => {
       setLoading(true);
       // 1. Trigger Bot Check (Silent)
@@ -50,18 +49,18 @@ export const NewsFeed: React.FC = () => {
       // 2. Get All Posts
       const allPosts = await MockDB.getPosts();
       
-      // 3. Apply Strict Filters (Region + Topic + 36h Time Limit)
+      // 3. Apply Strict Filters (Region Code + Topic Code + 36h Time Limit)
       const thirtySixHoursAgo = Date.now() - (36 * 60 * 60 * 1000);
       
       const filtered = allPosts.filter(p => {
-          // Time Filter: Only Real News within 36h
+          // Time Filter: Only Real News within 36h for bots
           if (p.isRobot && p.timestamp < thirtySixHoursAgo) return false;
 
-          // Region Filter
-          if (selectedRegion !== 'all' && p.region !== selectedRegion) return false;
+          // Region Filter (Match code)
+          if (selectedRegionCode !== 'all' && p.region !== selectedRegionCode) return false;
 
-          // Topic Filter
-          if (selectedTopic !== 'all' && p.category !== selectedTopic) return false;
+          // Topic Filter (Match code)
+          if (selectedTopicCode !== 'all' && p.category !== selectedTopicCode) return false;
 
           return true;
       });
@@ -72,11 +71,10 @@ export const NewsFeed: React.FC = () => {
 
   useEffect(() => {
       fetchAndFilterPosts();
-      
-      // Auto-refresh every 15s to catch new bot posts
+      // Auto-refresh every 15s
       const interval = setInterval(fetchAndFilterPosts, 15000);
       return () => clearInterval(interval);
-  }, [selectedRegion, selectedTopic]); // Re-run when filters change
+  }, [selectedRegionCode, selectedTopicCode]);
 
   const handleInteraction = async (postId: string, type: 'like' | 'heart') => {
     if (!user) {
@@ -100,7 +98,6 @@ export const NewsFeed: React.FC = () => {
         post.hearts++;
     }
     
-    // Optimistic Update
     const newPosts = [...posts];
     newPosts[postIndex] = post;
     setPosts(newPosts);
@@ -118,53 +115,51 @@ export const NewsFeed: React.FC = () => {
   };
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
+    <div className="max-w-4xl mx-auto space-y-6 pb-20">
       
-      {/* 24/7 ACTIVE BOT STATUS BAR */}
-      <div className="bg-white p-5 rounded-2xl shadow-sm border border-blue-100 flex flex-col md:flex-row justify-between items-center gap-4">
-          <div className="flex items-center space-x-4">
-            <div className="relative">
-              <div className="w-12 h-12 bg-blue-50 rounded-full flex items-center justify-center">
-                <Bot size={28} className="text-blue-600" />
-              </div>
-              <div className="absolute top-0 right-0 w-3.5 h-3.5 bg-green-500 rounded-full border-2 border-white animate-pulse"></div>
-            </div>
-            <div>
-              <div className="text-sm font-black text-blue-900 flex items-center">
-                AI BOT WORKER <span className="ml-2 text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded">24/7 ACTIVE</span>
-              </div>
-              <p className="text-xs text-gray-500 font-medium mt-1">
-                Continuous Global Scanning (Last 36h). Status: <span className="text-green-600 font-bold">ONLINE</span>
-              </p>
-            </div>
+      {/* HEADER: SYSTEM STATUS & DISCLAIMER */}
+      <header className="bg-white border-b border-gray-200 sticky top-0 z-30 shadow-sm p-4 rounded-b-2xl">
+        <div className="flex justify-between items-center mb-4">
+          <div className="flex items-center space-x-2">
+            <div className="bg-emerald-600 text-white p-2 rounded-lg"><ShieldCheck size={20}/></div>
+            <h1 className="font-black text-xl tracking-tight text-slate-800">HKER 真新聞監測系統</h1>
           </div>
-          <div className="flex items-center space-x-2 text-[10px] font-black text-gray-400 bg-gray-50 px-3 py-1.5 rounded-lg border border-gray-100">
-            <ShieldCheck size={14} className="text-blue-500" />
-            <span>MODE: DEEP ANALYSIS & VERIFICATION</span>
+          <div className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-3 py-1 rounded-full border border-emerald-100 animate-pulse">
+            ● 36H 實時處理中
           </div>
-      </div>
+        </div>
+        
+        <div className="bg-amber-50 border border-amber-100 p-3 rounded-xl flex items-start space-x-3">
+          <AlertTriangle className="text-amber-500 shrink-0" size={16} />
+          <p className="text-xs text-amber-800 leading-relaxed font-medium">
+            <strong>機械人發帖協議：</strong> 本系統僅提取新聞之「事實重點」與「關鍵數據」。嚴禁全文複製以防侵權。所有內容均經過 AI 二次編寫與結構化整理，並強制標註原文連結。
+          </p>
+        </div>
+      </header>
 
       {/* FILTER SYSTEM */}
-      <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 space-y-5">
-          <div className="flex items-center text-xs font-black text-gray-400 uppercase tracking-widest border-b border-gray-50 pb-2">
-            <Filter size={12} className="mr-2" /> Content Filter System
+      <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 space-y-4">
+          <div className="flex items-center text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">
+            <Filter size={12} className="mr-2" /> FILTER SYSTEM
           </div>
           
-          <div className="space-y-4">
-            <div className="flex items-center flex-wrap gap-2">
-              <span className="text-xs font-bold text-gray-400 mr-2 w-12">REGION:</span>
-              <FilterBtn active={selectedRegion === 'all'} label="ALL" onClick={() => setSelectedRegion('all')} />
-              {Object.entries(REGION_MAP).map(([code, label]) => (
-                <FilterBtn key={code} active={selectedRegion === code} label={label} onClick={() => setSelectedRegion(code)} />
-              ))}
+          <div className="space-y-3">
+            <div className="flex items-start flex-wrap gap-2">
+              <span className="text-xs font-bold text-slate-400 mt-1 w-10">地區:</span>
+              <FilterBtn active={selectedRegionCode === 'all'} label="全部" onClick={() => setSelectedRegionCode('all')} />
+              {Object.entries(REGION_MAP).map(([code, label]) => {
+                  if(code.length > 2 && code !== 'Hong Kong') return null; 
+                  return <FilterBtn key={code} active={selectedRegionCode === code} label={label} onClick={() => setSelectedRegionCode(code)} />
+              })}
             </div>
-
-            <div className="flex items-center flex-wrap gap-2">
-              <span className="text-xs font-bold text-gray-400 mr-2 w-12">TOPIC:</span>
-              <FilterBtn active={selectedTopic === 'all'} label="ALL" onClick={() => setSelectedTopic('all')} color="bg-indigo-600" />
-              {Object.entries(CATEGORY_MAP).map(([code, label]) => (
-                <FilterBtn key={code} active={selectedTopic === code} label={label} onClick={() => setSelectedTopic(code)} color="bg-indigo-600" />
-              ))}
+            
+            <div className="flex items-start flex-wrap gap-2">
+              <span className="text-xs font-bold text-slate-400 mt-1 w-10">主題:</span>
+              <FilterBtn active={selectedTopicCode === 'all'} label="全部" onClick={() => setSelectedTopicCode('all')} color="bg-indigo-600" />
+              {Object.entries(CATEGORY_MAP).map(([code, label]) => {
+                  if(code.length > 10) return null; 
+                  return <FilterBtn key={code} active={selectedTopicCode === code} label={label} onClick={() => setSelectedTopicCode(code)} color="bg-indigo-600" />
+              })}
             </div>
           </div>
       </div>
@@ -178,22 +173,25 @@ export const NewsFeed: React.FC = () => {
       ) : posts.length === 0 ? (
           <div className="bg-white p-16 rounded-3xl text-center border border-dashed border-gray-200">
             <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-4 text-gray-300">
-                <AlertCircle size={32} />
+                <Clock size={32} />
             </div>
-            <p className="text-gray-500 font-black text-lg">No verified news in last 36h for this filter.</p>
-            <button onClick={() => {setSelectedRegion('all'); setSelectedTopic('all');}} className="mt-6 text-blue-600 font-bold text-sm hover:underline">Reset Filters</button>
+            <p className="text-slate-500 font-black text-lg">目前無 36 小時內的真新聞重點</p>
+            <p className="text-slate-400 text-xs mt-2">系統已過濾過期資訊。請嘗試更換地區。</p>
+            <button onClick={()=>{setSelectedRegionCode('all'); setSelectedTopicCode('all');}} className="mt-6 text-blue-600 font-bold text-sm hover:underline">查看所有地區</button>
           </div>
       ) : (
-          posts.map(post => (
-            <NewsCard 
+          <div className="space-y-6">
+            {posts.map(post => (
+              <NewsCard 
                 key={post.id} 
                 item={post} 
-                lang={lang} 
-                interactions={post.userInteractions?.[user?.id || ''] || { likes: 0, hearts: 0 }}
+                lang={lang}
+                interactions={post.userInteractions?.[user?.id || ''] || {likes: 0, hearts: 0}}
                 onInteract={handleInteraction}
                 onDelete={isAdmin ? handleDelete : undefined}
-            />
-          ))
+              />
+            ))}
+          </div>
       )}
     </div>
   );
@@ -202,10 +200,10 @@ export const NewsFeed: React.FC = () => {
 const FilterBtn = ({ active, label, onClick, color = "bg-blue-600" }: any) => (
     <button 
       onClick={onClick}
-      className={`px-3 py-1.5 rounded-lg text-[10px] font-black transition-all ${
+      className={`px-3 py-1 rounded-full text-[10px] font-bold transition-all ${
         active 
-          ? `${color} text-white shadow-md transform scale-105` 
-          : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+          ? `${color} text-white shadow-md` 
+          : 'bg-slate-50 text-slate-500 border border-slate-200 hover:bg-slate-100'
       }`}
     >
       {label}
@@ -213,126 +211,100 @@ const FilterBtn = ({ active, label, onClick, color = "bg-blue-600" }: any) => (
 );
 
 const NewsCard = ({ item, lang, interactions, onInteract, onDelete }: any) => {
-  const [expanded, setExpanded] = useState(false);
-  const displayTitle = lang === 'cn' ? (item.titleCN || item.title) : (item.title || item.titleCN);
-  const displaySummary = lang === 'cn' ? (item.contentCN || item.content) : (item.content || item.contentCN);
-  
-  // Verify Logic: If sourceUrl exists, we consider it verified by bot
-  const isVerified = !!item.sourceUrl;
-  
-  // Length Check for Accordion
-  const shouldShowExpand = displaySummary && displaySummary.length > 300;
-  const truncatedSummary = !expanded && shouldShowExpand ? displaySummary.slice(0, 300) + '...' : displaySummary;
+  // Map Code to Display Label
+  const displayRegion = REGION_MAP[item.region] || item.region;
+  const displayCategory = CATEGORY_MAP[item.category] || item.category;
+  const title = lang === 'cn' ? (item.titleCN || item.title) : (item.title || item.titleCN);
 
-  const regionLabel = REGION_MAP[item.region] || item.region;
-  const catLabel = CATEGORY_MAP[item.category] || item.category;
-
-  const timeAgo = (timestamp: number) => {
-    const diff = Math.abs(Date.now() - timestamp) / 36e5;
-    if (diff < 1) return 'Just Now';
-    return `${Math.floor(diff)}h ago`;
-  };
+  const processedSummary = item.processedSummary || [];
+  const backgroundInfo = item.background || (lang === 'cn' ? item.contentCN : item.content);
 
   return (
-    <div className="bg-white rounded-[2rem] shadow-sm border border-gray-100 overflow-hidden hover:shadow-lg transition-all duration-500">
-      {/* Header */}
-      <div className="bg-gray-50/80 px-6 py-4 border-b border-gray-50 flex flex-wrap justify-between items-center gap-3">
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="flex items-center bg-blue-600 text-white px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest">
-            <MapPin size={10} className="mr-1" /> {regionLabel}
+    <article className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden transition-all hover:shadow-md">
+      {/* Card Header */}
+      <div className="px-6 py-4 bg-slate-50 border-b border-slate-100 flex justify-between items-center">
+        <div className="flex space-x-2">
+          <span className="bg-white px-2 py-1 rounded-md text-[10px] font-black border border-slate-200 text-slate-500 flex items-center uppercase">
+            <MapPin size={10} className="mr-1" /> {displayRegion}
           </span>
-          <span className="flex items-center bg-indigo-50 text-indigo-700 px-3 py-1 rounded-full text-[10px] font-black border border-indigo-100 uppercase tracking-widest">
-            <Tag size={10} className="mr-1" /> {catLabel}
+          <span className="bg-white px-2 py-1 rounded-md text-[10px] font-black border border-slate-200 text-slate-500 flex items-center uppercase">
+            <Tag size={10} className="mr-1" /> {displayCategory}
           </span>
-          {isVerified && (
-            <span className="flex items-center bg-green-50 text-green-700 px-3 py-1 rounded-full text-[10px] font-black border border-green-100 uppercase tracking-widest">
-              <ShieldCheck size={10} className="mr-1" /> VERIFIED
-            </span>
-          )}
         </div>
-        <div className="flex items-center text-gray-400 font-bold text-[10px] gap-2">
-          <Clock size={12} />
-          {timeAgo(item.timestamp)}
-          {onDelete && <button onClick={()=>onDelete(item.id)} className="text-red-400 hover:text-red-600 ml-2"><Trash2 size={12}/></button>}
+        <div className="flex items-center gap-2">
+            <div className="text-[10px] font-bold text-slate-400 flex items-center">
+              <Clock size={12} className="mr-1" /> {new Date(item.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+            </div>
+            {onDelete && <button onClick={()=>onDelete(item.id)} className="text-red-400 hover:text-red-600"><Trash2 size={12}/></button>}
         </div>
       </div>
 
-      {/* Body */}
+      {/* Card Body */}
       <div className="p-6 md:p-8 space-y-6">
-        <h2 className="text-2xl md:text-3xl font-black text-gray-900 leading-tight">{displayTitle}</h2>
-
+        <h2 className="text-2xl font-black leading-tight text-slate-800">{title}</h2>
+        
         <div className="space-y-4">
-          <div className="flex items-center text-blue-800 font-black text-xs uppercase tracking-[0.2em] bg-blue-50 w-max px-3 py-1 rounded border border-blue-100">
-            <FileText size={14} className="mr-2" /> AI DEEP ANALYSIS
+          <div className="flex items-center text-[11px] font-black text-emerald-600 bg-emerald-50 px-3 py-1 rounded-md w-fit border border-emerald-100 uppercase tracking-widest">
+            <Bot size={14} className="mr-2" /> 機械人處理：精簡資訊
+          </div>
+
+          {/* Structured Summary - Entity Extraction Mode */}
+          {processedSummary.length > 0 ? (
+              <div className="grid gap-3">
+                {processedSummary.map((point: any, index: number) => (
+                  <div key={index} className="flex items-start bg-slate-50 p-4 rounded-xl border border-slate-100">
+                    <div className="w-24 shrink-0 text-[10px] font-black text-slate-400 uppercase mt-0.5 tracking-wider">{point.label}</div>
+                    <div className="text-sm font-bold text-slate-700 leading-snug">{point.detail}</div>
+                  </div>
+                ))}
+              </div>
+          ) : (
+              // Fallback for legacy posts or manual posts
+              <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 text-sm text-slate-700 font-medium whitespace-pre-line">
+                  {backgroundInfo}
+              </div>
+          )}
+
+          {/* Context/Background */}
+          {processedSummary.length > 0 && backgroundInfo && (
+              <div className="bg-blue-50/50 p-4 rounded-xl flex items-start space-x-3 border border-blue-100">
+                <Info size={16} className="text-blue-500 shrink-0 mt-0.5" />
+                <p className="text-xs text-blue-800 leading-relaxed italic font-medium">{backgroundInfo}</p>
+              </div>
+          )}
+        </div>
+
+        {/* Source & Interaction */}
+        <div className="pt-6 border-t border-slate-100 flex flex-col md:flex-row justify-between items-center gap-4">
+          <div className="flex items-center text-xs font-bold text-slate-400">
+            <LinkIcon size={14} className="mr-2" />
+            來源：<span className="text-slate-600">{item.source || 'Verified Source'}</span>
           </div>
           
-          <div className={`relative ${!expanded && shouldShowExpand ? 'max-h-[300px] overflow-hidden' : ''}`}>
-            <p className="text-gray-800 text-base md:text-lg leading-relaxed whitespace-pre-line font-medium bg-slate-50 p-6 rounded-2xl border border-gray-100">
-              {truncatedSummary}
-            </p>
-            {!expanded && shouldShowExpand && (
-              <div className="absolute bottom-0 left-0 right-0 h-24 bg-gradient-to-t from-slate-50 to-transparent"></div>
-            )}
-          </div>
-
-          {shouldShowExpand && (
-            <button 
-              onClick={() => setExpanded(!expanded)}
-              className="w-full flex items-center justify-center gap-2 py-3 bg-white hover:bg-gray-50 border border-gray-200 rounded-xl text-gray-600 font-bold text-xs transition-all shadow-sm"
-            >
-              {expanded ? (
-                <>Collapse Content <ChevronUp size={14} /></>
-              ) : (
-                <>Read Full Analysis ({displaySummary.length - 300} chars) <ChevronDown size={14} /></>
+          <div className="flex items-center gap-4 w-full md:w-auto">
+              {item.sourceUrl && (
+                  <a 
+                    href={item.sourceUrl} 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="flex-1 md:flex-none flex items-center justify-center space-x-2 bg-slate-100 hover:bg-slate-200 px-6 py-2.5 rounded-xl text-xs font-black transition-all group text-slate-700"
+                  >
+                    <span>閱讀原始完整文章</span>
+                    <ExternalLink size={14} className="group-hover:translate-x-0.5 transition-transform" />
+                  </a>
               )}
-            </button>
-          )}
-        </div>
-
-        {/* Source */}
-        <div className="bg-gray-100/50 p-4 rounded-2xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border border-gray-200 border-dashed">
-          <div>
-            <span className="text-[10px] text-gray-400 font-black uppercase tracking-[0.2em] block mb-1">SOURCE ORIGIN</span>
-            <span className="text-sm font-bold text-gray-700 flex items-center">
-                <Globe size={14} className="mr-2 text-blue-500" /> {item.source || 'Aggregated Data'}
-            </span>
+              
+              <div className="flex space-x-2">
+                <button onClick={()=>onInteract(item.id, 'like')} className={`p-2 rounded-full border transition ${interactions.likes>0 ? 'bg-blue-50 border-blue-200 text-blue-600' : 'border-slate-200 text-slate-400 hover:bg-slate-50'}`}>
+                    <ThumbsUp size={16} fill={interactions.likes>0?"currentColor":"none"}/>
+                </button>
+                <button onClick={()=>onInteract(item.id, 'heart')} className={`p-2 rounded-full border transition ${interactions.hearts>0 ? 'bg-red-50 border-red-200 text-red-600' : 'border-slate-200 text-slate-400 hover:bg-slate-50'}`}>
+                    <Heart size={16} fill={interactions.hearts>0?"currentColor":"none"}/>
+                </button>
+              </div>
           </div>
-          {item.sourceUrl && (
-              <a 
-                href={item.sourceUrl} 
-                target="_blank" 
-                rel="noopener noreferrer"
-                className="flex items-center px-6 py-2 bg-blue-600 text-white font-black text-xs rounded-xl hover:bg-blue-700 shadow-lg transition-all active:scale-95 group"
-              >
-                VISIT SOURCE <ExternalLink size={14} className="ml-2 group-hover:translate-x-1 transition-transform" />
-              </a>
-          )}
-        </div>
-
-        {/* Footer */}
-        <div className="pt-6 border-t border-gray-100 flex justify-between items-center">
-          <div className="flex space-x-6">
-            <InteractionBtn icon={ThumbsUp} count={interactions.likes} color="text-blue-600" onClick={() => onInteract(item.id, 'like')} label="Agree" />
-            <InteractionBtn icon={Heart} count={interactions.hearts} color="text-red-600" onClick={() => onInteract(item.id, 'heart')} label="Support" />
-          </div>
-          {item.isRobot && (
-            <div className="hidden sm:flex items-center text-gray-400 text-[10px] font-bold uppercase tracking-widest">
-                <MessageSquareOff size={12} className="mr-1" /> Comments Locked
-            </div>
-          )}
         </div>
       </div>
-    </div>
+    </article>
   );
 };
-
-const InteractionBtn = ({ icon: Icon, count, color, onClick, label }: any) => (
-  <button onClick={onClick} className="flex items-center gap-2 group">
-    <div className={`p-2 rounded-xl bg-gray-50 group-hover:bg-gray-100 transition-all ${count > 0 ? color + ' shadow-sm' : 'text-gray-400'}`}>
-        <Icon size={20} fill={count > 0 ? 'currentColor' : 'none'} />
-    </div>
-    <div className="flex flex-col items-start leading-none">
-        <span className={`font-black text-sm ${count > 0 ? color : 'text-gray-400'}`}>{count || 0}</span>
-    </div>
-  </button>
-);

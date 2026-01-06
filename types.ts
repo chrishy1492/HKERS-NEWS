@@ -35,8 +35,13 @@ export interface Post {
   id: string;
   title: string; // English Title
   titleCN?: string; // Translated Title
-  content: string; // English Content
-  contentCN?: string; // Translated Content
+  content: string; // English Content or Fallback
+  contentCN?: string; // Translated Content or Fallback
+  
+  // New Structured Fields for Bot
+  processedSummary?: { label: string; detail: string; }[];
+  background?: string;
+
   region: string; // HK, TW, UK, US, CA, AU
   category: string; // RealEstate, News, Finance, etc.
   author: string; // 'Robot' or User Name
