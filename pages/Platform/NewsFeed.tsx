@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useOutletContext, useNavigate } from 'react-router-dom';
-import { Heart, ThumbsUp, Globe, ExternalLink, Clock, Bot, MessageSquareOff, FileText, ShieldCheck, Tag, MapPin, Filter, AlertTriangle, Link as LinkIcon, Info, Trash2 } from 'lucide-react';
+import { Heart, ThumbsUp, Globe, ExternalLink, Clock, Bot, MessageSquareOff, FileText, ShieldCheck, Tag, MapPin, Filter, AlertTriangle, Link as LinkIcon, Info, Trash2, Zap } from 'lucide-react';
 import { MockDB } from '../../services/mockDatabase';
 import { Post, User, UserRole } from '../../types';
 
@@ -124,16 +124,19 @@ export const NewsFeed: React.FC = () => {
             <div className="bg-emerald-600 text-white p-2 rounded-lg"><ShieldCheck size={20}/></div>
             <h1 className="font-black text-xl tracking-tight text-slate-800">HKER 真新聞監測系統</h1>
           </div>
-          <div className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-3 py-1 rounded-full border border-emerald-100 animate-pulse">
-            ● 36H 實時處理中
+          <div className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-3 py-1 rounded-full border border-emerald-100 flex items-center animate-pulse">
+            <Zap size={10} className="mr-1" /> 36H 全球實時監控
           </div>
         </div>
         
-        <div className="bg-amber-50 border border-amber-100 p-3 rounded-xl flex items-start space-x-3">
-          <AlertTriangle className="text-amber-500 shrink-0" size={16} />
-          <p className="text-xs text-amber-800 leading-relaxed font-medium">
-            <strong>機械人發帖協議：</strong> 本系統僅提取新聞之「事實重點」與「關鍵數據」。嚴禁全文複製以防侵權。所有內容均經過 AI 二次編寫與結構化整理，並強制標註原文連結。
-          </p>
+        <div className="bg-slate-900 text-white p-4 rounded-2xl flex items-start space-x-4 shadow-lg">
+          <Bot className="text-emerald-400 shrink-0 mt-1" size={20} />
+          <div className="space-y-1">
+            <p className="text-[10px] font-black uppercase tracking-widest text-emerald-400">Bot Protocol v4.0</p>
+            <p className="text-xs text-slate-300 leading-relaxed font-medium">
+              系統已對 <strong>CES 2026 / Global News</strong> 熱門標籤進行廣泛掃描。機械人發帖協議：提取重點資訊、重新整理數據、嚴禁直接複製。若 36 小時內無可靠資訊來源，系統將保持空白，絕不發佈模板內容。
+            </p>
+          </div>
         </div>
       </header>
 
@@ -171,13 +174,17 @@ export const NewsFeed: React.FC = () => {
             <p className="text-gray-400 font-bold animate-pulse text-sm">Bot aggregating latest 36h news...</p>
           </div>
       ) : posts.length === 0 ? (
-          <div className="bg-white p-16 rounded-3xl text-center border border-dashed border-gray-200">
-            <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-4 text-gray-300">
-                <Clock size={32} />
+          <div className="text-center py-20 bg-white rounded-[3rem] border border-dashed border-slate-200 space-y-4">
+            <div className="p-4 bg-slate-50 rounded-full w-fit mx-auto">
+              <AlertTriangle size={32} className="text-slate-200" />
             </div>
-            <p className="text-slate-500 font-black text-lg">目前無 36 小時內的真新聞重點</p>
-            <p className="text-slate-400 text-xs mt-2">系統已過濾過期資訊。請嘗試更換地區。</p>
-            <button onClick={()=>{setSelectedRegionCode('all'); setSelectedTopicCode('all');}} className="mt-6 text-blue-600 font-bold text-sm hover:underline">查看所有地區</button>
+            <div>
+              <p className="text-slate-900 font-black text-lg">目前尚無 36 小時內的真新聞</p>
+              <p className="text-slate-400 text-sm font-medium mt-1">機械人已自動屏蔽過時或低質量的模板內容。</p>
+            </div>
+            <button onClick={()=>{setSelectedRegionCode('all'); setSelectedTopicCode('all');}} className="mt-4 px-6 py-2 bg-slate-100 rounded-xl text-xs font-black text-slate-500 hover:bg-slate-200 transition-all">
+              顯示所有真新聞
+            </button>
           </div>
       ) : (
           <div className="space-y-6">
@@ -220,65 +227,65 @@ const NewsCard = ({ item, lang, interactions, onInteract, onDelete }: any) => {
   const backgroundInfo = item.background || (lang === 'cn' ? item.contentCN : item.content);
 
   return (
-    <article className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden transition-all hover:shadow-md">
+    <article className="group bg-white rounded-[2rem] border border-slate-100 shadow-sm overflow-hidden transition-all hover:shadow-xl hover:shadow-blue-900/5">
       {/* Card Header */}
-      <div className="px-6 py-4 bg-slate-50 border-b border-slate-100 flex justify-between items-center">
+      <div className="px-6 py-4 bg-slate-50/50 border-b border-slate-50 flex justify-between items-center">
         <div className="flex space-x-2">
-          <span className="bg-white px-2 py-1 rounded-md text-[10px] font-black border border-slate-200 text-slate-500 flex items-center uppercase">
+          <span className="bg-white px-3 py-1 rounded-lg text-[10px] font-black border border-slate-200 text-slate-500 uppercase tracking-tighter flex items-center">
             <MapPin size={10} className="mr-1" /> {displayRegion}
           </span>
-          <span className="bg-white px-2 py-1 rounded-md text-[10px] font-black border border-slate-200 text-slate-500 flex items-center uppercase">
+          <span className="bg-white px-3 py-1 rounded-lg text-[10px] font-black border border-slate-200 text-slate-500 uppercase tracking-tighter flex items-center">
             <Tag size={10} className="mr-1" /> {displayCategory}
           </span>
         </div>
         <div className="flex items-center gap-2">
             <div className="text-[10px] font-bold text-slate-400 flex items-center">
-              <Clock size={12} className="mr-1" /> {new Date(item.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+              <Clock size={12} className="mr-1" /> {new Date(item.timestamp).toLocaleString(undefined, { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
             </div>
             {onDelete && <button onClick={()=>onDelete(item.id)} className="text-red-400 hover:text-red-600"><Trash2 size={12}/></button>}
         </div>
       </div>
 
       {/* Card Body */}
-      <div className="p-6 md:p-8 space-y-6">
-        <h2 className="text-2xl font-black leading-tight text-slate-800">{title}</h2>
+      <div className="p-8 space-y-6">
+        <h2 className="text-2xl font-black leading-tight text-slate-800 group-hover:text-blue-600 transition-colors">{title}</h2>
         
         <div className="space-y-4">
-          <div className="flex items-center text-[11px] font-black text-emerald-600 bg-emerald-50 px-3 py-1 rounded-md w-fit border border-emerald-100 uppercase tracking-widest">
-            <Bot size={14} className="mr-2" /> 機械人處理：精簡資訊
+          <div className="flex items-center text-[10px] font-black text-blue-600 bg-blue-50 px-3 py-1.5 rounded-lg w-fit border border-blue-100 uppercase tracking-[0.2em]">
+            <Zap size={14} className="mr-2" /> 重點提取摘要 (Processed Data)
           </div>
 
           {/* Structured Summary - Entity Extraction Mode */}
           {processedSummary.length > 0 ? (
-              <div className="grid gap-3">
+              <div className="grid gap-2">
                 {processedSummary.map((point: any, index: number) => (
-                  <div key={index} className="flex items-start bg-slate-50 p-4 rounded-xl border border-slate-100">
-                    <div className="w-24 shrink-0 text-[10px] font-black text-slate-400 uppercase mt-0.5 tracking-wider">{point.label}</div>
-                    <div className="text-sm font-bold text-slate-700 leading-snug">{point.detail}</div>
+                  <div key={index} className="flex items-start bg-slate-50 p-4 rounded-2xl border border-slate-100 hover:bg-white hover:border-blue-100 transition-all">
+                    <div className="w-24 shrink-0 text-[10px] font-black text-slate-400 uppercase mt-0.5 tracking-widest">{point.label}</div>
+                    <div className="text-[14px] font-bold text-slate-700 leading-snug">{point.detail}</div>
                   </div>
                 ))}
               </div>
           ) : (
               // Fallback for legacy posts or manual posts
-              <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 text-sm text-slate-700 font-medium whitespace-pre-line">
+              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 text-sm text-slate-700 font-medium whitespace-pre-line leading-relaxed">
                   {backgroundInfo}
               </div>
           )}
 
           {/* Context/Background */}
           {processedSummary.length > 0 && backgroundInfo && (
-              <div className="bg-blue-50/50 p-4 rounded-xl flex items-start space-x-3 border border-blue-100">
-                <Info size={16} className="text-blue-500 shrink-0 mt-0.5" />
-                <p className="text-xs text-blue-800 leading-relaxed italic font-medium">{backgroundInfo}</p>
+              <div className="bg-slate-50 p-4 rounded-2xl flex items-start space-x-3 border border-slate-100 border-dashed">
+                <Info size={16} className="text-slate-400 shrink-0 mt-0.5" />
+                <p className="text-[13px] text-slate-500 font-medium leading-relaxed italic">{backgroundInfo}</p>
               </div>
           )}
         </div>
 
         {/* Source & Interaction */}
-        <div className="pt-6 border-t border-slate-100 flex flex-col md:flex-row justify-between items-center gap-4">
+        <div className="pt-6 border-t border-slate-50 flex flex-col md:flex-row justify-between items-center gap-4">
           <div className="flex items-center text-xs font-bold text-slate-400">
             <LinkIcon size={14} className="mr-2" />
-            來源：<span className="text-slate-600">{item.source || 'Verified Source'}</span>
+            原始來源：<span className="text-slate-600 ml-1">{item.source || 'Verified Source'}</span>
           </div>
           
           <div className="flex items-center gap-4 w-full md:w-auto">
@@ -287,18 +294,18 @@ const NewsCard = ({ item, lang, interactions, onInteract, onDelete }: any) => {
                     href={item.sourceUrl} 
                     target="_blank" 
                     rel="noopener noreferrer"
-                    className="flex-1 md:flex-none flex items-center justify-center space-x-2 bg-slate-100 hover:bg-slate-200 px-6 py-2.5 rounded-xl text-xs font-black transition-all group text-slate-700"
+                    className="flex-1 md:flex-none flex items-center justify-center space-x-2 bg-slate-900 text-white px-8 py-3 rounded-2xl text-xs font-black transition-all hover:bg-blue-600 active:scale-95 shadow-lg shadow-slate-200 group"
                   >
-                    <span>閱讀原始完整文章</span>
+                    <span>閱讀原文完整報導</span>
                     <ExternalLink size={14} className="group-hover:translate-x-0.5 transition-transform" />
                   </a>
               )}
               
               <div className="flex space-x-2">
-                <button onClick={()=>onInteract(item.id, 'like')} className={`p-2 rounded-full border transition ${interactions.likes>0 ? 'bg-blue-50 border-blue-200 text-blue-600' : 'border-slate-200 text-slate-400 hover:bg-slate-50'}`}>
+                <button onClick={()=>onInteract(item.id, 'like')} className={`p-3 rounded-xl border transition ${interactions.likes>0 ? 'bg-blue-50 border-blue-200 text-blue-600' : 'border-slate-200 text-slate-400 hover:bg-slate-50'}`}>
                     <ThumbsUp size={16} fill={interactions.likes>0?"currentColor":"none"}/>
                 </button>
-                <button onClick={()=>onInteract(item.id, 'heart')} className={`p-2 rounded-full border transition ${interactions.hearts>0 ? 'bg-red-50 border-red-200 text-red-600' : 'border-slate-200 text-slate-400 hover:bg-slate-50'}`}>
+                <button onClick={()=>onInteract(item.id, 'heart')} className={`p-3 rounded-xl border transition ${interactions.hearts>0 ? 'bg-red-50 border-red-200 text-red-600' : 'border-slate-200 text-slate-400 hover:bg-slate-50'}`}>
                     <Heart size={16} fill={interactions.hearts>0?"currentColor":"none"}/>
                 </button>
               </div>

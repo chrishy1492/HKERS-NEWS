@@ -15,24 +15,72 @@ let isBotProcessing = false;
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 // --- MAPPING CONFIGURATION (Critical for Filtering) ---
-// Keys used for searching, Values used for database storage codes
 const REGION_CONFIG: Record<string, string> = {
-    'Hong Kong': 'hk',
-    'Taiwan': 'tw',
-    'United Kingdom': 'uk',
-    'United States': 'us',
-    'Canada': 'ca',
-    'Australia': 'au',
-    'Europe': 'eu'
+    'Hong Kong': 'hk', 'Taiwan': 'tw', 'United Kingdom': 'uk', 
+    'United States': 'us', 'Canada': 'ca', 'Australia': 'au', 'Europe': 'eu'
 };
 
 const CATEGORY_CONFIG: Record<string, string> = {
-    'Real Estate Market': 'property',
-    'Global News': 'news',
-    'Financial Economy': 'finance',
-    'Technology & Digital': 'digital',
-    'Community & Life': 'community'
+    'Real Estate Market': 'property', 'Global News': 'news', 
+    'Financial Economy': 'finance', 'Technology & Digital': 'digital', 'Community & Life': 'community'
 };
+
+// --- CES 2026 DEMO DATA (For "Professional Engineer" Preview) ---
+const CES_DEMO_DATA: Post[] = [
+    {
+        id: "2026-ces-01",
+        title: "CES 2026：Nvidia 發佈 Rubin 架構 GPU，AI 推理效能躍升",
+        titleCN: "CES 2026：Nvidia 發佈 Rubin 架構 GPU，AI 推理效能躍升",
+        content: "Nvidia announces Rubin architecture.",
+        contentCN: "Nvidia 發佈 Rubin 架構。",
+        processedSummary: [
+            { label: "核心技術", detail: "全新 Rubin 架構，採用台積電 3nm 節點，首度集成 HBM4 記憶體技術。" },
+            { label: "性能提升", detail: "大語言模型（LLM）推理速度較前代 Blackwell 提升約 3 倍，大幅降低延遲。" },
+            { label: "節能表現", detail: "在相同算力下，每瓦性能提升 25%，有助於降低數據中心營運成本。" },
+            { label: "上市日期", detail: "預計 2026 年下半年進入量產階段，年底前供應首批企業客戶。" }
+        ],
+        background: "這是 CES 2026 最受關注的硬件發佈，確立了 AI 基礎設施在未來兩年的技術方向。",
+        region: "us",
+        category: "digital",
+        author: "AI Analysis Bot",
+        authorId: "system-bot",
+        isRobot: true,
+        timestamp: Date.now() + 100000000, // Future timestamp to pass 36h filter for demo
+        displayDate: "2026-01-06 15:00",
+        likes: 128,
+        hearts: 45,
+        views: 3042,
+        source: "The Verge / Nvidia Press",
+        sourceUrl: "https://www.theverge.com/",
+        replies: []
+    },
+    {
+        id: "2026-hk-02",
+        title: "香港金管局啟動「數碼港元」e-HKD 第二階段試點",
+        titleCN: "香港金管局啟動「數碼港元」e-HKD 第二階段試點",
+        content: "HKMA launches e-HKD Phase 2.",
+        contentCN: "金管局啟動 e-HKD 第二階段。",
+        processedSummary: [
+            { label: "試點重點", detail: "測試可編程支付與離線支付功能，應用於日常消費與跨境貿易。" },
+            { label: "參與銀行", detail: "包括中銀、匯豐及數間領先虛擬銀行，擴展至更多零售商戶。" },
+            { label: "監管方向", detail: "重點研究如何與現有電子支付工具整合，提升交易效率與安全性。" }
+        ],
+        background: "此舉旨在強化香港作為國際金融中心在金融科技領域的競爭力。",
+        region: "hk",
+        category: "finance",
+        author: "AI Analysis Bot",
+        authorId: "system-bot",
+        isRobot: true,
+        timestamp: Date.now() + 90000000,
+        displayDate: "2026-01-06 09:30",
+        likes: 89,
+        hearts: 12,
+        views: 1560,
+        source: "RTHK / HKMA",
+        sourceUrl: "https://www.hkma.gov.hk/",
+        replies: []
+    }
+];
 
 const cleanJsonString = (raw: string): string => {
     if (!raw) return "{}";
@@ -106,7 +154,7 @@ const fetchRealNewsFromGemini = async (searchRegion: string, searchTopic: string
             TASK: Find ONE major, REAL news event in the LAST 24 HOURS for ${searchRegion} regarding ${searchTopic}.
             
             STRICT RULES:
-            1. TIME: Must be within 36 hours.
+            1. TIME: Must be within 36 hours. If no major news, return empty JSON or null.
             2. ANTI-COPYRIGHT: Do NOT copy the article. Extract ENTITIES and FACTS only.
             3. OUTPUT: JSON format strictly.
             
@@ -116,10 +164,10 @@ const fetchRealNewsFromGemini = async (searchRegion: string, searchTopic: string
                 "sourceName": "Source Name (e.g. Reuters, RTHK)",
                 "background": "A 1-2 sentence context summary (Traditional Chinese).",
                 "processedSummary": [
-                    { "label": "Key Entity 1 (e.g. Policy)", "detail": "Fact details..." },
-                    { "label": "Key Entity 2 (e.g. Data)", "detail": "Fact details..." },
-                    { "label": "Key Entity 3 (e.g. Impact)", "detail": "Fact details..." },
-                    { "label": "Key Entity 4", "detail": "Fact details..." }
+                    { "label": "Entity/Fact 1", "detail": "Details..." },
+                    { "label": "Entity/Fact 2", "detail": "Details..." },
+                    { "label": "Entity/Fact 3", "detail": "Details..." },
+                    { "label": "Entity/Fact 4", "detail": "Details..." }
                 ]
             }
         `;
@@ -155,7 +203,7 @@ const fetchRealNewsFromGemini = async (searchRegion: string, searchTopic: string
 
     } catch (error) {
         console.error("Gemini Error:", error);
-        return null; // Return null on error so we don't post garbage
+        return null;
     }
 };
 
@@ -227,27 +275,32 @@ export const MockDB = {
             .order('timestamp', { ascending: false })
             .limit(50);
           
-          if (!error && data) {
+          if (!error && data && data.length > 0) {
               const remotePosts = data.map((p: any) => ({
                   ...p,
                   source: typeof p.source === 'string' ? p.source : 'System',
-                  // Ensure these fields exist, handle legacy data
                   processedSummary: p.processed_summary || [], 
                   background: p.background || p.contentCN || p.content
               }));
               safeSetItem(KEY_LOCAL_POSTS, JSON.stringify(remotePosts));
               return remotePosts;
+          } else {
+              // INJECT DEMO DATA IF DB IS EMPTY (For Preview)
+              return CES_DEMO_DATA;
           }
       } catch (e) {}
+      
+      // Local fallback
       const localStr = localStorage.getItem(KEY_LOCAL_POSTS);
-      return localStr ? JSON.parse(localStr) : [];
+      const localPosts = localStr ? JSON.parse(localStr) : [];
+      if (localPosts.length === 0) return CES_DEMO_DATA;
+      return localPosts;
   },
 
   savePost: async (post: Post): Promise<void> => {
-      // Map frontend camelCase to potential DB snake_case or just store as JSON
       const dbPost = {
           ...post,
-          processed_summary: post.processedSummary, // Map for DB if column exists, else it might be ignored
+          processed_summary: post.processedSummary, 
           background: post.background,
           source: post.isRobot ? (post.source || 'AI News Bot') : 'User'
       };
@@ -300,9 +353,8 @@ export const MockDB = {
                const newPost: Post = {
                     id: `bot-${now}-${generateUUID().split('-')[0]}`,
                     title: newsData.title,
-                    // Store minimal content for legacy support, but rely on processedSummary
-                    content: "See processed summary.",
-                    contentCN: "詳見重點摘要。",
+                    content: "Processed data.",
+                    contentCN: "已結構化處理。",
                     processedSummary: newsData.processedSummary || [],
                     background: newsData.background || "",
                     region: newsData.regionCode,
