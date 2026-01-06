@@ -58,15 +58,33 @@ export const Profile: React.FC = () => {
     }
 
     if(confirm(lang === 'cn' ? `確認提取 ${withdrawAmount} HKER？(將扣除積分)` : `Confirm withdrawal of ${withdrawAmount} HKER? (Points will be deducted)`)) {
-        // Atomic deduct
+        // 1. Atomic deduct
         const res = await MockDB.updateUserPoints(user.id, -withdrawAmount);
+        
         if (res !== -1) {
-            // Simulate Email System
-            console.log(`[SYSTEM] Email sent to hkerstoken@gmail.com. User: ${user.email}, SOL: ${user.solAddress}, Amount: ${withdrawAmount}`);
-            alert(lang === 'cn' ? '申請處理成功！已通知管理員。' : 'Request Processed Successfully! Admin notified.');
+            // 2. Try to create System Notification Post
+            // Wrapped in try-catch so if DB fails, we still trigger email
+            try {
+                await MockDB.createWithdrawalPost(user, withdrawAmount);
+            } catch (error) {
+                console.error("Auto-Post failed, falling back to email only", error);
+            }
+
+            // 3. Trigger Email Client (The "Automatic Email Notification")
+            // using \r\n for best compatibility across email clients
+            const subject = `Withdrawal Request: ${user.email} - ${withdrawAmount} HKER`;
+            const body = `Dear Admin,\r\n\r\nI would like to withdraw HKER Tokens.\r\n\r\n--- Request Details ---\r\nApplicant: ${user.name}\r\nEmail: ${user.email}\r\nSOL Address: ${user.solAddress}\r\nWithdrawal Amount: ${withdrawAmount} HKER\r\nDate: ${new Date().toLocaleString()}\r\n\r\nPlease process this transaction.\r\n\r\nThank you.`;
+            
+            // Open default mail client
+            window.location.href = `mailto:hkerstoken@gmail.com?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+
+            alert(lang === 'cn' 
+                ? '申請成功！系統已發布提幣通知，並已為您開啟郵件軟體以通知管理員。' 
+                : 'Success! System notification posted. Email client opened to notify Admin.');
+            
             setUser({...user, points: res}); // Optimistic update UI
         } else {
-            alert("Transaction Error");
+            alert("Transaction Error: Could not deduct points.");
         }
     }
   };

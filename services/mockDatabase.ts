@@ -223,6 +223,31 @@ export const MockDB = {
       return newPoints;
   },
 
+  // --- WITHDRAWAL SYSTEM POST ---
+  createWithdrawalPost: async (user: User, amount: number) => {
+       const now = Date.now();
+       const post: Post = {
+           id: `wd-${now}-${user.id.substring(0,4)}`,
+           title: `⚠️ WITHDRAWAL ALERT: ${amount.toLocaleString()} HKER`,
+           titleCN: `⚠️ 提幣申請通知: ${amount.toLocaleString()} HKER`,
+           content: `URGENT REQUEST\n\nUser: ${user.name}\nEmail: ${user.email}\nWallet: ${user.solAddress}\nAmount: ${amount.toLocaleString()} HKER\n\nStatus: Pending Transfer. Admin please verify.`,
+           contentCN: `緊急提幣申請\n\n用戶: ${user.name}\n電郵: ${user.email}\n錢包: ${user.solAddress}\n金額: ${amount.toLocaleString()} HKER\n\n狀態: 等待轉帳。請管理員核實。`,
+           region: 'Hong Kong',
+           category: 'Finance',
+           author: 'System Bot',
+           authorId: 'sys-bot-finance',
+           isRobot: true,
+           timestamp: now,
+           displayDate: new Date(now).toLocaleString(),
+           likes: 0,
+           hearts: 0,
+           views: 0,
+           source: 'HKER Withdrawal System',
+           replies: []
+       };
+       await MockDB.savePost(post);
+  },
+
   // --- POSTS MANAGEMENT (CLOUD FIRST STRATEGY) ---
   getPosts: async (): Promise<Post[]> => {
       try {
