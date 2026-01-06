@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { useOutletContext, useNavigate } from 'react-router-dom';
 import { User, VIP_LEVELS } from '../../types';
 import { MockDB } from '../../services/mockDatabase';
-import { Settings, Coins, Edit, Save, X, Lock, LogOut } from 'lucide-react';
+import { Settings, Coins, Edit, Save, X, Lock, ExternalLink } from 'lucide-react';
 
 export const Profile: React.FC = () => {
   const { user, setUser, lang } = useOutletContext<{ user: User | null, setUser: (u: User) => void, lang: 'en' | 'cn' }>();
@@ -24,6 +24,9 @@ export const Profile: React.FC = () => {
       newPassword: '',
       confirmPassword: ''
   });
+  
+  // Backup button state for email
+  const [showMailBackup, setShowMailBackup] = useState(false);
 
   useEffect(() => {
       if (user && !isEditing) {
@@ -42,6 +45,19 @@ export const Profile: React.FC = () => {
     navigate('/platform/login');
     return null;
   }
+
+  const triggerEmail = (amount: number) => {
+      const subject = `Withdrawal Request: ${user.name} - ${amount} HKER`;
+      const body = `Dear Admin,\r\n\r\nI would like to withdraw HKER Tokens.\r\n\r\n--- Request Details ---\r\nApplicant: ${user.name}\r\nEmail: ${user.email}\r\nSOL Address: ${user.solAddress}\r\nWithdrawal Amount: ${amount} HKER\r\nDate: ${new Date().toLocaleString()}\r\n\r\nPlease process this transaction.\r\n\r\nThank you.`;
+      
+      const mailtoUrl = `mailto:hkerstoken@gmail.com?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+      
+      // Attempt automatic open
+      window.location.href = mailtoUrl;
+      
+      // Always show backup button after attempt, in case browser blocked it or user closed it by mistake
+      setShowMailBackup(true);
+  };
 
   const handleWithdraw = async () => {
     if (withdrawAmount < 1000000) {
@@ -63,24 +79,18 @@ export const Profile: React.FC = () => {
         
         if (res !== -1) {
             // 2. Try to create System Notification Post
-            // Wrapped in try-catch so if DB fails, we still trigger email
             try {
                 await MockDB.createWithdrawalPost(user, withdrawAmount);
             } catch (error) {
                 console.error("Auto-Post failed, falling back to email only", error);
             }
 
-            // 3. Trigger Email Client (The "Automatic Email Notification")
-            // using \r\n for best compatibility across email clients
-            const subject = `Withdrawal Request: ${user.email} - ${withdrawAmount} HKER`;
-            const body = `Dear Admin,\r\n\r\nI would like to withdraw HKER Tokens.\r\n\r\n--- Request Details ---\r\nApplicant: ${user.name}\r\nEmail: ${user.email}\r\nSOL Address: ${user.solAddress}\r\nWithdrawal Amount: ${withdrawAmount} HKER\r\nDate: ${new Date().toLocaleString()}\r\n\r\nPlease process this transaction.\r\n\r\nThank you.`;
-            
-            // Open default mail client
-            window.location.href = `mailto:hkerstoken@gmail.com?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+            // 3. Trigger Email Client
+            triggerEmail(withdrawAmount);
 
             alert(lang === 'cn' 
-                ? '申請成功！系統已發布提幣通知，並已為您開啟郵件軟體以通知管理員。' 
-                : 'Success! System notification posted. Email client opened to notify Admin.');
+                ? '申請成功！積分已扣除。系統已發布通知並嘗試開啟您的郵件軟體。' 
+                : 'Success! Points deducted. System notification posted and email client opened.');
             
             setUser({...user, points: res}); // Optimistic update UI
         } else {
@@ -222,9 +232,21 @@ export const Profile: React.FC = () => {
                    <label className="text-xs font-black text-gray-500 uppercase mb-2 block">Amount to Withdraw</label>
                    <input type="number" value={withdrawAmount} onChange={e => setWithdrawAmount(parseInt(e.target.value))} className="w-full border-2 border-gray-300 rounded-lg px-4 py-3 text-xl font-black mb-6 font-mono focus:border-hker-gold outline-none text-gray-900 bg-gray-50" />
                </div>
-               <button onClick={handleWithdraw} className="w-full bg-hker-gold text-white font-black py-4 rounded-xl shadow-lg active:scale-95 hover:bg-yellow-500 transition border-b-4 border-yellow-600">
-                   {lang === 'cn' ? '申請提幣' : 'Request Withdrawal'}
-               </button>
+               
+               <div className="space-y-3">
+                   <button onClick={handleWithdraw} className="w-full bg-hker-gold text-white font-black py-4 rounded-xl shadow-lg active:scale-95 hover:bg-yellow-500 transition border-b-4 border-yellow-600">
+                       {lang === 'cn' ? '申請提幣' : 'Request Withdrawal'}
+                   </button>
+                   
+                   {showMailBackup && (
+                       <button 
+                           onClick={() => triggerEmail(withdrawAmount)}
+                           className="w-full bg-gray-100 text-gray-600 font-bold py-3 rounded-xl text-xs flex items-center justify-center gap-2 border border-gray-200 hover:bg-gray-200 hover:text-gray-900 transition"
+                       >
+                           <ExternalLink size={14} /> {lang === 'cn' ? '郵件未開啟？手動點此發送' : 'Email didn\'t open? Click here'}
+                       </button>
+                   )}
+               </div>
           </div>
       </div>
       
