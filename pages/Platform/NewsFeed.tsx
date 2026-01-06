@@ -10,12 +10,15 @@ const CATEGORY_MAP: Record<string, string> = {
     'property': '地產',
     'news': '時事',
     'finance': '財經',
+    'entertainment': '娛樂',
+    'travel': '旅遊',
     'digital': '數碼',
-    'community': '社區',
+    'auto': '汽車',
+    'religion': '宗教',
+    'offers': '優惠',
+    'campus': '校園',
     'weather': '天氣',
-    'Real Estate': '地產', 
-    'Current Affairs': '時事',
-    'Finance': '財經'
+    'community': '社區活動'
 };
 
 const REGION_MAP: Record<string, string> = {
@@ -25,10 +28,7 @@ const REGION_MAP: Record<string, string> = {
     'us': '美國',
     'ca': '加拿大',
     'au': '澳洲',
-    'eu': '歐洲',
-    'Hong Kong': '中國香港', 
-    'Taiwan': '台灣',
-    'UK': '英國'
+    'eu': '歐洲'
 };
 
 export const NewsFeed: React.FC = () => {
@@ -155,17 +155,31 @@ export const NewsFeed: React.FC = () => {
       </header>
 
       {/* FILTER SYSTEM */}
-      <div className="flex flex-col space-y-4 px-2">
-          <div className="flex items-center space-x-2 text-[11px] font-black text-slate-400 uppercase tracking-widest">
-            <MapPin size={14}/> <span>地理位置篩選</span>
+      <div className="bg-white p-6 rounded-[2rem] border border-slate-200 shadow-sm space-y-6">
+          {/* REGION FILTER */}
+          <div className="space-y-3">
+              <div className="flex items-center space-x-2 text-[11px] font-black text-slate-400 uppercase tracking-widest">
+                <MapPin size={14}/> <span>地區搜尋 (Regions)</span>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <FilterBtn active={selectedRegionCode === 'all'} label="全部" onClick={() => setSelectedRegionCode('all')} />
+                {Object.entries(REGION_MAP).map(([code, label]) => (
+                    <FilterBtn key={code} active={selectedRegionCode === code} label={label} onClick={() => setSelectedRegionCode(code)} />
+                ))}
+              </div>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <FilterBtn active={selectedRegionCode === 'all'} label="全部" onClick={() => setSelectedRegionCode('all')} />
-            {Object.entries(REGION_MAP).map(([code, label]) => {
-                // Ensure we only show the main regions, filter out legacy/duplicates
-                if(code.length > 2 && code !== 'Hong Kong') return null;
-                return <FilterBtn key={code} active={selectedRegionCode === code} label={label} onClick={() => setSelectedRegionCode(code)} />
-            })}
+
+          {/* TOPIC FILTER */}
+          <div className="space-y-3">
+              <div className="flex items-center space-x-2 text-[11px] font-black text-slate-400 uppercase tracking-widest">
+                <Tag size={14}/> <span>內容主題 (Topics)</span>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <FilterBtn active={selectedTopicCode === 'all'} label="全部" onClick={() => setSelectedTopicCode('all')} color="bg-emerald-600" />
+                {Object.entries(CATEGORY_MAP).map(([code, label]) => (
+                    <FilterBtn key={code} active={selectedTopicCode === code} label={label} onClick={() => setSelectedTopicCode(code)} color="bg-emerald-600" />
+                ))}
+              </div>
           </div>
       </div>
 
@@ -208,13 +222,13 @@ export const NewsFeed: React.FC = () => {
   );
 };
 
-const FilterBtn = ({ active, label, onClick }: any) => (
+const FilterBtn = ({ active, label, onClick, color = "bg-blue-600" }: any) => (
     <button 
       onClick={onClick}
-      className={`px-5 py-2.5 rounded-xl text-xs font-black transition-all ${
+      className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
         active 
-          ? 'bg-blue-600 text-white shadow-lg shadow-blue-200 scale-105' 
-          : 'bg-white border border-slate-200 text-slate-500 hover:border-blue-300'
+          ? `${color} text-white shadow-md` 
+          : 'bg-slate-50 text-slate-500 border border-slate-200 hover:bg-slate-100'
       }`}
     >
       {label}

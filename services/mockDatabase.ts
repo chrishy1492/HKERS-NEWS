@@ -21,8 +21,12 @@ const REGION_CONFIG: Record<string, string> = {
 };
 
 const CATEGORY_CONFIG: Record<string, string> = {
-    'Real Estate Market': 'property', 'Global News': 'news', 
-    'Financial Economy': 'finance', 'Technology & Digital': 'digital', 'Community & Life': 'community'
+    'Real Estate': 'property', 'Global News': 'news', 
+    'Finance': 'finance', 'Technology': 'digital', 
+    'Entertainment': 'entertainment', 'Travel': 'travel',
+    'Automotive': 'auto', 'Religion': 'religion',
+    'Offers': 'offers', 'Campus': 'campus',
+    'Weather': 'weather', 'Community': 'community'
 };
 
 // --- CES 2026 HIGH-FIDELITY GLOBAL DATA ---
@@ -49,8 +53,8 @@ const CES_DEMO_DATA: Post[] = [
         likes: 520,
         hearts: 180,
         views: 12500,
-        source: "NVIDIA Newsroom / Reuters",
-        sourceUrl: "https://nvidianews.nvidia.com/news/ces-2026-vera-rubin-announcement",
+        source: "NVIDIA Newsroom",
+        sourceUrl: "https://nvidianews.nvidia.com/",
         replies: []
     },
     {
@@ -74,33 +78,8 @@ const CES_DEMO_DATA: Post[] = [
         likes: 340,
         hearts: 45,
         views: 8900,
-        source: "SCMP / Bloomberg",
-        sourceUrl: "https://www.scmp.com/business/article/20260106/hk-property-outlook",
-        replies: []
-    },
-    {
-        id: "2026-intel-panther-lake",
-        title: "Intel 發布 18A 製程 Core Ultra 3：首款美國製造 AI PC 晶片",
-        titleCN: "Intel 發布 18A 製程 Core Ultra 3：首款美國製造 AI PC 晶片",
-        content: "Intel launches Panther Lake.",
-        processedSummary: [
-          { label: "製程突破", detail: "採用 Intel 18A (1.8nm 等效) 製程，為首款完全在美國境內製造的先進處理器。" },
-          { label: "AI 優化", detail: "內置全新 NPU，本地端 AI 運算能力顯著提升，支援 1 月 6 日起預購。" },
-          { label: "圖形性能", detail: "內建 GPU 效能翻倍，主要對標 Apple M5 晶片在移動端表現。" }
-        ],
-        background: "Panther Lake 被視為 Intel 晶圓代工轉型的關鍵考卷，市場反應極度正面。",
-        region: "us",
-        category: "digital",
-        author: "AI Analysis Bot",
-        authorId: "system-bot",
-        isRobot: true,
-        timestamp: Date.now() + 96000000,
-        displayDate: "2026-01-06 13:15",
-        likes: 210,
-        hearts: 60,
-        views: 5600,
-        source: "Intel Newsroom / TechCrunch",
-        sourceUrl: "https://www.intel.com/news/ces-2026-panther-lake",
+        source: "Bloomberg",
+        sourceUrl: "#",
         replies: []
     },
     {
@@ -110,10 +89,9 @@ const CES_DEMO_DATA: Post[] = [
         content: "Australia Heatwave.",
         processedSummary: [
           { label: "極端氣溫", detail: "全國近半地區氣溫超過 45°C，為 2020 年『黑夏』以來最嚴重情況。" },
-          { label: "應急預警", detail: "多個州份進入緊急狀態，嚴禁一切野外用火，電力系統面臨負荷高峰。" },
-          { label: "生態影響", detail: "極端乾旱加劇，農業與野生動物棲息地受到嚴重威脅。" }
+          { label: "應急預警", detail: "多個州份進入緊急狀態，嚴禁一切野外用火，電力系統面臨負荷高峰。" }
         ],
-        background: "全球氣候變遷持續惡化，南半球的夏季極端天氣頻率顯著上升。",
+        background: "南半球夏季極端天氣頻率顯著上升。",
         region: "au",
         category: "weather",
         author: "AI Analysis Bot",
@@ -124,21 +102,20 @@ const CES_DEMO_DATA: Post[] = [
         likes: 150,
         hearts: 200,
         views: 7800,
-        source: "ABC News / Reuters",
-        sourceUrl: "https://www.abc.net.au/news/2026-01-06/extreme-heatwave-australia",
+        source: "Reuters",
+        sourceUrl: "#",
         replies: []
     },
     {
         id: "2026-ca-wage-increase",
-        title: "加拿大聯邦最低工資今起調升至 $17.50，應對生活成本上漲",
-        titleCN: "加拿大聯邦最低工資今起調升至 $17.50，應對生活成本上漲",
+        title: "加拿大聯邦最低工資調升至 $17.50，今起正式生效",
+        titleCN: "加拿大聯邦最低工資調升至 $17.50，今起正式生效",
         content: "Canada wage increase.",
         processedSummary: [
-          { label: "政策生效", detail: "2026 年 1 月 6 日起生效，旨在緩解通脹對中低收入者的壓力。" },
-          { label: "福利調整", detail: "各項政府補貼與福利支付亦同步進行指數化上調，漲幅約 2%。" },
-          { label: "企業反應", detail: "餐飲及零售業預計成本將有所上升，可能帶動部分終端價格調整。" }
+          { label: "政策生效", detail: "2026 年 1 月 6 日起生效，旨在緩解通脹壓力。" },
+          { label: "福利調整", detail: "各項政府補貼與福利支付亦同步進行指數化上調。" }
         ],
-        background: "聯邦政府試圖在維持經濟競爭力與保障勞工權益之間取得平衡。",
+        background: "聯邦政府試圖平衡經濟競爭力與勞工權益。",
         region: "ca",
         category: "finance",
         author: "AI Analysis Bot",
@@ -149,33 +126,8 @@ const CES_DEMO_DATA: Post[] = [
         likes: 400,
         hearts: 20,
         views: 6500,
-        source: "CBC / Global News",
-        sourceUrl: "https://www.cbc.ca/news/canada/minimum-wage-increase-2026",
-        replies: []
-    },
-    {
-        id: "2026-eu-snow",
-        title: "歐洲強烈寒潮來襲：英法多地雪災導致交通大面積中斷",
-        titleCN: "歐洲強烈寒潮來襲：英法多地雪災導致交通大面積中斷",
-        content: "Europe Snowstorm.",
-        processedSummary: [
-          { label: "雪災影響", detail: "倫敦及巴黎多個機場航班取消，跨國鐵路 Eurostar 出現嚴重延誤。" },
-          { label: "氣溫驟降", detail: "寒潮席捲英國、法國及荷蘭，氣溫較往年同期平均水平低 10-12°C。" },
-          { label: "基礎設施", detail: "部分地區出現電力供應不穩，政府發布最高級別寒冷預警。" }
-        ],
-        background: "北極震盪加劇，導致歐洲出現近年罕見的劇烈寒潮與暴雪。",
-        region: "eu",
-        category: "weather",
-        author: "AI Analysis Bot",
-        authorId: "system-bot",
-        isRobot: true,
-        timestamp: Date.now() + 90000000,
-        displayDate: "2026-01-06 17:45",
-        likes: 280,
-        hearts: 100,
-        views: 9200,
-        source: "BBC / Euronews",
-        sourceUrl: "https://www.bbc.com/news/world-europe-20260106",
+        source: "Global News",
+        sourceUrl: "#",
         replies: []
     }
 ];
