@@ -102,15 +102,17 @@ const fetchRealNewsFromGemini = async (region: string, topic: string) => {
 
             REQUIREMENTS:
             1. The news MUST have happened within the last 24 hours.
-            2. Languages: Output titles and content in BOTH Traditional Chinese (HK/TW style) and English.
-            3. Response MUST be a valid, parseable JSON object. Do not include markdown formatting.
-
+            2. ANALYSIS: Provide a DETAILED, STRUCTURED analysis (not just a summary). 
+            3. CONTENT FORMAT: Use numbered lists (1. Market Overview, 2. Key Drivers, 3. Future Outlook).
+            4. LENGTH: The content should be substantial (approx 150-200 words).
+            5. COPYRIGHT: You MUST include a disclaimer that this is AI-processed content.
+            
             JSON Schema:
             {
                 "title": "English Headline",
                 "titleCN": "繁體中文標題",
-                "content": "English summary (2-3 short bullet points)",
-                "contentCN": "繁體中文摘要 (2-3 句)",
+                "content": "[AI Core Summary - No Full-Text Copying]\n\n1. Overview: ...\n2. Analysis: ...\n3. Conclusion: ...",
+                "contentCN": "【AI 重點摘要 - 嚴禁全文複製以保護版權】\n\n1. 市場概覽：...\n2. 關鍵分析：...\n3. 未來展望：...",
                 "category": "${topic}",
                 "sourceName": "Actual News Agency Name"
             }
@@ -155,7 +157,7 @@ const fetchRealNewsFromGemini = async (region: string, topic: string) => {
             title: `Community Update: ${topic}`,
             titleCN: `社區動態：${region} ${topic} 討論`,
             content: "We are aggregating the latest updates for this topic. Please check back shortly or share your own insights.",
-            contentCN: "系統正在整合最新資訊，歡迎各位會員分享您的見解。",
+            contentCN: "【系統訊息】\n\n1. 狀態：系統正在整合最新資訊。\n2. 建議：歡迎各位會員分享您的見解。\n3. 提示：請稍後刷新頁面查看最新報導。",
             category: topic,
             sourceName: "HKER Community Bot",
             url: ""
@@ -287,7 +289,7 @@ export const MockDB = {
                lastTime = latest[0].timestamp;
            }
 
-           // 2. 冷卻檢查：調整為 15 分鐘 (900000ms)，確保每小時有多次檢查
+           // 2. 冷卻檢查：調整為 15 分鐘 (900000ms)
            const COOLDOWN = 900000; 
            if (!force && lastTime > 0 && (now - lastTime < COOLDOWN)) {
                console.log(`🤖 Bot resting. Next check in: ${((COOLDOWN - (now - lastTime))/60000).toFixed(1)} mins`);
