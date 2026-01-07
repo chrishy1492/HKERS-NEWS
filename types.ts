@@ -54,6 +54,7 @@ export interface Post {
   views: number;
   source?: string;
   sourceUrl?: string; // Stores the original external news link
+  isEnglishSource?: boolean; // For "Global Source" badging
   botId?: string;
   replies: Comment[]; 
   // Track user interactions { userId: { likes: 0-3, hearts: 0-3 } }
