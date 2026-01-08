@@ -1,92 +1,49 @@
 
 import React, { useState, useEffect } from 'react';
 import { useOutletContext, useNavigate } from 'react-router-dom';
-import { Heart, ThumbsUp, Globe, ExternalLink, Clock, Bot, MapPin, Tag, Filter, AlertTriangle, Link as LinkIcon, Info, Trash2, Cpu, BarChart3, ShieldCheck, Share2, TrendingUp, Zap, Newspaper, AlertCircle, Home, CheckCircle2, Map } from 'lucide-react';
+import { Heart, ThumbsUp, Share2, Search, Clock, MessageSquare, Bot, ChevronLeft, ChevronRight, CloudLightning, ExternalLink, ShieldAlert, Globe, Trash2, Languages } from 'lucide-react';
 import { MockDB } from '../../services/mockDatabase';
-import { Post, User, UserRole } from '../../types';
+import { Post, User, REGIONS, CATEGORIES, REGIONS_CN, CATEGORIES_CN, UserRole } from '../../types';
 
-// --- MAPPING CONFIGURATION ---
-const CATEGORY_MAP: Record<string, string> = {
-    'property': '地產',
-    'news': '時事',
-    'finance': '財經',
-    'entertainment': '娛樂',
-    'travel': '旅遊',
-    'digital': '數碼',
-    'auto': '汽車',
-    'religion': '宗教',
-    'offers': '優惠',
-    'campus': '校園',
-    'weather': '天氣',
-    'community': '社區活動'
-};
-
-const REGION_MAP: Record<string, string> = {
-    'hk': '中國香港',
-    'tw': '台灣',
-    'uk': '英國',
-    'us': '美國',
-    'ca': '加拿大',
-    'au': '澳洲',
-    'eu': '歐洲'
-};
+const ITEMS_PER_PAGE = 10;
+const FORUM_URL = window.location.origin + '/#/platform';
 
 export const NewsFeed: React.FC = () => {
   const { user, lang } = useOutletContext<{ user: User | null, lang: 'en' | 'cn' }>();
   const navigate = useNavigate();
-  
   const [posts, setPosts] = useState<Post[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [selectedRegion, setSelectedRegion] = useState('All');
+  const [selectedCategory, setSelectedCategory] = useState('All');
+  const [searchTerm, setSearchTerm] = useState('');
   
-  // Filter States
-  const [selectedRegionCode, setSelectedRegionCode] = useState('all');
-  const [selectedTopicCode, setSelectedTopicCode] = useState('all');
+  // Translation State per Post
+  const [translatedPosts, setTranslatedPosts] = useState<Set<string>>(new Set());
   
-  const fetchAndFilterPosts = async () => {
-      setLoading(true);
-      // 1. Trigger Bot Check (Silent)
-      await MockDB.triggerRobotPost();
-      
-      // 2. Get All Posts
-      const allPosts = await MockDB.getPosts();
-      
-      // 3. Apply Strict Filters (Region Code + Topic Code + 36h Time Limit)
-      // Note: Future dated posts (demo data) are considered "new" and will pass the > 36h ago check
-      const now = Date.now();
-      const thirtySixHoursAgo = now - (36 * 60 * 60 * 1000);
-      
-      const filtered = allPosts.filter(p => {
-          // Time Filter: Only Real News within 36h for bots
-          if (p.isRobot && p.timestamp < thirtySixHoursAgo) return false;
+  const [currentPage, setCurrentPage] = useState(1);
+  const [isSyncing, setIsSyncing] = useState(false);
 
-          // Region Filter (Match code)
-          if (selectedRegionCode !== 'all' && p.region !== selectedRegionCode) return false;
-
-          // Topic Filter (Match code)
-          if (selectedTopicCode !== 'all' && p.category !== selectedTopicCode) return false;
-
-          return true;
-      });
-
-      // Sort by newest
-      filtered.sort((a, b) => b.timestamp - a.timestamp);
-
-      setPosts(filtered);
-      setLoading(false);
+  const fetchData = async () => {
+      setIsSyncing(true);
+      const data = await MockDB.getPosts();
+      setPosts(data);
+      setIsSyncing(false);
   };
 
   useEffect(() => {
-      fetchAndFilterPosts();
-      // Auto-refresh every 15s
-      const interval = setInterval(fetchAndFilterPosts, 15000);
-      return () => clearInterval(interval);
-  }, [selectedRegionCode, selectedTopicCode]);
+    fetchData();
+    const syncInterval = setInterval(fetchData, 10000); // Poll for updates every 10s
+
+    return () => {
+        clearInterval(syncInterval);
+    };
+  }, []);
 
   const handleInteraction = async (postId: string, type: 'like' | 'heart') => {
     if (!user) {
-        if(confirm('Please Login to interact!')) navigate('/platform/login');
-        return;
+      if(confirm('Please Login to interact!')) navigate('/platform/login');
+      return;
     }
+
     const postIndex = posts.findIndex(p => p.id === postId);
     if (postIndex === -1) return;
     const post = { ...posts[postIndex] };
@@ -95,254 +52,193 @@ export const NewsFeed: React.FC = () => {
     if (!post.userInteractions[user.id]) post.userInteractions[user.id] = { likes: 0, hearts: 0 };
 
     if (type === 'like') {
-        if (post.userInteractions[user.id].likes >= 3) return alert("Max 3 likes.");
+        if (post.userInteractions[user.id].likes >= 3) return alert("Max 3 likes per post.");
         post.userInteractions[user.id].likes++;
         post.likes++;
-    } else {
-        if (post.userInteractions[user.id].hearts >= 3) return alert("Max 3 hearts.");
+    } else if (type === 'heart') {
+        if (post.userInteractions[user.id].hearts >= 3) return alert("Max 3 hearts per post.");
         post.userInteractions[user.id].hearts++;
         post.hearts++;
     }
     
+    // Optimistic Update
     const newPosts = [...posts];
     newPosts[postIndex] = post;
     setPosts(newPosts);
     
+    // Cloud Save
     await MockDB.savePost(post);
-    await MockDB.updateUserPoints(user.id, 100);
+    // Rewards
+    await MockDB.updateUserPoints(user.id, 150);
   };
 
-  const isAdmin = user && (user.role === UserRole.ADMIN || user.role === UserRole.MODERATOR);
-  const handleDelete = async (id: string) => {
-      if(confirm('Delete Post?')) {
-          await MockDB.deletePost(id);
-          fetchAndFilterPosts();
+  const toggleTranslation = (postId: string) => {
+      const newSet = new Set(translatedPosts);
+      if (newSet.has(postId)) newSet.delete(postId);
+      else newSet.add(postId);
+      setTranslatedPosts(newSet);
+  };
+
+  const handleDeletePost = async (postId: string) => {
+      if (confirm("Are you sure you want to remove this post?")) {
+          await MockDB.deletePost(postId);
+          fetchData();
       }
   };
 
+  const handleShare = (post: Post) => {
+      const url = `${FORUM_URL}?post=${post.id}`;
+      navigator.clipboard.writeText(url);
+      alert("Post Link Copied!");
+  };
+
+  const filteredPosts = posts.filter(post => {
+    const matchesRegion = selectedRegion === 'All' || post.region === selectedRegion;
+    const matchesCategory = selectedCategory === 'All' || post.category === selectedCategory;
+    const matchesSearch = post.title.toLowerCase().includes(searchTerm.toLowerCase()) || post.content.toLowerCase().includes(searchTerm.toLowerCase());
+    return matchesRegion && matchesCategory && matchesSearch;
+  });
+
+  const displayPosts = filteredPosts.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
+
+  const isAdmin = user && (user.role === UserRole.ADMIN || user.role === UserRole.MODERATOR);
+
   return (
-    <div className="max-w-5xl mx-auto space-y-8 pb-24 font-sans selection:bg-blue-100">
-      
-      {/* HEADER: SYSTEM STATUS & DISCLAIMER */}
-      <header className="bg-white/95 backdrop-blur-xl border-b border-slate-200 sticky top-0 z-30 shadow-sm p-6 rounded-b-[2rem]">
-        <div className="flex justify-between items-center">
-          <div className="flex items-center space-x-3">
-            <div className="bg-slate-900 text-white p-2.5 rounded-xl shadow-lg">
-              <Bot size={22}/>
+    <div className="max-w-4xl mx-auto">
+      {/* Top Bar */}
+      <div className="bg-white p-4 rounded-xl shadow-sm mb-6 sticky top-0 z-10 border border-gray-100">
+        <div className="flex justify-between items-center mb-4">
+            <div className="text-xs text-gray-400 font-bold flex items-center gap-1">
+                <CloudLightning size={12} className={isSyncing ? "text-blue-500 animate-pulse" : "text-green-500"}/>
+                {isSyncing ? 'Syncing Cloud...' : 'Live Connected'}
             </div>
-            <div>
-              <h1 className="font-black text-xl tracking-tighter text-slate-900">HKER INTEL BOT</h1>
-              <div className="flex items-center space-x-2">
-                <span className="text-[10px] font-black text-blue-600 uppercase tracking-widest">v5.0 Trusted Engine</span>
-                <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse"></span>
-              </div>
-            </div>
-          </div>
-          <div className="flex items-center space-x-6">
-            <div className="hidden sm:block text-right">
-              <p className="text-[10px] font-bold text-slate-400 uppercase leading-none">Scanning Domains</p>
-              <p className="text-[11px] font-black text-slate-600">BBC, Reuters, Verge, SCMP...</p>
-            </div>
-          </div>
+            {isAdmin && (
+                <div className="text-xs bg-red-100 text-red-600 px-2 py-1 rounded font-bold">Admin Mode Active</div>
+            )}
         </div>
-      </header>
 
-      {/* FILTER SYSTEM */}
-      <div className="bg-white p-8 rounded-[2.5rem] border border-slate-200 shadow-xl shadow-slate-200/40 space-y-6">
-          {/* REGION FILTER */}
-          <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-2 text-[11px] font-black text-slate-400 uppercase tracking-widest">
-                    <MapPin size={14} className="text-blue-500"/> <span>Region 覆蓋地區</span>
-                </div>
-                <span className="text-[10px] font-bold text-slate-300">Auto-Polling Active</span>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <FilterBtn active={selectedRegionCode === 'all'} label="全部" onClick={() => setSelectedRegionCode('all')} />
-                {Object.entries(REGION_MAP).map(([code, label]) => (
-                    <FilterBtn key={code} active={selectedRegionCode === code} label={label} onClick={() => setSelectedRegionCode(code)} />
-                ))}
-              </div>
-          </div>
-
-          {/* TOPIC FILTER */}
-          <div className="space-y-3 pt-4 border-t border-slate-50">
-              <div className="flex items-center space-x-2 text-[11px] font-black text-slate-400 uppercase tracking-widest">
-                <Tag size={14} className="text-emerald-500"/> <span>Channel 主題頻道</span>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <FilterBtn active={selectedTopicCode === 'all'} label="全部" onClick={() => setSelectedTopicCode('all')} color="bg-emerald-600" />
-                {Object.entries(CATEGORY_MAP).map(([code, label]) => (
-                    <FilterBtn key={code} active={selectedTopicCode === code} label={label} onClick={() => setSelectedTopicCode(code)} color="bg-emerald-600" />
-                ))}
-              </div>
-          </div>
-      </div>
-
-      {/* FEED CONTENT */}
-      {loading ? (
-          <div className="py-24 text-center space-y-4">
-            <div className="w-10 h-10 border-4 border-slate-900 border-t-transparent rounded-full animate-spin mx-auto"></div>
-            <p className="text-slate-400 text-sm font-bold animate-pulse tracking-wide">優先抓取全球公信力英文來源並進行 AI 摘要改寫...</p>
-          </div>
-      ) : posts.length === 0 ? (
-          <div className="text-center py-40 bg-white rounded-[3rem] border-2 border-dashed border-slate-200 flex flex-col items-center space-y-6">
-            <div className="p-6 bg-slate-50 rounded-full text-slate-200">
-              <AlertCircle size={60} />
+        <div className="flex gap-2 mb-4">
+            <div className="flex-1 flex items-center bg-gray-100 rounded-lg px-3">
+                <Search className="text-gray-400" size={18} />
+                <input type="text" placeholder="Search topics..." className="flex-1 bg-transparent p-2 outline-none text-sm" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
             </div>
-            <div className="space-y-2">
-              <p className="text-slate-900 font-black text-xl tracking-tight">36 小時內暫無符合公信力標準的新聞</p>
-              <p className="text-slate-400 text-[13px] font-bold max-w-md mx-auto">
-                為了保證資訊質量，機器人已過濾所有非白名單來源或低質內容。請切換地區或主題。
-              </p>
-            </div>
-            <button 
-                onClick={()=>{setSelectedRegionCode('all'); setSelectedTopicCode('all');}} 
-                className="px-8 py-3 bg-slate-900 text-white rounded-xl text-[12px] font-black hover:bg-blue-600 transition-all shadow-lg shadow-slate-200"
-            >
-              重置所有搜尋條件
-            </button>
-          </div>
-      ) : (
-          <div className="space-y-10">
-            {posts.map(post => (
-              <NewsCard 
-                key={post.id} 
-                item={post} 
-                lang={lang}
-                interactions={post.userInteractions?.[user?.id || ''] || {likes: 0, hearts: 0}}
-                onInteract={handleInteraction}
-                onDelete={isAdmin ? handleDelete : undefined}
-              />
-            ))}
-          </div>
-      )}
-
-      {/* 底部浮動菜單 */}
-      <nav className="fixed bottom-8 left-1/2 -translate-x-1/2 w-[90%] max-w-sm bg-slate-900/90 backdrop-blur-2xl border border-white/10 p-2 rounded-full shadow-2xl z-50 flex justify-between">
-        <button className="flex-1 flex flex-col items-center py-2.5 text-blue-400">
-          <TrendingUp size={20}/><span className="text-[9px] font-black mt-1 uppercase tracking-widest">Hot</span>
-        </button>
-        <button className="flex-1 flex flex-col items-center py-2.5 text-slate-400 hover:text-white transition-colors">
-          <Globe size={20}/><span className="text-[9px] font-black mt-1 uppercase tracking-widest">Global</span>
-        </button>
-        <button className="flex-1 flex flex-col items-center py-2.5 text-slate-400 hover:text-white transition-colors">
-          <Newspaper size={20}/><span className="text-[9px] font-black mt-1 uppercase tracking-widest">Local</span>
-        </button>
-        <button className="flex-1 flex flex-col items-center py-2.5 text-slate-400 hover:text-white transition-colors">
-          <Map size={20}/><span className="text-[9px] font-black mt-1 uppercase tracking-widest">Travel</span>
-        </button>
-      </nav>
-    </div>
-  );
-};
-
-const FilterBtn = ({ active, label, onClick, color = "bg-blue-600" }: any) => (
-    <button 
-      onClick={onClick}
-      className={`px-4 py-2 rounded-xl text-[12px] font-bold transition-all ${
-        active 
-          ? `${color} text-white shadow-lg shadow-blue-200` 
-          : 'bg-slate-50 text-slate-500 hover:bg-slate-100 border border-transparent hover:border-slate-200'
-      }`}
-    >
-      {label}
-    </button>
-);
-
-const NewsCard = ({ item, lang, interactions, onInteract, onDelete }: any) => {
-  const title = lang === 'cn' ? (item.titleCN || item.title) : (item.title || item.titleCN);
-  const processedSummary = item.processedSummary || [];
-  
-  return (
-    <article className="bg-white rounded-[2.5rem] border border-slate-200 shadow-sm overflow-hidden transition-all hover:shadow-xl group">
-      {/* 來源與信任標誌 */}
-      <div className="px-8 py-5 bg-slate-50/50 border-b border-slate-100 flex justify-between items-center">
-        <div className="flex items-center space-x-3">
-          <div className="bg-white p-1.5 rounded-lg shadow-sm border border-slate-200">
-            <CheckCircle2 size={16} className="text-blue-600" />
-          </div>
-          <span className="text-[11px] font-black text-slate-800 uppercase tracking-wider">{item.source || 'Trusted Source'}</span>
-          {item.isEnglishSource && (
-            <span className="text-[9px] font-black bg-blue-100 text-blue-700 px-2 py-0.5 rounded-md uppercase">Global Source</span>
-          )}
-        </div>
-        <div className="flex items-center gap-3">
-            <div className="flex items-center text-[11px] font-bold text-slate-400">
-                <Clock size={12} className="mr-1.5" />
-                {new Date(item.timestamp).toLocaleString(undefined, { month: '2-digit', day: '2-digit', hour: '2-digit', minute:'2-digit' })}
-            </div>
-            {onDelete && <button onClick={()=>onDelete(item.id)} className="text-red-400 hover:text-red-600"><Trash2 size={14}/></button>}
-        </div>
-      </div>
-
-      <div className="p-8 md:p-12 space-y-8">
-        <div className="space-y-4">
-          <div className="flex items-center space-x-2">
-            <span className="px-3 py-1 bg-slate-900 text-white text-[9px] font-black rounded-lg uppercase">{item.region}</span>
-            <span className="px-3 py-1 bg-slate-100 text-slate-600 text-[9px] font-black rounded-lg uppercase border border-slate-200">{item.category}</span>
-          </div>
-          <h2 className="text-2xl md:text-3xl font-black leading-[1.2] text-slate-900 group-hover:text-blue-700 transition-colors">
-            {title}
-          </h2>
         </div>
         
-        {/* 重點摘要區塊 */}
-        <div className="space-y-5">
-          <div className="flex items-center space-x-2 text-[11px] font-black text-blue-600 bg-blue-50 w-fit px-4 py-1.5 rounded-full border border-blue-100">
-            <Zap size={14} /> <span>機器人自動摘要 (防侵權改寫模式)</span>
-          </div>
-
-          <div className="grid gap-3">
-            {processedSummary.length > 0 ? processedSummary.map((point: any, index: number) => {
-                const isDisclaimer = point.label.includes('聲明') || point.label.includes('提示') || point.label.includes('說明');
-                return (
-                    <div key={index} className={`flex items-start p-5 rounded-2xl border ${isDisclaimer ? 'bg-amber-50/30 border-amber-100' : 'bg-slate-50/50 border-slate-100 hover:bg-white hover:border-blue-100 transition-all shadow-sm shadow-transparent hover:shadow-blue-100/50'}`}>
-                        <div className={`w-20 shrink-0 text-[10px] font-black uppercase mt-1 tracking-tighter ${isDisclaimer ? 'text-amber-600' : 'text-slate-400'}`}>
-                        {point.label}
-                        </div>
-                        <div className={`text-[15px] font-bold leading-relaxed ${isDisclaimer ? 'text-amber-800/80 italic' : 'text-slate-700'}`}>
-                        {point.detail}
-                        </div>
-                    </div>
-                );
-            }) : (
-                <div className="bg-slate-50 p-6 rounded-2xl border border-slate-100 text-sm text-slate-700 font-medium whitespace-pre-line leading-relaxed">
-                    {item.background || item.contentCN || item.content}
-                </div>
-            )}
-          </div>
+        {/* Regions */}
+        <div className="flex overflow-x-auto gap-2 mb-2 pb-2 scrollbar-hide">
+            <button onClick={() => setSelectedRegion('All')} className={`px-3 py-1 rounded-full whitespace-nowrap text-xs font-bold border ${selectedRegion === 'All' ? 'bg-hker-black text-white' : 'bg-white text-gray-600'}`}>ALL</button>
+            {REGIONS.map(r => (
+            <button key={r} onClick={() => setSelectedRegion(r)} className={`px-3 py-1 rounded-full whitespace-nowrap text-xs font-bold border ${selectedRegion === r ? 'bg-hker-red text-white' : 'bg-white text-gray-600'}`}>{lang === 'cn' ? REGIONS_CN[r] : r}</button>
+            ))}
         </div>
-
-        {/* 頁腳 */}
-        <div className="pt-8 border-t border-slate-50 flex flex-col md:flex-row justify-between items-center gap-4">
-          <div className="flex items-center gap-4">
-             <div className="flex space-x-2">
-                <button onClick={()=>onInteract(item.id, 'like')} className={`p-3 rounded-xl border transition ${interactions.likes>0 ? 'bg-blue-50 border-blue-200 text-blue-600' : 'border-slate-200 text-slate-400 hover:bg-slate-50'}`}>
-                    <ThumbsUp size={18} fill={interactions.likes>0?"currentColor":"none"}/>
-                </button>
-                <button onClick={()=>onInteract(item.id, 'heart')} className={`p-3 rounded-xl border transition ${interactions.hearts>0 ? 'bg-red-50 border-red-200 text-red-600' : 'border-slate-200 text-slate-400 hover:bg-slate-50'}`}>
-                    <Heart size={18} fill={interactions.hearts>0?"currentColor":"none"}/>
-                </button>
-             </div>
-             <p className="text-[11px] font-bold text-slate-400 italic hidden md:block">
-                * 內容已通過 2026 年最新公信力白名單校驗
-             </p>
-          </div>
-          
-          {item.sourceUrl && (
-              <a 
-                href={item.sourceUrl} 
-                target="_blank" 
-                rel="noopener noreferrer"
-                className="w-full md:w-auto flex items-center justify-center space-x-3 bg-slate-900 text-white px-8 py-4 rounded-2xl text-[13px] font-black hover:bg-blue-600 transition-all shadow-xl shadow-slate-200 active:scale-95"
-              >
-                <span>閱讀公信力來源原文</span>
-                <ExternalLink size={16} />
-              </a>
-          )}
+        
+        {/* Categories */}
+        <div className="flex overflow-x-auto gap-2 pb-2 scrollbar-hide">
+            <button onClick={() => setSelectedCategory('All')} className={`px-3 py-1 rounded-full whitespace-nowrap text-xs font-bold border ${selectedCategory === 'All' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600'}`}>ALL TOPICS</button>
+            {CATEGORIES.map(c => (
+            <button key={c} onClick={() => setSelectedCategory(c)} className={`px-3 py-1 rounded-full whitespace-nowrap text-xs font-bold border ${selectedCategory === c ? 'bg-blue-500 text-white' : 'bg-white text-gray-600'}`}>{lang === 'cn' ? CATEGORIES_CN[c] : c}</button>
+            ))}
         </div>
       </div>
-    </article>
+
+      {/* Feed */}
+      <div className="space-y-6 pb-10">
+        {displayPosts.map(post => {
+            const isTranslated = translatedPosts.has(post.id);
+            const displayTitle = isTranslated && post.titleCN ? post.titleCN : post.title;
+            const displayContent = isTranslated && post.contentCN ? post.contentCN : post.content;
+            
+            // Fix [object Object] by explicitly handling the source and excluding corrupted data
+            let displaySource = 'AI Source';
+            if (typeof post.source === 'string' && post.source !== '[object Object]') {
+                displaySource = post.source;
+            }
+
+            return (
+              <div key={post.id} className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-md transition duration-300">
+                {/* Header */}
+                <div className="px-5 py-4 border-b border-gray-50 flex justify-between items-start bg-gray-50/50">
+                    <div className="flex items-center gap-3">
+                        <div className={`w-10 h-10 rounded-full flex items-center justify-center text-xs font-bold border ${post.isRobot ? 'bg-blue-100 text-blue-600' : 'bg-hker-yellow text-black'}`}>
+                            {post.isRobot ? <Bot size={20} /> : <span className="text-lg">🦁</span>}
+                        </div>
+                        <div>
+                            <div className="flex items-center gap-2">
+                                <p className="font-bold text-sm text-gray-800">{post.author}</p>
+                                {post.isRobot && <span className="text-[10px] bg-gray-200 px-1.5 rounded text-gray-500">NEWS BOT</span>}
+                            </div>
+                            <p className="text-xs text-gray-400 flex items-center gap-1 mt-0.5">
+                                <Clock size={10} /> {post.displayDate} • {post.region} • {post.category}
+                            </p>
+                        </div>
+                    </div>
+                    <div className="flex gap-2">
+                         <button onClick={() => handleShare(post)} className="p-2 text-gray-400 hover:text-green-600"><Share2 size={16}/></button>
+                         {isAdmin && (
+                             <button onClick={() => handleDeletePost(post.id)} className="p-2 text-red-400 hover:text-red-600"><Trash2 size={16} /></button>
+                         )}
+                    </div>
+                </div>
+
+                {/* Content */}
+                <div className="p-5">
+                    <h3 className="text-lg font-bold mb-4 text-gray-900 leading-tight">{displayTitle}</h3>
+                    <p className="text-gray-700 text-sm leading-7 mb-4 whitespace-pre-line">{displayContent}</p>
+                    
+                    {/* Robot Tools */}
+                    {post.isRobot && (
+                        <div className="flex flex-col gap-2 mb-4">
+                            <div className="bg-amber-50 p-3 rounded-lg border border-amber-100 text-xs">
+                                <div className="flex justify-between items-center mb-1">
+                                    <span className="font-bold text-amber-700 flex items-center gap-1"><ShieldAlert size={12}/> News Source</span>
+                                    {post.sourceUrl && (
+                                        <a href={post.sourceUrl} target="_blank" className="flex items-center gap-1 text-blue-600 hover:underline font-bold"><ExternalLink size={12} /> Read Full Article</a>
+                                    )}
+                                </div>
+                                <p className="text-amber-800/70 italic">Content aggregated from {displaySource}.</p>
+                            </div>
+                            
+                            <button 
+                                onClick={() => toggleTranslation(post.id)} 
+                                className="self-start flex items-center gap-2 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-full text-xs font-bold hover:bg-blue-100 transition"
+                            >
+                                <Languages size={14} /> {isTranslated ? 'Show Original (English)' : '翻譯成中文 (Translate)'}
+                            </button>
+                        </div>
+                    )}
+
+                    {/* Interactions */}
+                    <div className="flex items-center justify-between pt-4 border-t border-gray-50 mt-2">
+                        <div className="flex gap-6">
+                            <button onClick={() => handleInteraction(post.id, 'heart')} className="flex items-center gap-1.5 text-gray-500 hover:text-red-500 group">
+                                <Heart size={20} className={post.userInteractions?.[user?.id || '']?.hearts ? "fill-red-500 text-red-500" : "group-hover:scale-110 transition"} /> 
+                                <span className="text-sm font-bold">{post.hearts}</span>
+                            </button>
+                            <button onClick={() => handleInteraction(post.id, 'like')} className="flex items-center gap-1.5 text-gray-500 hover:text-blue-500 group">
+                                <ThumbsUp size={20} className={post.userInteractions?.[user?.id || '']?.likes ? "fill-blue-500 text-blue-500" : "group-hover:scale-110 transition"} /> 
+                                <span className="text-sm font-bold">{post.likes}</span>
+                            </button>
+                        </div>
+                        {!post.isRobot && (
+                            <div className="text-xs text-gray-400">
+                                {post.replies?.length || 0} Comments
+                            </div>
+                        )}
+                    </div>
+                </div>
+              </div>
+            );
+        })}
+
+        {/* Pagination */}
+        {filteredPosts.length > ITEMS_PER_PAGE && (
+            <div className="flex justify-center gap-4 pt-4">
+                <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="p-2 border rounded-full disabled:opacity-50 hover:bg-gray-100"><ChevronLeft size={20} /></button>
+                <span className="text-sm font-bold pt-2">{currentPage} / {Math.ceil(filteredPosts.length/ITEMS_PER_PAGE)}</span>
+                <button onClick={() => setCurrentPage(p => Math.min(Math.ceil(filteredPosts.length/ITEMS_PER_PAGE), p + 1))} disabled={currentPage === Math.ceil(filteredPosts.length/ITEMS_PER_PAGE)} className="p-2 border rounded-full disabled:opacity-50 hover:bg-gray-100"><ChevronRight size={20} /></button>
+            </div>
+        )}
+      </div>
+    </div>
   );
 };

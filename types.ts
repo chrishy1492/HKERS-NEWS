@@ -35,13 +35,8 @@ export interface Post {
   id: string;
   title: string; // English Title
   titleCN?: string; // Translated Title
-  content: string; // English Content or Fallback
-  contentCN?: string; // Translated Content or Fallback
-  
-  // New Structured Fields for Bot
-  processedSummary?: { label: string; detail: string; }[];
-  background?: string;
-
+  content: string; // English Content
+  contentCN?: string; // Translated Content
   region: string; // HK, TW, UK, US, CA, AU
   category: string; // RealEstate, News, Finance, etc.
   author: string; // 'Robot' or User Name
@@ -54,7 +49,6 @@ export interface Post {
   views: number;
   source?: string;
   sourceUrl?: string; // Stores the original external news link
-  isEnglishSource?: boolean; // For "Global Source" badging
   botId?: string;
   replies: Comment[]; 
   // Track user interactions { userId: { likes: 0-3, hearts: 0-3 } }
