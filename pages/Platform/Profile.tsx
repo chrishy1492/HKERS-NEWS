@@ -128,99 +128,99 @@ export const Profile: React.FC = () => {
                  <div className="absolute bottom-0 right-0 bg-hker-red text-xs font-bold px-2 py-1 rounded-full border border-white">ID: {user.avatarId}</div>
              </div>
              <div className="flex-1 text-center md:text-left space-y-2">
-                <h1 className="text-3xl font-bold">{user.name}</h1>
+                <h1 className="text-3xl font-black text-white drop-shadow-md">{user.name}</h1>
                 <p className="text-gray-400 font-mono text-xs">UUID: {user.id}</p>
-                <div className="inline-flex items-center gap-2 bg-hker-yellow text-black px-4 py-1.5 rounded-full font-bold text-sm shadow-md">
+                <div className="inline-flex items-center gap-2 bg-hker-yellow text-black px-4 py-1.5 rounded-full font-bold text-sm shadow-md border-2 border-white">
                     {currentRank.title}
                 </div>
              </div>
-             <div className="text-center bg-white/10 p-4 rounded-xl backdrop-blur-sm border border-white/10 min-w-[180px]">
+             <div className="text-center bg-white/10 p-4 rounded-xl backdrop-blur-sm border-2 border-white/20 min-w-[180px]">
                  <div className="text-3xl font-bold text-hker-yellow font-mono">{user.points.toLocaleString()}</div>
-                 <div className="text-xs text-gray-300 tracking-widest mt-1">HKER POINTS</div>
+                 <div className="text-xs text-white font-bold tracking-widest mt-1">HKER POINTS</div>
              </div>
          </div>
       </div>
       
       <div className="grid md:grid-cols-2 gap-6">
           {/* Profile Edit */}
-          <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-             <div className="flex justify-between items-center mb-6 pb-2 border-b">
-                 <h3 className="font-bold flex items-center gap-2 text-gray-700"><Settings size={18} /> {lang === 'cn' ? '用戶資料' : 'Account Details'}</h3>
+          <div className="bg-white p-6 rounded-xl shadow-sm border-2 border-gray-200">
+             <div className="flex justify-between items-center mb-6 pb-2 border-b-2 border-gray-100">
+                 <h3 className="font-black text-lg flex items-center gap-2 text-gray-900"><Settings size={20} className="text-gray-700" /> {lang === 'cn' ? '用戶資料' : 'Account Details'}</h3>
                  {!isEditing ? (
-                     <button onClick={() => setIsEditing(true)} className="text-blue-500 hover:text-blue-700 text-xs font-bold flex items-center gap-1 bg-blue-50 px-3 py-1 rounded-full"><Edit size={14}/> {lang === 'cn' ? '編輯' : 'Edit'}</button>
+                     <button onClick={() => setIsEditing(true)} className="text-blue-600 hover:text-blue-800 text-xs font-bold flex items-center gap-1 bg-blue-50 border border-blue-200 px-3 py-1.5 rounded-full"><Edit size={14}/> {lang === 'cn' ? '編輯' : 'Edit'}</button>
                  ) : (
                      <div className="flex gap-2">
-                         <button onClick={() => setIsEditing(false)} className="text-gray-500 text-xs font-bold bg-gray-100 px-3 py-1 rounded-full"><X size={14}/></button>
-                         <button onClick={handleSaveProfile} className="text-green-500 text-xs font-bold bg-green-50 px-3 py-1 rounded-full"><Save size={14}/></button>
+                         <button onClick={() => setIsEditing(false)} className="text-gray-600 text-xs font-bold bg-gray-100 border border-gray-300 px-3 py-1.5 rounded-full"><X size={14}/></button>
+                         <button onClick={handleSaveProfile} className="text-green-600 text-xs font-bold bg-green-50 border border-green-300 px-3 py-1.5 rounded-full"><Save size={14}/></button>
                      </div>
                  )}
              </div>
              <div className="space-y-4 text-sm">
-                 <div className="grid grid-cols-3 gap-2 items-center">
-                     <span className="text-gray-400 text-xs font-bold uppercase">Full Name</span> 
-                     <div className="col-span-2">{isEditing ? <input value={formData.name} onChange={e=>setFormData({...formData, name:e.target.value})} className="border w-full p-2 rounded bg-gray-50"/> : <span className="font-medium">{user.name}</span>}</div>
+                 <div className="grid grid-cols-3 gap-2 items-center border-b border-gray-100 pb-2">
+                     <span className="text-gray-500 text-xs font-black uppercase">Full Name</span> 
+                     <div className="col-span-2">{isEditing ? <input value={formData.name} onChange={e=>setFormData({...formData, name:e.target.value})} className="border-2 border-gray-300 w-full p-2 rounded bg-white text-gray-900 font-bold focus:border-hker-red outline-none"/> : <span className="font-black text-gray-900 text-base">{user.name}</span>}</div>
                  </div>
-                 <div className="grid grid-cols-3 gap-2 items-center">
-                     <span className="text-gray-400 text-xs font-bold uppercase">Email</span> 
-                     <div className="col-span-2">{isEditing ? <input value={formData.email} onChange={e=>setFormData({...formData, email:e.target.value})} className="border w-full p-2 rounded bg-gray-50"/> : <span className="font-medium">{user.email}</span>}</div>
+                 <div className="grid grid-cols-3 gap-2 items-center border-b border-gray-100 pb-2">
+                     <span className="text-gray-500 text-xs font-black uppercase">Email</span> 
+                     <div className="col-span-2">{isEditing ? <input value={formData.email} onChange={e=>setFormData({...formData, email:e.target.value})} className="border-2 border-gray-300 w-full p-2 rounded bg-white text-gray-900 font-bold focus:border-hker-red outline-none"/> : <span className="font-black text-gray-900 text-sm break-all">{user.email}</span>}</div>
                  </div>
-                 <div className="grid grid-cols-3 gap-2 items-center">
-                     <span className="text-gray-400 text-xs font-bold uppercase">Phone</span> 
-                     <div className="col-span-2">{isEditing ? <input value={formData.phone} onChange={e=>setFormData({...formData, phone:e.target.value})} className="border w-full p-2 rounded bg-gray-50"/> : <span className="font-medium">{user.phone}</span>}</div>
+                 <div className="grid grid-cols-3 gap-2 items-center border-b border-gray-100 pb-2">
+                     <span className="text-gray-500 text-xs font-black uppercase">Phone</span> 
+                     <div className="col-span-2">{isEditing ? <input value={formData.phone} onChange={e=>setFormData({...formData, phone:e.target.value})} className="border-2 border-gray-300 w-full p-2 rounded bg-white text-gray-900 font-bold focus:border-hker-red outline-none"/> : <span className="font-black text-gray-900 text-base">{user.phone}</span>}</div>
                  </div>
-                 <div className="grid grid-cols-3 gap-2 items-center">
-                     <span className="text-gray-400 text-xs font-bold uppercase">Address</span> 
-                     <div className="col-span-2">{isEditing ? <input value={formData.address} onChange={e=>setFormData({...formData, address:e.target.value})} className="border w-full p-2 rounded bg-gray-50"/> : <span className="font-medium truncate">{user.address}</span>}</div>
+                 <div className="grid grid-cols-3 gap-2 items-center border-b border-gray-100 pb-2">
+                     <span className="text-gray-500 text-xs font-black uppercase">Address</span> 
+                     <div className="col-span-2">{isEditing ? <input value={formData.address} onChange={e=>setFormData({...formData, address:e.target.value})} className="border-2 border-gray-300 w-full p-2 rounded bg-white text-gray-900 font-bold focus:border-hker-red outline-none"/> : <span className="font-black text-gray-900 text-base break-words">{user.address}</span>}</div>
                  </div>
-                 <div className="grid grid-cols-3 gap-2 items-center">
-                     <span className="text-gray-400 text-xs font-bold uppercase">SOL Address</span> 
-                     <div className="col-span-2">{isEditing ? <input value={formData.solAddress} onChange={e=>setFormData({...formData, solAddress:e.target.value})} className="border w-full p-2 rounded bg-gray-50 font-mono text-xs"/> : <span className="font-mono text-xs text-blue-600 truncate block">{user.solAddress || 'Not Set'}</span>}</div>
+                 <div className="grid grid-cols-3 gap-2 items-center border-b border-gray-100 pb-2">
+                     <span className="text-gray-500 text-xs font-black uppercase">SOL Address</span> 
+                     <div className="col-span-2">{isEditing ? <input value={formData.solAddress} onChange={e=>setFormData({...formData, solAddress:e.target.value})} className="border-2 border-gray-300 w-full p-2 rounded bg-white text-gray-900 font-bold focus:border-hker-red outline-none"/> : <span className="font-mono text-sm font-bold text-blue-700 break-all block bg-blue-50 p-2 rounded border border-blue-100">{user.solAddress || 'Not Set'}</span>}</div>
                  </div>
-                 <div className="grid grid-cols-3 gap-2 items-center">
-                     <span className="text-gray-400 text-xs font-bold uppercase">Gender</span> 
+                 <div className="grid grid-cols-3 gap-2 items-center pb-2">
+                     <span className="text-gray-500 text-xs font-black uppercase">Gender</span> 
                      <div className="col-span-2">{isEditing ? (
-                         <select value={formData.gender} onChange={e=>setFormData({...formData, gender:e.target.value})} className="border w-full p-2 rounded bg-gray-50">
+                         <select value={formData.gender} onChange={e=>setFormData({...formData, gender:e.target.value})} className="border-2 border-gray-300 w-full p-2 rounded bg-white text-gray-900 font-bold">
                              <option value="Male">Male</option><option value="Female">Female</option><option value="Other">Other</option>
                          </select>
-                     ) : <span className="font-medium">{user.gender}</span>}</div>
+                     ) : <span className="font-black text-gray-900 text-base">{user.gender}</span>}</div>
                  </div>
                  
                  <div className="pt-4 flex gap-2">
-                     <button onClick={() => setShowPwdModal(true)} className="flex-1 py-2 border border-gray-200 rounded text-xs font-bold flex justify-center gap-2 items-center hover:bg-gray-50"><Lock size={12}/> Change Password</button>
+                     <button onClick={() => setShowPwdModal(true)} className="flex-1 py-3 border-2 border-gray-300 rounded-lg text-xs font-black text-gray-700 flex justify-center gap-2 items-center hover:bg-gray-100 transition"><Lock size={14}/> Change Password</button>
                  </div>
              </div>
           </div>
 
           {/* Withdrawal */}
-          <div className="bg-white p-6 rounded-xl shadow-sm border border-hker-gold/30 flex flex-col justify-between">
+          <div className="bg-white p-6 rounded-xl shadow-sm border-2 border-hker-gold flex flex-col justify-between">
                <div>
-                   <h3 className="font-bold mb-4 flex items-center gap-2 text-hker-gold"><Coins size={18} /> {lang === 'cn' ? '提取 HKER' : 'Withdraw HKER'}</h3>
-                   <div className="bg-yellow-50 p-4 rounded-lg mb-4 text-xs text-yellow-800">
-                       <p className="font-bold mb-1">Exchange Rate: 1 Point = 1 HKER</p>
-                       <p>Min. Withdrawal: 1,000,000</p>
+                   <h3 className="font-black mb-4 flex items-center gap-2 text-hker-gold text-lg"><Coins size={22} className="text-hker-gold" /> {lang === 'cn' ? '提取 HKER' : 'Withdraw HKER'}</h3>
+                   <div className="bg-yellow-50 p-4 rounded-lg mb-6 text-xs text-yellow-900 border border-yellow-200">
+                       <p className="font-black mb-1 text-sm">Exchange Rate: 1 Point = 1 HKER</p>
+                       <p className="font-bold">Min. Withdrawal: 1,000,000</p>
                        <p className="mt-2">Ensure your SOL Address is correct in profile settings.</p>
                        <p>Issues? Contact: hkerstoken@gmail.com</p>
                    </div>
-                   <label className="text-xs font-bold text-gray-400 uppercase mb-1 block">Amount to Withdraw</label>
-                   <input type="number" value={withdrawAmount} onChange={e => setWithdrawAmount(parseInt(e.target.value))} className="w-full border-2 border-gray-100 rounded-lg px-3 py-3 text-lg font-bold mb-4 font-mono focus:border-hker-gold outline-none" />
+                   <label className="text-xs font-black text-gray-500 uppercase mb-2 block">Amount to Withdraw</label>
+                   <input type="number" value={withdrawAmount} onChange={e => setWithdrawAmount(parseInt(e.target.value))} className="w-full border-2 border-gray-300 rounded-lg px-4 py-3 text-xl font-black mb-6 font-mono focus:border-hker-gold outline-none text-gray-900 bg-gray-50" />
                </div>
-               <button onClick={handleWithdraw} className="w-full bg-hker-gold text-white font-bold py-3 rounded-lg shadow-lg active:scale-95 hover:bg-yellow-500 transition">
+               <button onClick={handleWithdraw} className="w-full bg-hker-gold text-white font-black py-4 rounded-xl shadow-lg active:scale-95 hover:bg-yellow-500 transition border-b-4 border-yellow-600">
                    {lang === 'cn' ? '申請提幣' : 'Request Withdrawal'}
                </button>
           </div>
       </div>
       
       {showPwdModal && (
-          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-              <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm overflow-hidden animate-fade-in-up p-6">
-                  <h3 className="font-bold mb-4 text-lg">Change Password</h3>
-                  <form onSubmit={handleChangePassword} className="space-y-3">
-                      <input type="password" required value={pwdForm.oldPassword} onChange={e=>setPwdForm({...pwdForm, oldPassword: e.target.value})} placeholder="Old Password" className="w-full border p-2 rounded"/>
-                      <input type="password" required minLength={6} value={pwdForm.newPassword} onChange={e=>setPwdForm({...pwdForm, newPassword: e.target.value})} placeholder="New Password" className="w-full border p-2 rounded"/>
-                      <input type="password" required minLength={6} value={pwdForm.confirmPassword} onChange={e=>setPwdForm({...pwdForm, confirmPassword: e.target.value})} placeholder="Confirm New Password" className="w-full border p-2 rounded"/>
-                      <div className="flex gap-2 pt-2">
-                          <button type="button" onClick={()=>setShowPwdModal(false)} className="flex-1 border py-2 rounded font-bold text-sm">Cancel</button>
-                          <button type="submit" className="flex-1 bg-hker-red text-white py-2 rounded font-bold text-sm">Update</button>
+          <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
+              <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm overflow-hidden animate-fade-in-up p-6 border-2 border-gray-200">
+                  <h3 className="font-black mb-4 text-lg text-gray-900">Change Password</h3>
+                  <form onSubmit={handleChangePassword} className="space-y-4">
+                      <input type="password" required value={pwdForm.oldPassword} onChange={e=>setPwdForm({...pwdForm, oldPassword: e.target.value})} placeholder="Old Password" className="w-full border-2 border-gray-300 p-3 rounded-lg font-bold text-gray-900 placeholder-gray-400"/>
+                      <input type="password" required minLength={6} value={pwdForm.newPassword} onChange={e=>setPwdForm({...pwdForm, newPassword: e.target.value})} placeholder="New Password" className="w-full border-2 border-gray-300 p-3 rounded-lg font-bold text-gray-900 placeholder-gray-400"/>
+                      <input type="password" required minLength={6} value={pwdForm.confirmPassword} onChange={e=>setPwdForm({...pwdForm, confirmPassword: e.target.value})} placeholder="Confirm New Password" className="w-full border-2 border-gray-300 p-3 rounded-lg font-bold text-gray-900 placeholder-gray-400"/>
+                      <div className="flex gap-3 pt-2">
+                          <button type="button" onClick={()=>setShowPwdModal(false)} className="flex-1 border-2 border-gray-300 py-3 rounded-lg font-black text-gray-600 hover:bg-gray-100">Cancel</button>
+                          <button type="submit" className="flex-1 bg-hker-red text-white py-3 rounded-lg font-black hover:bg-red-700">Update</button>
                       </div>
                   </form>
               </div>

@@ -24,17 +24,48 @@ export const NewsFeed: React.FC = () => {
 
   const fetchData = async () => {
       setIsSyncing(true);
+      // Standard check
+      await MockDB.triggerRobotPost();
       const data = await MockDB.getPosts();
       setPosts(data);
       setIsSyncing(false);
   };
 
+  const handleManualSync = async () => {
+      if (confirm("Force wake up Bot Agent?")) {
+          setIsSyncing(true);
+          await MockDB.triggerRobotPost(true); // Force True
+          const data = await MockDB.getPosts();
+          setPosts(data);
+          setIsSyncing(false);
+          alert("Bot Agent Triggered.");
+      }
+  };
+
   useEffect(() => {
     fetchData();
-    const syncInterval = setInterval(fetchData, 10000); // Poll for updates every 10s
+    const syncInterval = setInterval(() => {
+        if (document.visibilityState === 'visible') {
+            fetchData();
+        }
+    }, 10000); 
+    
+    const handleWakeUp = () => {
+        if (document.visibilityState === 'visible') {
+            console.log("📱 App Resumed: Force checking bot status...");
+            MockDB.triggerRobotPost().then(() => {
+                fetchData();
+            });
+        }
+    };
+
+    document.addEventListener('visibilitychange', handleWakeUp);
+    window.addEventListener('focus', handleWakeUp);
 
     return () => {
         clearInterval(syncInterval);
+        document.removeEventListener('visibilitychange', handleWakeUp);
+        window.removeEventListener('focus', handleWakeUp);
     };
   }, []);
 
@@ -61,14 +92,11 @@ export const NewsFeed: React.FC = () => {
         post.hearts++;
     }
     
-    // Optimistic Update
     const newPosts = [...posts];
     newPosts[postIndex] = post;
     setPosts(newPosts);
     
-    // Cloud Save
     await MockDB.savePost(post);
-    // Rewards
     await MockDB.updateUserPoints(user.id, 150);
   };
 
@@ -108,9 +136,9 @@ export const NewsFeed: React.FC = () => {
       {/* Top Bar */}
       <div className="bg-white p-4 rounded-xl shadow-sm mb-6 sticky top-0 z-10 border border-gray-100">
         <div className="flex justify-between items-center mb-4">
-            <div className="text-xs text-gray-400 font-bold flex items-center gap-1">
+            <div onClick={handleManualSync} className="text-xs text-gray-400 font-bold flex items-center gap-1 cursor-pointer hover:text-blue-500 transition" title="Click to force sync">
                 <CloudLightning size={12} className={isSyncing ? "text-blue-500 animate-pulse" : "text-green-500"}/>
-                {isSyncing ? 'Syncing Cloud...' : 'Live Connected'}
+                {isSyncing ? 'Syncing...' : 'Live Feed (Click to Refresh)'}
             </div>
             {isAdmin && (
                 <div className="text-xs bg-red-100 text-red-600 px-2 py-1 rounded font-bold">Admin Mode Active</div>
@@ -145,10 +173,11 @@ export const NewsFeed: React.FC = () => {
       <div className="space-y-6 pb-10">
         {displayPosts.map(post => {
             const isTranslated = translatedPosts.has(post.id);
-            const displayTitle = isTranslated && post.titleCN ? post.titleCN : post.title;
-            const displayContent = isTranslated && post.contentCN ? post.contentCN : post.content;
+            // Robust check for translated content existence
+            const hasTranslation = post.titleCN && post.contentCN && post.titleCN.length > 0;
+            const displayTitle = (isTranslated && hasTranslation) ? post.titleCN : post.title;
+            const displayContent = (isTranslated && hasTranslation) ? post.contentCN : post.content;
             
-            // Fix [object Object] by explicitly handling the source and excluding corrupted data
             let displaySource = 'AI Source';
             if (typeof post.source === 'string' && post.source !== '[object Object]') {
                 displaySource = post.source;
@@ -165,7 +194,7 @@ export const NewsFeed: React.FC = () => {
                         <div>
                             <div className="flex items-center gap-2">
                                 <p className="font-bold text-sm text-gray-800">{post.author}</p>
-                                {post.isRobot && <span className="text-[10px] bg-gray-200 px-1.5 rounded text-gray-500">NEWS BOT</span>}
+                                {post.isRobot && <span className="text-[10px] bg-gray-200 px-1.5 rounded text-gray-500">AI AGENT</span>}
                             </div>
                             <p className="text-xs text-gray-400 flex items-center gap-1 mt-0.5">
                                 <Clock size={10} /> {post.displayDate} • {post.region} • {post.category}
@@ -190,19 +219,19 @@ export const NewsFeed: React.FC = () => {
                         <div className="flex flex-col gap-2 mb-4">
                             <div className="bg-amber-50 p-3 rounded-lg border border-amber-100 text-xs">
                                 <div className="flex justify-between items-center mb-1">
-                                    <span className="font-bold text-amber-700 flex items-center gap-1"><ShieldAlert size={12}/> News Source</span>
+                                    <span className="font-bold text-amber-700 flex items-center gap-1"><ShieldAlert size={12}/> AI Key Points</span>
                                     {post.sourceUrl && (
-                                        <a href={post.sourceUrl} target="_blank" className="flex items-center gap-1 text-blue-600 hover:underline font-bold"><ExternalLink size={12} /> Read Full Article</a>
+                                        <a href={post.sourceUrl} target="_blank" className="flex items-center gap-1 text-blue-600 hover:underline font-bold"><ExternalLink size={12} /> Source Link</a>
                                     )}
                                 </div>
-                                <p className="text-amber-800/70 italic">Content aggregated from {displaySource}.</p>
+                                <p className="text-amber-800/70 italic">Content summarized from {displaySource}. Please respect copyright.</p>
                             </div>
                             
                             <button 
                                 onClick={() => toggleTranslation(post.id)} 
-                                className="self-start flex items-center gap-2 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-full text-xs font-bold hover:bg-blue-100 transition"
+                                className={`self-start flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold transition ${isTranslated ? 'bg-red-50 text-red-600 hover:bg-red-100' : 'bg-blue-50 text-blue-700 hover:bg-blue-100'}`}
                             >
-                                <Languages size={14} /> {isTranslated ? 'Show Original (English)' : '翻譯成中文 (Translate)'}
+                                <Languages size={14} /> {isTranslated ? '顯示原文 (Show Original)' : '翻譯成中文 (Translate)'}
                             </button>
                         </div>
                     )}
