@@ -1,111 +1,51 @@
+export type Region = "全部" | "中國香港" | "台灣" | "英國" | "美國" | "加拿大" | "澳洲" | "歐洲";
+export type Topic = "全部" | "地產" | "時事" | "財經" | "娛樂" | "旅遊" | "數碼" | "汽車" | "宗教" | "優惠" | "校園" | "天氣" | "社區活動";
+export type UserRole = "admin" | "user";
 
-export enum UserRole {
-  USER = 'USER',
-  ADMIN = 'ADMIN',
-  MODERATOR = 'MODERATOR'
+export interface InteractionRecord {
+  like: number;
+  love: number;
 }
 
 export interface User {
-  id: string; // Member ID
-  name: string;
+  id: string;
   email: string;
-  password?: string; // stored for mock auth (in real app, use Supabase Auth)
-  address: string;
-  phone: string;
+  password?: string; // In a real app, never store plain text. Used here for simulation.
+  name: string;
+  avatar: string;
+  points: number;
+  role: UserRole;
+  vipLevel: number;
   solAddress: string;
   gender: string;
-  role: UserRole;
-  points: number;
-  avatarId: number; // 1-88
-  isBanned?: boolean;
-  joinedAt?: number; // Timestamp for registration analysis
-  lastActive?: number; // Timestamp for "Active Today" analysis
-}
-
-export interface Comment {
-  id: string;
-  postId: string;
-  author: string;
-  authorId: string;
-  content: string;
-  timestamp: number;
+  joinedAt: number;
+  phone?: string;
+  address?: string;
+  interactions?: Record<string, InteractionRecord>; // postId -> { like: 3, love: 1 }
 }
 
 export interface Post {
   id: string;
-  title: string; // English Title
-  titleCN?: string; // Translated Title
-  content: string; // English Content
-  contentCN?: string; // Translated Content
-  region: string; // HK, TW, UK, US, CA, AU
-  category: string; // RealEstate, News, Finance, etc.
-  author: string; // 'Robot' or User Name
+  titleCN: string;
+  titleEN: string;
+  contentCN: string;
+  contentEN: string;
   authorId: string;
-  isRobot: boolean;
+  authorName: string;
+  authorAvatar: string;
   timestamp: number;
-  displayDate: string;
+  region: string;
+  topic: string;
   likes: number;
-  hearts: number;
-  views: number;
-  source?: string;
-  sourceUrl?: string; // Stores the original external news link
-  botId?: string;
-  replies: Comment[]; 
-  // Track user interactions { userId: { likes: 0-3, hearts: 0-3 } }
-  userInteractions?: Record<string, { likes: number, hearts: number }>;
+  loves: number;
+  isBot: boolean;
+  sourceUrl?: string;
+  sourceName?: string;
 }
 
-export interface RobotLog {
-  id: string;
-  timestamp: number;
-  action: 'POST' | 'CLEANUP' | 'ERROR';
-  details: string;
-  region?: string;
+export interface Stat {
+  onlineUsers: number;
+  newRegisters: number;
+  totalVisits: number;
+  botLastRun: number;
 }
-
-export const REGIONS = ['Hong Kong', 'Taiwan', 'UK', 'USA', 'Canada', 'Australia', 'Europe'];
-
-export const REGIONS_CN: Record<string, string> = {
-  'Hong Kong': '中國香港',
-  'Taiwan': '台灣',
-  'UK': '英國',
-  'USA': '美國',
-  'Canada': '加拿大',
-  'Australia': '澳洲',
-  'Europe': '歐洲'
-};
-
-export const CATEGORIES = [
-  'Real Estate', 'Current Affairs', 'Finance', 'Entertainment', 'Travel', 
-  'Digital', 'Automotive', 'Religion', 'Offers', 'Campus', 'Weather', 'Community'
-];
-
-export const CATEGORIES_CN: Record<string, string> = {
-  'Real Estate': '地產',
-  'Current Affairs': '時事',
-  'Finance': '財經',
-  'Entertainment': '娛樂',
-  'Travel': '旅遊',
-  'Digital': '數碼',
-  'Automotive': '汽車',
-  'Religion': '宗教',
-  'Offers': '優惠',
-  'Campus': '校園',
-  'Weather': '天氣',
-  'Community': '社區活動'
-};
-
-// STRICT ADMIN LIST
-export const ADMIN_EMAILS = [
-  'chrishy1494@gmail.com', 
-  'hkerstoken@gmail.com', 
-  'niceleung@gmail.com'
-];
-
-export const VIP_LEVELS = [
-  { level: 1, points: 100000, title: '1 Star Member ⭐️' },
-  { level: 2, points: 300000, title: '2 Star Member ⭐️⭐️' },
-  { level: 3, points: 700000, title: '3 Star Member ⭐️⭐️⭐️' },
-  { level: 4, points: 1500000, title: '4 Star Member ⭐️⭐️⭐️⭐️' },
-  { level: 5, points: 5000000, title: '5 Star Member ⭐️⭐️⭐️⭐️⭐️' },
-];

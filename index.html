@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0" />
-    <title>HKER - Lion Rock Spirit</title>
+    <title>HKER News Platform</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
       tailwind.config = {
@@ -11,57 +11,54 @@
           extend: {
             colors: {
               hker: {
-                yellow: '#FFD700',
-                black: '#1a1a1a',
-                red: '#D32F2F',
-                gold: '#C5A000'
+                red: '#D00000',      /* The deep red from the coin/logo */
+                gold: '#FFD700',     /* The yellow/gold from the mountain line */
+                dark: '#0B0F19',     /* Darker night sky */
+                night: '#1E293B',    /* Slate for cards */
+                light: '#F8F9FA'
               }
             },
-            fontFamily: {
-              sans: ['Inter', 'sans-serif'],
-              serif: ['Times New Roman', 'serif'],
+            backgroundImage: {
+              'lion-rock': 'linear-gradient(to bottom, #0F172A, #1E293B)',
+              'coin-gradient': 'radial-gradient(circle at 30% 30%, #E63946, #9D0208)',
+            },
+            animation: {
+              'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+              'shine': 'shine 2s linear infinite',
+            },
+            keyframes: {
+              shine: {
+                '0%': { backgroundPosition: '200% center' },
+                '100%': { backgroundPosition: '-200% center' },
+              }
             }
           }
         }
       }
     </script>
     <style>
-      /* Custom scrollbar for better mobile feel */
-      ::-webkit-scrollbar {
-        width: 6px;
-      }
-      ::-webkit-scrollbar-track {
-        background: #f1f1f1; 
-      }
-      ::-webkit-scrollbar-thumb {
-        background: #888; 
-        border-radius: 3px;
-      }
-      ::-webkit-scrollbar-thumb:hover {
-        background: #555; 
-      }
-      .glass-panel {
-        background: rgba(255, 255, 255, 0.9);
-        backdrop-filter: blur(10px);
-      }
-      @keyframes spin-slow {
-        from { transform: rotate(0deg); }
-        to { transform: rotate(360deg); }
-      }
-      .animate-spin-slow {
-        animation: spin-slow 8s linear infinite;
+      body { background-color: #0B0F19; color: white; }
+      /* Custom Scrollbar */
+      ::-webkit-scrollbar { width: 8px; }
+      ::-webkit-scrollbar-track { background: #0B0F19; }
+      ::-webkit-scrollbar-thumb { background: #D00000; border-radius: 4px; }
+      ::-webkit-scrollbar-thumb:hover { background: #FFD700; }
+      
+      .hker-font {
+        font-family: 'Courier New', Courier, monospace; /* Rough approximation of the hand-drawn font vibe */
+        letter-spacing: -1px;
       }
     </style>
   <script type="importmap">
 {
   "imports": {
-    "react-router-dom": "https://esm.sh/react-router-dom@^7.11.0",
-    "lucide-react": "https://esm.sh/lucide-react@^0.562.0",
+    "@google/genai": "https://esm.sh/@google/genai@^1.35.0",
     "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
+    "lucide-react": "https://esm.sh/lucide-react@^0.562.0",
     "react/": "https://esm.sh/react@^19.2.3/",
     "react": "https://esm.sh/react@^19.2.3",
-    "lunar-javascript": "https://esm.sh/lunar-javascript@1.6.12",
-    "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@2.39.3"
+    "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@^2.90.1",
+    "lunar-javascript": "https://esm.sh/lunar-javascript@1.6.13"
   }
 }
 </script>
