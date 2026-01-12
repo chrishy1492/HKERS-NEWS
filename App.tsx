@@ -1,461 +1,693 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
   Users, Shield, Search, RefreshCw, Gamepad2, Coins, 
   Globe, Heart, ThumbsUp, Trash2, Settings, X, Share2, 
   AlertTriangle, CreditCard, UserCheck, ChevronRight, 
   Newspaper, Bot, Lock, Calendar, ExternalLink, Zap,
   Activity, Clock, Link as LinkIcon, CheckCircle,
-  Menu, Bell, ChevronDown, MoreVertical
+  Menu, Bell, ChevronDown, MoreVertical, LogOut, Edit3, MapPin, Mail, Smartphone
 } from 'lucide-react';
+import { User, Post, Stat, Topic, Region } from './types';
+import * as DataService from './services/dataService';
+import * as GeminiService from './services/geminiService';
+import { CyberBlackjack, SlotMachine, LittleMary, HooHeyHow, Baccarat, QuantumRoulette } from './components/Games';
+import { FortuneTeller } from './components/Fortune';
 
-/**
- * ============================================================================
- * 1. CONFIGURATION & MOCK DATA
- * ============================================================================
- */
+// --- CONSTANTS ---
+const REGIONS: Region[] = ["全部", "中國香港", "台灣", "英國", "美國", "加拿大", "澳洲", "歐洲"];
+const TOPICS: Topic[] = ["全部", "地產", "時事", "財經", "娛樂", "旅遊", "數碼", "汽車", "宗教", "優惠", "校園", "天氣", "社區活動"];
 
-const ADMIN_EMAILS = ['chrishy1494@gmail.com', 'hkerstoken@gmail.com', 'niceleung@gmail.com'];
-const REGIONS = ["全部", "中國香港", "台灣", "英國", "美國", "加拿大", "澳洲", "歐洲"];
-const TOPICS = ["全部", "地產", "時事", "財經", "娛樂", "旅遊", "數碼", "汽車", "宗教", "優惠", "校園", "天氣", "社區活動"];
-
-// 模擬初始數據
-const INITIAL_POSTS = [
-  {
-    id: 'news-101',
-    author: 'HKER Bot 🤖',
-    role: 'bot',
-    avatar: '🤖',
-    timestamp: Date.now() - 7200000,
-    region: '中國香港',
-    topic: '時事',
-    titleCN: '【最新】高鐵香港段新增16個站點 包括南京及合肥',
-    contentCN: '港鐵宣布，高鐵香港段將於1月26日起新增16個站點，直達站點總數將增至超過100個。',
-    likes: 245,
-    loves: 112,
-    isBot: true,
-    url: 'https://hkers-news-mmzi.vercel.app/api/bot'
-  }
-];
-
-/**
- * ============================================================================
- * 2. MAIN APPLICATION COMPONENT
- * ============================================================================
- */
+// --- MAIN APP ---
 export default function App() {
-  // --- Auth & Navigation State ---
-  const [currentUser, setCurrentUser] = useState(null);
-  const [view, setView] = useState('forum'); // 'forum' | 'admin'
-  const [showLogin, setShowLogin] = useState(true);
+  // State: Auth
+  const [user, setUser] = useState<User | null>(null);
+  const [showAuthModal, setShowAuthModal] = useState(true);
+  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
   
-  // --- Content State ---
-  const [posts, setPosts] = useState(INITIAL_POSTS);
+  // State: Navigation & Views
+  const [currentView, setCurrentView] = useState<'feed' | 'games' | 'fortune' | 'profile' | 'admin'>('feed');
+  const [selectedGame, setSelectedGame] = useState<string | null>(null);
+  
+  // State: Data
+  const [posts, setPosts] = useState<Post[]>([]);
+  const [selectedRegion, setSelectedRegion] = useState<Region>("全部");
+  const [selectedTopic, setSelectedTopic] = useState<Topic>("全部");
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedRegion, setSelectedRegion] = useState("全部");
-  
-  // --- UI State ---
-  const [notification, setNotification] = useState(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  
+  // State: UI
+  const [notification, setNotification] = useState<{msg: string, type: 'success'|'error'|'info'} | null>(null);
 
-  // --- Helpers ---
-  const notify = (msg: string, type: 'info' | 'success' | 'error' = 'info') => {
+  // --- INIT & SYNC ---
+  const refreshData = useCallback(async () => {
+    // 1. Fetch Posts (Cloud First)
+    const fetchedPosts = await DataService.getPosts();
+    setPosts(fetchedPosts);
+    
+    // 2. Sync User Data if logged in
+    if (user) {
+      const users = await DataService.getUsers();
+      const updatedUser = users.find(u => u.id === user.id);
+      if (updatedUser) setUser(updatedUser);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    refreshData();
+    // Auto-refresh every 30s to keep sync
+    const interval = setInterval(refreshData, 30000);
+    return () => clearInterval(interval);
+  }, [refreshData]);
+
+  // --- ACTIONS ---
+
+  const notify = (msg: string, type: 'success'|'error'|'info' = 'info') => {
     setNotification({ msg, type });
     setTimeout(() => setNotification(null), 3000);
   };
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     const form = e.target as HTMLFormElement;
     const email = (form.elements.namedItem('email') as HTMLInputElement).value;
     const password = (form.elements.namedItem('password') as HTMLInputElement).value;
 
-    if (ADMIN_EMAILS.includes(email) && password === 'admin') {
-      setCurrentUser({
-        id: 'admin-01',
-        name: 'HKER Admin',
-        email: email,
-        role: 'admin',
-        points: 8888888,
-        avatar: '🦁'
-      });
-      setShowLogin(false);
-      notify('管理員登入成功', 'success');
+    const allUsers = await DataService.getUsers();
+
+    if (authMode === 'login') {
+      const found = allUsers.find(u => u.email === email && u.password === password);
+      if (found) {
+        setUser(found);
+        setShowAuthModal(false);
+        notify(`歡迎回來, ${found.name}`, 'success');
+      } else {
+        notify('帳號或密碼錯誤', 'error');
+      }
     } else {
-      notify('帳號或密碼錯誤', 'error');
+      // Register
+      if (allUsers.find(u => u.email === email)) {
+        notify('此電郵已被註冊', 'error');
+        return;
+      }
+      const newUser: User = {
+        id: crypto.randomUUID(),
+        email,
+        password,
+        name: (form.elements.namedItem('name') as HTMLInputElement).value || 'HKER Member',
+        avatar: '😀',
+        points: 8888, // Welcome bonus
+        role: DataService.isAdmin(email) ? 'admin' : 'user',
+        vipLevel: 1,
+        solAddress: (form.elements.namedItem('solAddress') as HTMLInputElement).value || '',
+        gender: (form.elements.namedItem('gender') as HTMLSelectElement).value as any || 'O',
+        phone: (form.elements.namedItem('phone') as HTMLInputElement).value || '',
+        address: (form.elements.namedItem('address') as HTMLInputElement).value || '',
+        joinedAt: Date.now()
+      };
+      
+      const success = await DataService.saveUser(newUser);
+      if (success) {
+        setUser(newUser);
+        setShowAuthModal(false);
+        notify('註冊成功！獲得 8888 HKER 積分', 'success');
+      } else {
+        notify('註冊失敗，請檢查網絡', 'error');
+      }
     }
   };
 
-  const runCronJob = () => {
-    setIsRefreshing(true);
-    notify('執行中: HKER News Bot (Cron API)...', 'info');
-    
-    setTimeout(() => {
-      const newPost = {
-        id: `bot-${Date.now()}`,
-        author: 'HKER Bot 🤖',
-        role: 'bot',
-        avatar: '🤖',
-        timestamp: Date.now(),
-        region: '全球',
-        topic: '技術',
-        titleCN: `【系統同步】排程任務已於 ${new Date().toLocaleTimeString()} 成功執行`,
-        contentCN: 'Vercel Cron Job 已成功觸發 API 端點。所有新聞數據已同步至 Supabase 資料庫。',
-        likes: 0,
-        loves: 0,
-        isBot: true,
-        url: ''
-      };
-      setPosts([newPost, ...posts]);
-      setIsRefreshing(false);
-      notify('排程執行完畢，數據已更新', 'success');
-    }, 1500);
+  const handleUpdateProfile = async (updates: Partial<User>) => {
+    if (!user) return;
+    const updatedUser = { ...user, ...updates };
+    const success = await DataService.saveUser(updatedUser);
+    if (success) {
+      setUser(updatedUser);
+      notify('資料已更新', 'success');
+    } else {
+      notify('更新失敗', 'error');
+    }
   };
 
-  // --- Filtered Data ---
+  const handleWithdraw = async (amount: number) => {
+    if (!user) return;
+    if (amount < 1000000) {
+      alert("最少提幣數量為 1,000,000 HKER Token");
+      return;
+    }
+    if (!user.solAddress) {
+      alert("請先在帳戶設定中填寫 SOL Address");
+      return;
+    }
+    if (user.points < amount) {
+      alert("積分不足");
+      return;
+    }
+
+    // Deduct points
+    const newPoints = await DataService.updatePoints(user.id, amount, 'subtract');
+    setUser(prev => prev ? ({ ...prev, points: newPoints }) : null);
+
+    // Simulate Email Logic
+    console.log(`Sending email to hkerstoken@gmail.com: User ${user.email} requests withdraw ${amount} to ${user.solAddress}`);
+    alert(`提幣申請已提交！\n數量: ${amount}\n錢包: ${user.solAddress}\n系統已通知管理員。`);
+  };
+
+  const handleManualBotTrigger = async () => {
+    if (!user || user.role !== 'admin') return;
+    setIsRefreshing(true);
+    notify('正在喚醒 HKER News Bot...', 'info');
+
+    // Pick a random region/topic to search
+    const r = REGIONS[Math.floor(Math.random() * (REGIONS.length - 1)) + 1];
+    const t = TOPICS[Math.floor(Math.random() * (TOPICS.length - 1)) + 1];
+
+    const newPostData = await GeminiService.generateNewsPost(r, t);
+    
+    if (newPostData) {
+      const fullPost: Post = {
+        id: crypto.randomUUID(),
+        ...newPostData as any
+      };
+      await DataService.savePost(fullPost);
+      setPosts(prev => [fullPost, ...prev]);
+      notify('機械人發貼成功 (Synced to Cloud)', 'success');
+    } else {
+      notify('機械人未找到合適新聞', 'error');
+    }
+    setIsRefreshing(false);
+  };
+
+  // --- RENDER HELPERS ---
+
   const filteredPosts = useMemo(() => {
     return posts.filter(p => {
-      const matchRegion = selectedRegion === "全部" || p.region === selectedRegion;
-      const matchSearch = p.titleCN.toLowerCase().includes(searchQuery.toLowerCase());
-      return matchRegion && matchSearch;
+      const matchR = selectedRegion === "全部" || p.region === selectedRegion;
+      const matchT = selectedTopic === "全部" || p.topic === selectedTopic;
+      const matchQ = p.titleCN.includes(searchQuery) || p.contentCN.includes(searchQuery);
+      return matchR && matchT && matchQ;
     });
-  }, [posts, selectedRegion, searchQuery]);
+  }, [posts, selectedRegion, selectedTopic, searchQuery]);
 
-  return (
-    <div className="min-h-screen bg-[#0f172a] text-slate-200 font-sans selection:bg-blue-500/30">
-      
-      {/* Top Navigation */}
-      <nav className="sticky top-0 z-40 bg-[#1e293b]/80 backdrop-blur-md border-b border-slate-800 shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center shadow-lg shadow-blue-500/20">
-              <Zap className="text-white w-6 h-6 fill-current" />
-            </div>
-            <div className="hidden md:block">
-              <h1 className="text-lg font-bold text-white tracking-tight">HKER <span className="text-blue-500">Console</span></h1>
-              <p className="text-[10px] text-slate-500 font-medium uppercase tracking-widest">Automation Platform</p>
-            </div>
+  // --- VIEWS ---
+
+  if (showAuthModal) {
+    return (
+      <div className="min-h-screen bg-[#0B0F19] flex items-center justify-center p-4 bg-[url('https://images.unsplash.com/photo-1550684848-fac1c5b4e853?q=80&w=2070&auto=format&fit=crop')] bg-cover bg-center bg-no-repeat bg-blend-multiply">
+        <div className="bg-[#1E293B]/90 backdrop-blur-md p-8 rounded-2xl border border-hker-red/50 w-full max-w-md shadow-2xl animate-in zoom-in-95 duration-300">
+          <div className="text-center mb-6">
+             <h1 className="text-4xl font-black text-white tracking-tighter mb-2"><span className="text-hker-red">HKER</span> NEWS</h1>
+             <p className="text-hker-gold font-mono text-xs">WEB3 COMMUNITY PLATFORM</p>
+          </div>
+          
+          <div className="flex bg-black/40 rounded-lg p-1 mb-6">
+            <button onClick={() => setAuthMode('login')} className={`flex-1 py-2 rounded text-sm font-bold transition-all ${authMode==='login' ? 'bg-hker-red text-white' : 'text-slate-400'}`}>登入 Login</button>
+            <button onClick={() => setAuthMode('register')} className={`flex-1 py-2 rounded text-sm font-bold transition-all ${authMode==='register' ? 'bg-hker-gold text-black' : 'text-slate-400'}`}>註冊 Register</button>
           </div>
 
-          <div className="flex-1 max-w-md mx-8 hidden lg:block">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
-              <input 
-                type="text" 
-                placeholder="搜尋任務或新聞..."
-                className="w-full bg-slate-900/50 border border-slate-700 rounded-full py-2 pl-10 pr-4 text-sm focus:ring-2 focus:ring-blue-500/20 outline-none transition-all"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-              />
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3">
-            {currentUser ? (
+          <form onSubmit={handleAuth} className="space-y-4">
+            <input name="email" type="email" placeholder="Email (電郵)" required className="w-full bg-black/50 border border-slate-600 rounded p-3 text-white outline-none focus:border-hker-gold" />
+            <input name="password" type="password" placeholder="Password (密碼)" required className="w-full bg-black/50 border border-slate-600 rounded p-3 text-white outline-none focus:border-hker-gold" />
+            
+            {authMode === 'register' && (
               <>
-                <div className="hidden sm:flex flex-col items-end mr-2">
-                  <span className="text-sm font-bold text-white">{currentUser.name}</span>
-                  <span className="text-[10px] text-yellow-500 font-mono">{currentUser.points.toLocaleString()} HKER</span>
+                <input name="name" type="text" placeholder="Display Name (暱稱)" required className="w-full bg-black/50 border border-slate-600 rounded p-3 text-white outline-none focus:border-hker-gold" />
+                <div className="grid grid-cols-2 gap-2">
+                  <select name="gender" className="bg-black/50 border border-slate-600 rounded p-3 text-white outline-none">
+                    <option value="M">Male (男)</option>
+                    <option value="F">Female (女)</option>
+                    <option value="O">Other (其他)</option>
+                  </select>
+                  <input name="phone" type="tel" placeholder="Phone (電話)" className="bg-black/50 border border-slate-600 rounded p-3 text-white outline-none" />
                 </div>
-                <button 
-                  onClick={() => setView(view === 'admin' ? 'forum' : 'admin')}
-                  className={`p-2 rounded-lg transition-colors ${view === 'admin' ? 'bg-blue-500/10 text-blue-500' : 'hover:bg-slate-800'}`}
-                >
-                  <Shield className="w-5 h-5" />
-                </button>
-                <div className="w-8 h-8 bg-slate-700 rounded-full flex items-center justify-center border border-slate-600">
-                  {currentUser.avatar}
-                </div>
+                <input name="address" type="text" placeholder="Address (地址)" className="w-full bg-black/50 border border-slate-600 rounded p-3 text-white outline-none" />
+                <input name="solAddress" type="text" placeholder="SOL Wallet Address (可後補)" className="w-full bg-black/50 border border-slate-600 rounded p-3 text-white outline-none" />
               </>
-            ) : (
-              <button onClick={() => setShowLogin(true)} className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-lg text-sm font-bold shadow-lg shadow-blue-500/20 transition-all active:scale-95">
-                登入控制台
-              </button>
             )}
-          </div>
-        </div>
-      </nav>
 
-      <main className="max-w-7xl mx-auto p-4 lg:p-8 flex flex-col lg:flex-row gap-8">
-        
-        {/* Left Section: Main View */}
-        <div className="flex-1 space-y-6">
-          {view === 'admin' ? (
-            <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-              <AdminDashboard 
-                runJob={runCronJob} 
-                isRefreshing={isRefreshing}
-                stats={{ activeJobs: 1, totalCalls: 1284, successRate: "99.8%" }}
-              />
-            </div>
-          ) : (
-            <div className="space-y-4 animate-in fade-in duration-500">
-              <div className="flex items-center justify-between mb-2">
-                <h2 className="text-xl font-bold text-white">新聞動態 Feed</h2>
-                <div className="flex gap-2">
-                  {["全部", "中國香港", "台灣"].map(r => (
-                    <button 
-                      key={r}
-                      onClick={() => setSelectedRegion(r)}
-                      className={`text-xs px-3 py-1.5 rounded-md font-medium transition-all ${selectedRegion === r ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}`}
-                    >
-                      {r}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {filteredPosts.map(post => (
-                <div key={post.id} className="bg-[#1e293b] border border-slate-800 rounded-2xl p-6 hover:border-slate-700 transition-all group">
-                  <div className="flex justify-between items-start mb-4">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 bg-slate-800 rounded-full flex items-center justify-center text-xl border border-slate-700">
-                        {post.avatar}
-                      </div>
-                      <div>
-                        <div className="text-sm font-bold text-blue-400 flex items-center gap-2">
-                          {post.author}
-                          {post.isBot && <Bot className="w-3 h-3" />}
-                        </div>
-                        <div className="text-[11px] text-slate-500 font-medium">
-                          {new Date(post.timestamp).toLocaleString()} • {post.region} • {post.topic}
-                        </div>
-                      </div>
-                    </div>
-                    <button className="text-slate-600 hover:text-slate-400 p-1"><MoreVertical className="w-4 h-4" /></button>
-                  </div>
-                  <h3 className="text-lg font-bold text-slate-100 mb-2 group-hover:text-blue-400 transition-colors">{post.titleCN}</h3>
-                  <p className="text-slate-400 text-sm leading-relaxed mb-4">{post.contentCN}</p>
-                  <div className="flex items-center gap-6 pt-4 border-t border-slate-800/50">
-                    <button className="flex items-center gap-2 text-slate-500 hover:text-blue-500 transition-colors text-xs font-bold">
-                      <ThumbsUp className="w-4 h-4" /> {post.likes}
-                    </button>
-                    <button className="flex items-center gap-2 text-slate-500 hover:text-pink-500 transition-colors text-xs font-bold">
-                      <Heart className="w-4 h-4" /> {post.loves}
-                    </button>
-                    <button className="ml-auto flex items-center gap-2 text-slate-500 hover:text-white transition-colors text-xs font-bold">
-                      <Share2 className="w-4 h-4" /> 分享
-                    </button>
-                  </div>
-                </div>
-              ))}
+            <button type="submit" className="w-full bg-gradient-to-r from-hker-red to-red-800 text-white font-black py-4 rounded-xl shadow-lg hover:scale-[1.02] transition-transform">
+              {authMode === 'login' ? 'ENTER PLATFORM' : 'JOIN HKER'}
+            </button>
+          </form>
+          {authMode === 'login' && (
+            <div className="text-center mt-4">
+               <button onClick={() => { setAuthMode('login'); setShowAuthModal(false); setUser(null); }} className="text-xs text-slate-400 hover:text-white underline">
+                 Guest Mode (訪客瀏覽)
+               </button>
             </div>
           )}
         </div>
+      </div>
+    );
+  }
 
-        {/* Right Section: Sidebar */}
-        <div className="lg:w-80 space-y-6">
-          <div className="bg-gradient-to-br from-blue-600 to-indigo-700 rounded-2xl p-6 shadow-xl shadow-blue-500/10 relative overflow-hidden group">
-            <div className="absolute -right-4 -top-4 opacity-10 group-hover:scale-110 transition-transform duration-700">
-              <Coins className="w-32 h-32" />
-            </div>
-            <h4 className="text-blue-100 text-xs font-bold uppercase tracking-widest mb-4">HKER Balance</h4>
-            <div className="text-3xl font-mono font-bold text-white mb-6">
-              {currentUser ? currentUser.points.toLocaleString() : '---'}
-            </div>
-            <button className="w-full bg-white/10 hover:bg-white/20 backdrop-blur-sm text-white text-xs font-bold py-3 rounded-xl transition-all border border-white/10">
-              提領到 Phantom 錢包
-            </button>
+  // GAME RENDERER
+  if (selectedGame) {
+    const handleGameBack = () => setSelectedGame(null);
+    const handlePoints = async (amt: number) => {
+       if (!user) return;
+       const newPts = await DataService.updatePoints(user.id, amt, 'add');
+       setUser({ ...user, points: newPts });
+       notify(amt > 0 ? `贏得 ${amt} 分!` : `扣除 ${Math.abs(amt)} 分`, amt > 0 ? 'success' : 'info');
+    };
+
+    return (
+      <div className="h-screen bg-[#0B0F19] p-2 md:p-4 flex flex-col">
+         {selectedGame === 'blackjack' && <CyberBlackjack user={user!} onUpdatePoints={handlePoints} onBack={handleGameBack} />}
+         {selectedGame === 'slots' && <SlotMachine user={user!} onUpdatePoints={handlePoints} onBack={handleGameBack} />}
+         {selectedGame === 'littlemary' && <LittleMary user={user!} onUpdatePoints={handlePoints} onBack={handleGameBack} />}
+         {selectedGame === 'hooheyhow' && <HooHeyHow user={user!} onUpdatePoints={handlePoints} onBack={handleGameBack} />}
+         {selectedGame === 'baccarat' && <Baccarat user={user!} onUpdatePoints={handlePoints} onBack={handleGameBack} />}
+         {selectedGame === 'roulette' && <QuantumRoulette user={user!} onUpdatePoints={handlePoints} onBack={handleGameBack} />}
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-[#0B0F19] text-white font-sans overflow-x-hidden">
+      
+      {/* HEADER */}
+      <header className="sticky top-0 z-50 bg-[#1E293B]/95 backdrop-blur border-b border-hker-gold/20 shadow-lg">
+        <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
+          <div className="flex items-center gap-3 cursor-pointer" onClick={() => setCurrentView('feed')}>
+             <div className="w-10 h-10 bg-gradient-to-br from-hker-red to-black rounded-lg flex items-center justify-center border border-hker-gold">
+               <Zap className="w-6 h-6 text-hker-gold fill-current" />
+             </div>
+             <div className="hidden md:block leading-tight">
+               <h1 className="font-black text-lg tracking-tight text-white">HKER NEWS</h1>
+               <p className="text-[10px] text-hker-gold font-mono">PLATFORM</p>
+             </div>
           </div>
 
-          <div className="bg-[#1e293b] border border-slate-800 rounded-2xl p-5">
-            <h4 className="text-sm font-bold text-white mb-4 flex items-center gap-2">
-              <Activity className="w-4 h-4 text-green-500" /> 系統健康度
-            </h4>
-            <div className="space-y-4">
-              <div className="flex justify-between items-center text-xs">
-                <span className="text-slate-500 font-medium">API 響應</span>
-                <span className="text-green-400 font-mono">24ms</span>
-              </div>
-              <div className="flex justify-between items-center text-xs">
-                <span className="text-slate-500 font-medium">數據庫同步</span>
-                <span className="text-blue-400 font-mono">即時 (Real-time)</span>
-              </div>
-              <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
-                <div className="bg-green-500 h-full w-[98%]"></div>
-              </div>
-            </div>
+          <div className="flex-1 max-w-lg mx-4 hidden md:block relative">
+             <input 
+               type="text" 
+               placeholder="Search news / topics..."
+               value={searchQuery}
+               onChange={e => setSearchQuery(e.target.value)}
+               className="w-full bg-black/40 border border-slate-700 rounded-full py-2 pl-10 pr-12 text-sm focus:border-hker-gold outline-none text-white placeholder-slate-500"
+             />
+             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+             <div className="absolute right-1 top-1/2 -translate-y-1/2 flex gap-1">
+                <button onClick={() => setCurrentView('games')} className="p-1.5 bg-slate-800 rounded-full hover:bg-hker-gold hover:text-black transition-colors" title="Game Zone">
+                  <Gamepad2 className="w-3 h-3" />
+                </button>
+                <button onClick={() => setCurrentView('fortune')} className="p-1.5 bg-slate-800 rounded-full hover:bg-purple-500 hover:text-white transition-colors" title="Fortune Center">
+                  <Clock className="w-3 h-3" />
+                </button>
+             </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+             {user ? (
+               <>
+                 <div className="text-right hidden sm:block">
+                    <div className="text-xs font-bold text-white">{user.name}</div>
+                    <div className="text-[10px] text-hker-gold font-mono">{user.points.toLocaleString()} PTS</div>
+                 </div>
+                 <button onClick={() => setCurrentView('profile')} className="w-9 h-9 bg-slate-800 rounded-full flex items-center justify-center border border-slate-600 hover:border-hker-gold">
+                    <Settings className="w-5 h-5" />
+                 </button>
+                 {user.role === 'admin' && (
+                   <button onClick={() => setCurrentView('admin')} className="w-9 h-9 bg-red-900/50 rounded-full flex items-center justify-center border border-red-500 hover:bg-red-800">
+                      <Shield className="w-5 h-5 text-red-200" />
+                   </button>
+                 )}
+                 <button onClick={() => { setUser(null); setShowAuthModal(true); }} className="w-9 h-9 bg-slate-800 rounded-full flex items-center justify-center hover:bg-red-600">
+                    <LogOut className="w-4 h-4" />
+                 </button>
+               </>
+             ) : (
+               <button onClick={() => setShowAuthModal(true)} className="bg-hker-red hover:bg-red-600 text-white px-4 py-2 rounded font-bold text-xs">
+                 LOGIN
+               </button>
+             )}
           </div>
         </div>
+      </header>
+
+      {/* MOBILE SEARCH & NAV */}
+      <div className="md:hidden bg-[#1E293B] border-b border-slate-800 p-2 flex gap-2">
+         <input 
+            type="text" 
+            placeholder="Search..."
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            className="flex-1 bg-black/40 border border-slate-700 rounded-lg py-2 px-3 text-xs text-white"
+         />
+         <button onClick={() => setCurrentView('games')} className="px-3 bg-hker-gold text-black rounded font-bold text-xs flex items-center gap-1"><Gamepad2 className="w-3 h-3"/> GAMES</button>
+         <button onClick={() => setCurrentView('fortune')} className="px-3 bg-purple-600 text-white rounded font-bold text-xs flex items-center gap-1"><Clock className="w-3 h-3"/> FATE</button>
+      </div>
+
+      <main className="max-w-7xl mx-auto p-4 flex flex-col lg:flex-row gap-6">
+         
+         {/* LEFT SIDEBAR (Topics) */}
+         <aside className="lg:w-64 space-y-4">
+           {currentView === 'feed' && (
+             <div className="bg-[#1E293B] rounded-xl p-4 border border-slate-800 shadow-xl">
+                <h3 className="font-bold text-hker-gold mb-3 flex items-center gap-2"><Globe className="w-4 h-4"/> Regions</h3>
+                <div className="flex flex-wrap gap-2 mb-4">
+                   {REGIONS.map(r => (
+                     <button 
+                       key={r} 
+                       onClick={() => setSelectedRegion(r)}
+                       className={`text-xs px-2 py-1 rounded border transition-colors ${selectedRegion === r ? 'bg-hker-red border-hker-red text-white' : 'border-slate-700 text-slate-400 hover:border-slate-500'}`}
+                     >
+                       {r}
+                     </button>
+                   ))}
+                </div>
+                <h3 className="font-bold text-hker-gold mb-3 flex items-center gap-2"><Newspaper className="w-4 h-4"/> Topics</h3>
+                <div className="space-y-1">
+                   {TOPICS.map(t => (
+                     <button 
+                       key={t}
+                       onClick={() => setSelectedTopic(t)}
+                       className={`w-full text-left text-xs px-3 py-2 rounded transition-colors ${selectedTopic === t ? 'bg-slate-700 text-white font-bold' : 'text-slate-400 hover:bg-slate-800'}`}
+                     >
+                       {t}
+                     </button>
+                   ))}
+                </div>
+             </div>
+           )}
+
+           {/* EXTERNAL LINKS */}
+           <div className="bg-[#1E293B] rounded-xl p-4 border border-slate-800 space-y-3">
+              <div className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1">Ecosystem</div>
+              <a href="https://www.orca.so/pools/6anyfgQ2G9WgeCEh3XBfrzmLLKgb2WVvW5HAsQgb2Bss" target="_blank" rel="noreferrer" className="flex items-center gap-3 bg-black/30 p-2 rounded hover:bg-black/50 transition-colors">
+                 <div className="w-8 h-8 rounded-full bg-yellow-400/20 flex items-center justify-center text-yellow-400 font-bold text-xs">O</div>
+                 <div className="text-xs">
+                    <div className="font-bold text-white">Orca Pool</div>
+                    <div className="text-slate-500">Liquidity</div>
+                 </div>
+              </a>
+              <a href="https://raydium.io/liquidity-pools/?token=B5wYCjComoHbf8CMq5nonhScdi1njuweoytS77QyXW1z" target="_blank" rel="noreferrer" className="flex items-center gap-3 bg-black/30 p-2 rounded hover:bg-black/50 transition-colors">
+                 <div className="w-8 h-8 rounded-full bg-purple-400/20 flex items-center justify-center text-purple-400 font-bold text-xs">R</div>
+                 <div className="text-xs">
+                    <div className="font-bold text-white">Raydium</div>
+                    <div className="text-slate-500">Staking</div>
+                 </div>
+              </a>
+              <a href="https://jup.ag/tokens/B5wYCjComoHbf8CMq5nonhScdi1njuweoytS77QyXW1z" target="_blank" rel="noreferrer" className="flex items-center gap-3 bg-black/30 p-2 rounded hover:bg-black/50 transition-colors">
+                 <div className="w-8 h-8 rounded-full bg-green-400/20 flex items-center justify-center text-green-400 font-bold text-xs">J</div>
+                 <div className="text-xs">
+                    <div className="font-bold text-white">Jupiter</div>
+                    <div className="text-slate-500">Trade HKER</div>
+                 </div>
+              </a>
+           </div>
+         </aside>
+
+         {/* CENTER CONTENT */}
+         <div className="flex-1 min-h-[500px]">
+            
+            {/* VIEW: FEED */}
+            {currentView === 'feed' && (
+               <div className="space-y-4 animate-in fade-in duration-500">
+                  {filteredPosts.length === 0 ? (
+                    <div className="text-center py-20 text-slate-500">
+                       <Bot className="w-12 h-12 mx-auto mb-2 opacity-50"/>
+                       <p>機械人正在搜尋新聞... (Bot Searching)</p>
+                       {user?.role === 'admin' && (
+                         <button onClick={handleManualBotTrigger} className="mt-4 px-4 py-2 bg-blue-600 text-white rounded text-xs">Admin Trigger</button>
+                       )}
+                    </div>
+                  ) : (
+                    filteredPosts.map(post => (
+                      <NewsCard key={post.id} post={post} user={user} />
+                    ))
+                  )}
+               </div>
+            )}
+
+            {/* VIEW: GAMES */}
+            {currentView === 'games' && (
+               <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 animate-in fade-in zoom-in duration-300">
+                  <GameCard id="blackjack" name="Cyber 21" icon={<Zap/>} bg="from-indigo-900 to-black" onSelect={setSelectedGame} />
+                  <GameCard id="slots" name="AI Slots" icon={<Coins/>} bg="from-yellow-900 to-black" onSelect={setSelectedGame} />
+                  <GameCard id="baccarat" name="AI Baccarat" icon={<CreditCard/>} bg="from-green-900 to-black" onSelect={setSelectedGame} />
+                  <GameCard id="roulette" name="Quantum Roulette" icon={<Activity/>} bg="from-cyan-900 to-black" onSelect={setSelectedGame} />
+                  <GameCard id="littlemary" name="Little Mary" icon={<Gamepad2/>} bg="from-red-900 to-black" onSelect={setSelectedGame} />
+                  <GameCard id="hooheyhow" name="Hoo Hey How" icon={<CheckCircle/>} bg="from-orange-900 to-black" onSelect={setSelectedGame} />
+               </div>
+            )}
+
+            {/* VIEW: FORTUNE */}
+            {currentView === 'fortune' && <FortuneTeller />}
+
+            {/* VIEW: PROFILE */}
+            {currentView === 'profile' && user && (
+               <div className="bg-[#1E293B] rounded-xl p-6 border border-slate-800 animate-in slide-in-from-right duration-300">
+                  <h2 className="text-2xl font-black text-white mb-6 flex items-center gap-2"><UserCheck className="w-6 h-6 text-hker-gold"/> ACCOUNT SETTINGS</h2>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                     <div className="space-y-4">
+                        <div className="bg-black/30 p-4 rounded-lg">
+                           <label className="text-xs text-slate-500 font-bold uppercase">Display Name</label>
+                           <input type="text" defaultValue={user.name} onBlur={(e) => handleUpdateProfile({name: e.target.value})} className="w-full bg-transparent border-b border-slate-600 py-2 outline-none text-white focus:border-hker-gold"/>
+                        </div>
+                        <div className="bg-black/30 p-4 rounded-lg">
+                           <label className="text-xs text-slate-500 font-bold uppercase">Email (Login ID)</label>
+                           <input type="email" defaultValue={user.email} disabled className="w-full bg-transparent border-b border-slate-700 py-2 outline-none text-slate-400 cursor-not-allowed"/>
+                        </div>
+                        <div className="bg-black/30 p-4 rounded-lg">
+                           <label className="text-xs text-slate-500 font-bold uppercase">Password</label>
+                           <input type="password" placeholder="New Password" onBlur={(e) => { if(e.target.value) handleUpdateProfile({password: e.target.value}) }} className="w-full bg-transparent border-b border-slate-600 py-2 outline-none text-white focus:border-hker-gold"/>
+                        </div>
+                        <div className="bg-black/30 p-4 rounded-lg">
+                           <label className="text-xs text-slate-500 font-bold uppercase">Phone</label>
+                           <input type="tel" defaultValue={user.phone} onBlur={(e) => handleUpdateProfile({phone: e.target.value})} className="w-full bg-transparent border-b border-slate-600 py-2 outline-none text-white focus:border-hker-gold"/>
+                        </div>
+                        <div className="bg-black/30 p-4 rounded-lg">
+                           <label className="text-xs text-slate-500 font-bold uppercase">Address</label>
+                           <input type="text" defaultValue={user.address} onBlur={(e) => handleUpdateProfile({address: e.target.value})} className="w-full bg-transparent border-b border-slate-600 py-2 outline-none text-white focus:border-hker-gold"/>
+                        </div>
+                     </div>
+
+                     <div className="space-y-6">
+                        <div className="bg-gradient-to-br from-hker-red to-black p-6 rounded-xl border border-hker-red/50 relative overflow-hidden">
+                           <Coins className="absolute -right-4 -bottom-4 w-32 h-32 text-white/10" />
+                           <div className="relative z-10">
+                              <div className="text-xs font-bold text-red-200 mb-2">HKER BALANCE</div>
+                              <div className="text-4xl font-mono font-black text-white mb-4">{user.points.toLocaleString()}</div>
+                              <div className="flex gap-2">
+                                 <input id="withdrawAmt" type="number" placeholder="Amount (Min 1M)" className="flex-1 bg-black/40 border border-white/20 rounded px-3 text-sm text-white"/>
+                                 <button 
+                                   onClick={() => {
+                                      const el = document.getElementById('withdrawAmt') as HTMLInputElement;
+                                      handleWithdraw(Number(el.value));
+                                   }}
+                                   className="bg-white text-hker-red font-bold px-4 rounded hover:bg-slate-200"
+                                 >
+                                   WITHDRAW
+                                 </button>
+                              </div>
+                              <p className="text-[10px] text-red-200 mt-2">* 1 HKER Point = 1 HKER Token</p>
+                           </div>
+                        </div>
+
+                        <div className="bg-black/30 p-4 rounded-lg border border-yellow-500/30">
+                           <label className="text-xs text-yellow-500 font-bold uppercase flex items-center gap-2"><CreditCard className="w-3 h-3"/> SOL Wallet Address</label>
+                           <input type="text" defaultValue={user.solAddress} onBlur={(e) => handleUpdateProfile({solAddress: e.target.value})} className="w-full bg-transparent border-b border-yellow-500/50 py-2 outline-none text-white font-mono text-sm focus:border-yellow-400 placeholder-slate-600" placeholder="Enter SOL Address for withdrawal"/>
+                        </div>
+                     </div>
+                  </div>
+               </div>
+            )}
+
+            {/* VIEW: ADMIN */}
+            {currentView === 'admin' && user?.role === 'admin' && (
+               <AdminConsole 
+                 posts={posts} 
+                 onDeletePost={async (id) => { await DataService.deletePost(id); setPosts(p => p.filter(x => x.id !== id)); }}
+                 onTriggerBot={handleManualBotTrigger}
+                 isRefreshing={isRefreshing}
+               />
+            )}
+
+         </div>
       </main>
 
-      {/* Login Modal */}
-      {showLogin && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-[#020617]/90 backdrop-blur-sm" onClick={() => setShowLogin(false)}></div>
-          <div className="bg-[#1e293b] border border-slate-700 w-full max-w-md rounded-3xl p-8 shadow-2xl relative z-10 animate-in zoom-in-95 duration-300">
-            <div className="text-center mb-8">
-              <div className="w-16 h-16 bg-blue-600 rounded-2xl mx-auto mb-4 flex items-center justify-center shadow-xl shadow-blue-500/20">
-                <Shield className="text-white w-8 h-8" />
-              </div>
-              <h2 className="text-2xl font-bold text-white">管理員登入</h2>
-              <p className="text-slate-500 text-sm mt-1">請輸入您的管理密碼進入控制台</p>
-            </div>
-            <form onSubmit={handleLogin} className="space-y-4">
-              <div className="space-y-1">
-                <label className="text-[10px] uppercase font-bold text-slate-500 ml-1">Admin Email</label>
-                <input name="email" type="email" defaultValue="hkerstoken@gmail.com" className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 outline-none focus:border-blue-500 transition-all text-sm" />
-              </div>
-              <div className="space-y-1">
-                <label className="text-[10px] uppercase font-bold text-slate-500 ml-1">Password</label>
-                <input name="password" type="password" defaultValue="admin" className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 outline-none focus:border-blue-500 transition-all text-sm" />
-              </div>
-              <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-xl shadow-lg shadow-blue-500/20 transition-all active:scale-[0.98] mt-4">
-                進入系統
-              </button>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Notifications */}
+      {/* NOTIFICATION TOAST */}
       {notification && (
-        <div className={`fixed bottom-8 right-8 z-[60] flex items-center gap-3 px-6 py-4 rounded-2xl shadow-2xl border animate-in slide-in-from-right-10 duration-300 ${notification.type === 'success' ? 'bg-green-500/10 border-green-500/50 text-green-400' : 'bg-blue-500/10 border-blue-500/50 text-blue-400'}`}>
-          {notification.type === 'success' ? <CheckCircle className="w-5 h-5" /> : <Bell className="w-5 h-5" />}
-          <span className="text-sm font-bold">{notification.msg}</span>
+        <div className={`fixed bottom-5 right-5 z-[60] px-6 py-4 rounded-xl shadow-2xl border flex items-center gap-3 animate-in slide-in-from-bottom-5 duration-300 ${notification.type === 'success' ? 'bg-green-900/90 border-green-500 text-green-100' : notification.type === 'error' ? 'bg-red-900/90 border-red-500 text-red-100' : 'bg-blue-900/90 border-blue-500 text-blue-100'}`}>
+           {notification.type === 'success' ? <CheckCircle className="w-5 h-5"/> : <AlertTriangle className="w-5 h-5"/>}
+           <span className="font-bold text-sm">{notification.msg}</span>
         </div>
       )}
     </div>
   );
 }
 
-/**
- * ============================================================================
- * 3. ADMIN DASHBOARD COMPONENT (Redesigned like cron-job.org)
- * ============================================================================
- */
-function AdminDashboard({ runJob, isRefreshing, stats }: { runJob: () => void, isRefreshing: boolean, stats: any }) {
+// --- SUB COMPONENTS ---
+
+const NewsCard: React.FC<{ post: Post; user: User | null }> = ({ post, user }) => {
+  const [lang, setLang] = useState<'CN'|'EN'>('CN');
+  
+  const handleLike = async (type: 'like'|'love') => {
+    if(!user) return alert("Please Login");
+    await DataService.updatePostInteraction(post.id, type);
+  };
+
+  const copyLink = () => {
+    navigator.clipboard.writeText(post.sourceUrl || window.location.href);
+    alert("Link Copied!");
+  };
+
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-2xl font-bold text-white">排程任務監控 <span className="text-slate-500 font-normal">Cron Jobs</span></h2>
-          <p className="text-sm text-slate-500">管理與執行自動化數據抓取任務</p>
-        </div>
-        <div className="flex gap-2">
-          <button className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-white px-4 py-2 rounded-lg text-sm font-medium border border-slate-700 transition-all">
-            <PlusIcon className="w-4 h-4" /> 新增任務
-          </button>
-        </div>
-      </div>
-
-      {/* Stats Quick Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="bg-[#1e293b] border border-slate-800 p-5 rounded-2xl">
-          <div className="text-slate-500 text-[10px] font-bold uppercase tracking-wider mb-1">運行中任務</div>
-          <div className="text-2xl font-bold text-white">{stats.activeJobs}</div>
-        </div>
-        <div className="bg-[#1e293b] border border-slate-800 p-5 rounded-2xl">
-          <div className="text-slate-500 text-[10px] font-bold uppercase tracking-wider mb-1">今日呼叫次數</div>
-          <div className="text-2xl font-bold text-blue-500">{stats.totalCalls}</div>
-        </div>
-        <div className="bg-[#1e293b] border border-slate-800 p-5 rounded-2xl">
-          <div className="text-slate-500 text-[10px] font-bold uppercase tracking-wider mb-1">平均成功率</div>
-          <div className="text-2xl font-bold text-green-500">{stats.successRate}</div>
-        </div>
-      </div>
-
-      {/* The Cron Job Console Card */}
-      <div className="bg-[#1e293b] border border-slate-800 rounded-2xl overflow-hidden shadow-2xl">
-        <div className="bg-[#0f172a]/50 px-6 py-4 border-b border-slate-800 flex justify-between items-center">
+    <div className="bg-[#1E293B] border border-slate-800 rounded-2xl p-6 relative overflow-hidden group hover:border-slate-600 transition-all">
+       <div className="flex justify-between items-start mb-3">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 bg-blue-500/10 rounded flex items-center justify-center">
-              <Zap className="w-4 h-4 text-blue-500" />
-            </div>
-            <span className="text-sm font-bold text-slate-200">HKER News Bot</span>
-          </div>
-          <div className="flex items-center gap-2 bg-green-500/10 px-3 py-1 rounded-full border border-green-500/20">
-            <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></div>
-            <span className="text-[10px] text-green-400 font-bold uppercase">Active</span>
-          </div>
-        </div>
-
-        <div className="p-6 space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-            <div className="space-y-4">
-              <div>
-                <label className="text-[10px] text-slate-500 uppercase font-bold tracking-widest mb-1 block">端點網址 (API Endpoint)</label>
-                <div className="flex items-center gap-2 bg-[#0f172a] p-3 rounded-xl border border-slate-800">
-                  <LinkIcon className="w-4 h-4 text-slate-600 flex-shrink-0" />
-                  <code className="text-xs text-blue-400 font-mono truncate">https://hkers-news-mmzi.vercel.app/api/bot</code>
-                  <button 
-                    onClick={() => {
-                      navigator.clipboard.writeText("https://hkers-news-mmzi.vercel.app/api/bot");
-                      alert('已複製到剪貼簿');
-                    }}
-                    className="ml-auto p-1 hover:bg-slate-800 rounded text-slate-500"
-                  >
-                    <ExternalLink className="w-3 h-3" />
-                  </button>
+             <div className="w-10 h-10 bg-black rounded-full flex items-center justify-center text-2xl border border-slate-700">{post.authorAvatar}</div>
+             <div>
+                <div className="font-bold text-blue-400 text-sm flex items-center gap-1">
+                   {post.authorName} <Bot className="w-3 h-3" />
                 </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-[10px] text-slate-500 uppercase font-bold tracking-widest mb-1 block">排程週期</label>
-                  <div className="text-sm font-bold text-white flex items-center gap-2">
-                    <Clock className="w-4 h-4 text-yellow-500" /> 每小時 (Hourly)
-                  </div>
+                <div className="text-[10px] text-slate-500 font-mono">
+                   {new Date(post.timestamp).toLocaleString()} • {post.region}
                 </div>
-                <div>
-                  <label className="text-[10px] text-slate-500 uppercase font-bold tracking-widest mb-1 block">超時限制</label>
-                  <div className="text-sm font-bold text-white">30s</div>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-[#0f172a] p-4 rounded-2xl border border-slate-800 flex flex-col justify-center gap-4">
-              <div className="flex justify-between items-center px-2">
-                <div className="text-xs text-slate-500 font-medium">上次執行時間</div>
-                <div className="text-xs text-slate-300 font-mono">2026-01-12 11:00:02</div>
-              </div>
-              <div className="flex justify-between items-center px-2">
-                <div className="text-xs text-slate-500 font-medium">下次執行預計</div>
-                <div className="text-xs text-blue-400 font-mono">2026-01-12 12:00:00</div>
-              </div>
-              <div className="border-t border-slate-800 my-1"></div>
-              <div className="flex justify-between items-center px-2">
-                <div className="text-xs text-slate-500 font-medium">歷史執行成功率</div>
-                <div className="text-xs text-green-500 font-bold">100%</div>
-              </div>
-            </div>
+             </div>
           </div>
-
-          <div className="pt-2">
-            <button 
-              onClick={runJob}
-              disabled={isRefreshing}
-              className={`w-full flex items-center justify-center gap-3 py-4 rounded-2xl font-bold text-sm transition-all active:scale-[0.98] shadow-lg ${isRefreshing ? 'bg-slate-800 text-slate-600 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-500 text-white shadow-blue-500/20'}`}
-            >
-              <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
-              {isRefreshing ? '正在觸發排程 API...' : '立即手動執行任務 (Manual Trigger)'}
-            </button>
+          <div className="flex gap-2">
+             <button onClick={() => setLang(l => l === 'CN' ? 'EN' : 'CN')} className="text-[10px] font-bold border border-slate-600 px-2 py-1 rounded text-slate-400 hover:text-white hover:border-white transition-colors">
+                {lang === 'CN' ? 'Translate EN' : '翻譯中文'}
+             </button>
           </div>
-        </div>
-      </div>
+       </div>
 
-      {/* History Log Section */}
-      <div className="bg-[#1e293b] border border-slate-800 rounded-2xl p-6">
-        <h4 className="text-sm font-bold text-white mb-4">執行日誌 (Last 5 Runs)</h4>
-        <div className="space-y-3">
-          {[1,2,3].map(i => (
-            <div key={i} className="flex items-center justify-between text-xs py-2 border-b border-slate-800/50 last:border-0">
-              <div className="flex items-center gap-3">
-                <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                <span className="text-slate-300 font-mono">2026-01-12 0{9+i}:00:01</span>
-              </div>
-              <span className="text-slate-500 uppercase font-bold text-[10px]">Status: 200 OK</span>
-              <span className="text-blue-400 font-medium">Execution: 1.2s</span>
-            </div>
-          ))}
-        </div>
-      </div>
+       <h3 className="text-lg font-bold text-white mb-2 leading-tight">
+          {lang === 'CN' ? post.titleCN : post.titleEN}
+       </h3>
+       
+       <div className="bg-black/20 p-3 rounded-lg border-l-2 border-hker-red mb-3">
+          <p className="text-sm text-slate-300 leading-relaxed">
+            {lang === 'CN' ? post.contentCN : post.contentEN}
+          </p>
+          {post.sourceUrl && (
+            <a href={post.sourceUrl} target="_blank" rel="noreferrer" className="block mt-2 text-[10px] text-blue-400 hover:underline flex items-center gap-1">
+               Source: {post.sourceName || 'News Link'} <ExternalLink className="w-3 h-3"/>
+            </a>
+          )}
+       </div>
+
+       <div className="flex items-center gap-4 pt-2 border-t border-slate-800/50">
+          <button onClick={() => handleLike('like')} className="flex items-center gap-1 text-xs font-bold text-slate-500 hover:text-blue-500 transition-colors">
+             <ThumbsUp className="w-4 h-4"/> {post.likes}
+          </button>
+          <button onClick={() => handleLike('love')} className="flex items-center gap-1 text-xs font-bold text-slate-500 hover:text-pink-500 transition-colors">
+             <Heart className="w-4 h-4"/> {post.loves}
+          </button>
+          <button onClick={copyLink} className="ml-auto flex items-center gap-1 text-xs font-bold text-slate-500 hover:text-white transition-colors">
+             <Share2 className="w-4 h-4"/> Share
+          </button>
+       </div>
     </div>
   );
-}
+};
 
-function PlusIcon(props: any) {
+const GameCard = ({ id, name, icon, bg, onSelect }: any) => (
+  <button onClick={() => onSelect(id)} className={`relative h-32 rounded-xl overflow-hidden group border border-slate-700 hover:border-hker-gold transition-all shadow-lg`}>
+    <div className={`absolute inset-0 bg-gradient-to-br ${bg} opacity-60 group-hover:opacity-100 transition-opacity`}></div>
+    <div className="absolute inset-0 flex flex-col items-center justify-center p-4">
+       <div className="text-white mb-2 group-hover:scale-110 transition-transform">{icon}</div>
+       <div className="font-black text-white uppercase text-sm tracking-wider">{name}</div>
+    </div>
+  </button>
+);
+
+const AdminConsole = ({ posts, onDeletePost, onTriggerBot, isRefreshing }: any) => {
+  const [users, setUsers] = useState<User[]>([]);
+  const [stats, setStats] = useState<Stat | null>(null);
+
+  useEffect(() => {
+     DataService.getUsers().then(setUsers);
+     DataService.getStats().then(setStats);
+  }, []);
+
+  const handleEditPoints = async (uid: string, newPts: number) => {
+     await DataService.updatePoints(uid, newPts, 'set');
+     const updated = await DataService.getUsers();
+     setUsers(updated);
+  };
+
   return (
-    <svg {...props} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="12 4v16m8-8H4" />
-    </svg>
+     <div className="space-y-6">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+           <div className="bg-blue-900/20 p-4 rounded-xl border border-blue-500/30">
+              <div className="text-xs text-blue-400 font-bold uppercase">Total Users</div>
+              <div className="text-2xl font-black text-white">{stats?.totalUsers || 0}</div>
+           </div>
+           <div className="bg-green-900/20 p-4 rounded-xl border border-green-500/30">
+              <div className="text-xs text-green-400 font-bold uppercase">Today Registers</div>
+              <div className="text-2xl font-black text-white">{stats?.todayRegisters || 0}</div>
+           </div>
+           <div className="bg-purple-900/20 p-4 rounded-xl border border-purple-500/30">
+              <div className="text-xs text-purple-400 font-bold uppercase">Today Visits</div>
+              <div className="text-2xl font-black text-white">{stats?.todayVisits || 0}</div>
+           </div>
+           <div className="bg-orange-900/20 p-4 rounded-xl border border-orange-500/30 cursor-pointer hover:bg-orange-900/40" onClick={onTriggerBot}>
+              <div className="text-xs text-orange-400 font-bold uppercase flex items-center gap-2">Bot Status {isRefreshing && <RefreshCw className="w-3 h-3 animate-spin"/>}</div>
+              <div className="text-sm font-bold text-white mt-1">{isRefreshing ? 'RUNNING...' : 'CLICK TO RUN'}</div>
+           </div>
+        </div>
+
+        <div className="bg-[#1E293B] rounded-xl border border-slate-800 overflow-hidden">
+           <div className="p-4 bg-black/20 border-b border-slate-800 font-bold text-white flex justify-between">
+              <span>USER DATABASE (REALTIME SUPABASE)</span>
+              <span className="text-xs text-slate-500 font-mono self-center">Total: {users.length}</span>
+           </div>
+           <div className="overflow-x-auto">
+             <table className="w-full text-sm text-left text-slate-400">
+               <thead className="text-xs text-slate-500 uppercase bg-black/40">
+                 <tr>
+                   <th className="px-4 py-3">User</th>
+                   <th className="px-4 py-3">Email</th>
+                   <th className="px-4 py-3">Points</th>
+                   <th className="px-4 py-3">Action</th>
+                 </tr>
+               </thead>
+               <tbody>
+                 {users.map(u => (
+                   <tr key={u.id} className="border-b border-slate-800 hover:bg-slate-800/50">
+                     <td className="px-4 py-3 font-bold text-white">{u.name}</td>
+                     <td className="px-4 py-3 font-mono text-xs">{u.email}</td>
+                     <td className="px-4 py-3">
+                        <input 
+                          type="number" 
+                          defaultValue={u.points} 
+                          onBlur={(e) => handleEditPoints(u.id, Number(e.target.value))}
+                          className="bg-black/30 w-24 px-2 py-1 rounded border border-slate-600 text-white focus:border-hker-gold outline-none"
+                        />
+                     </td>
+                     <td className="px-4 py-3">
+                        <button onClick={async () => {
+                           if(confirm('Delete user?')) {
+                             await DataService.deleteUser(u.id);
+                             setUsers(p => p.filter(x => x.id !== u.id));
+                           }
+                        }} className="text-red-500 hover:text-white"><Trash2 className="w-4 h-4"/></button>
+                     </td>
+                   </tr>
+                 ))}
+               </tbody>
+             </table>
+           </div>
+        </div>
+        
+        <div className="bg-[#1E293B] rounded-xl border border-slate-800 overflow-hidden">
+           <div className="p-4 bg-black/20 border-b border-slate-800 font-bold text-white">POST MANAGEMENT</div>
+           <div className="p-4 space-y-2">
+              {posts.map((p: Post) => (
+                <div key={p.id} className="flex justify-between items-center bg-black/20 p-2 rounded hover:bg-black/40">
+                   <div className="truncate flex-1 pr-4">
+                      <span className="text-xs font-mono text-slate-500 mr-2">[{new Date(p.timestamp).toLocaleDateString()}]</span>
+                      <span className="text-sm text-white font-bold">{p.titleCN}</span>
+                   </div>
+                   <button onClick={() => onDeletePost(p.id)} className="p-1 text-red-500 hover:bg-red-900/20 rounded"><Trash2 className="w-4 h-4"/></button>
+                </div>
+              ))}
+           </div>
+        </div>
+     </div>
   );
-}
+};
