@@ -9,10 +9,10 @@ import { GoogleGenAI } from "@google/genai";
  */
 
 // --- CONFIGURATION ---
-// 使用 Vercel 環境變量，如果沒有則使用您提供的預設值 (建議在 Vercel 後台設定 Service Role Key 以獲得完整寫入權限)
+// 強制使用 Vercel 環境變量，確保使用 Service Role Key (擁有寫入權限)
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://wgkcwnyxjhnlkrdjvzyj.supabase.co';
-const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || 'sb_publishable_O_E1KKVTudZg2Ipob5E14g_eExGWDBG'; 
-const GEMINI_API_KEY = process.env.API_KEY;
+const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY; // MUST match Vercel Env Var
+const GEMINI_API_KEY = process.env.API_KEY || process.env.GEMINI_API_KEY;
 
 // Constants for randomization
 const REGIONS = ["中國香港", "台灣", "英國", "美國", "加拿大", "澳洲", "歐洲"];
@@ -29,9 +29,15 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: `Method ${req.method} Not Allowed` });
   }
 
-  // 3. API Key Check
+  // 3. Configuration Check (Detailed Error for Vercel Logs)
   if (!GEMINI_API_KEY) {
-    return res.status(500).json({ error: "Server Configuration Error: Missing GEMINI_API_KEY" });
+    console.error("CRITICAL: GEMINI_API_KEY is missing.");
+    return res.status(500).json({ error: "Server Error: Missing GEMINI_API_KEY" });
+  }
+  if (!SUPABASE_SERVICE_KEY) {
+    console.error("CRITICAL: SUPABASE_SERVICE_ROLE_KEY is missing. Please add it to Vercel Environment Variables.");
+    // Fallback warning: If RLS is on, this will fail without the service key
+    return res.status(500).json({ error: "Server Error: Missing SUPABASE_SERVICE_ROLE_KEY" });
   }
 
   try {
@@ -39,7 +45,8 @@ export default async function handler(req, res) {
     console.log("--- BOT STARTED ---");
 
     // --- STEP A: INIT CLIENTS ---
-    const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+    // Use the Service Role Key to bypass RLS policies
+    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
     const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
 
     // --- STEP B: RANDOMIZE PARAMETERS ---
@@ -48,22 +55,22 @@ export default async function handler(req, res) {
     console.log(`Target: ${region} - ${topic}`);
 
     // --- STEP C: GEMINI GENERATION ---
-    // Note: Server-side Gemini call needs to handle tools carefully
     const model = "gemini-2.5-flash";
     const prompt = `
-      You are a reporter for HKER News.
-      TASK: Search for a REAL news event from the last 24 hours related to "${region}" and "${topic}".
+      You are a senior editor for HKER News (Web3 Community).
+      TASK: Search for a REAL, LATEST news event (last 24h) related to "${region}" and "${topic}".
       
       REQUIREMENTS:
-      1. Use 'googleSearch' to find facts.
-      2. Return ONLY raw JSON. No markdown formatting.
-      3. JSON Schema:
+      1. Use 'googleSearch' to verify facts.
+      2. Return ONLY raw JSON. No markdown.
+      
+      OUTPUT JSON FORMAT:
       {
         "titleCN": "Traditional Chinese Headline",
         "titleEN": "English Headline",
-        "contentCN": "Traditional Chinese summary (80-120 words)",
-        "contentEN": "English summary (80-120 words)",
-        "sourceName": "Source Name (e.g. BBC)"
+        "contentCN": "Traditional Chinese summary (80-100 words)",
+        "contentEN": "English summary (80-100 words)",
+        "sourceName": "Source (e.g. BBC)"
       }
     `;
 
@@ -94,7 +101,7 @@ export default async function handler(req, res) {
       throw new Error("Failed to parse Gemini response as JSON");
     }
 
-    // Attempt to extract source URL from grounding metadata
+    // Attempt to extract source URL
     let sourceUrl = "https://news.google.com";
     const chunks = aiResponse.candidates?.[0]?.groundingMetadata?.groundingChunks;
     if (chunks) {
@@ -103,8 +110,10 @@ export default async function handler(req, res) {
     }
 
     // --- STEP E: SAVE TO SUPABASE ---
+    // Ensure table name is 'posts' (matches frontend). 
+    // If you named your table 'news' in Supabase, please rename it to 'posts' or change the line below.
     const newPost = {
-      id: crypto.randomUUID(), // Node.js 19+ supports this, or use uuid package if needed. Vercel usually supports it.
+      id: crypto.randomUUID(),
       titleCN: newsData.titleCN,
       titleEN: newsData.titleEN,
       contentCN: newsData.contentCN,
@@ -112,8 +121,7 @@ export default async function handler(req, res) {
       region: region,
       topic: topic,
       authorId: 'bot-auto-gen',
-      authorName: 'HKER Bot 🤖',
-      authorAvatar: '🤖',
+      // Explicitly excluding authorName/authorAvatar to prevent schema errors
       timestamp: Date.now(),
       likes: 0,
       loves: 0,
@@ -125,8 +133,8 @@ export default async function handler(req, res) {
     const { error: dbError } = await supabase.from('posts').insert(newPost);
 
     if (dbError) {
-      console.error("Supabase Error:", dbError);
-      throw new Error(`Database Insert Failed: ${dbError.message}`);
+      console.error("Supabase Write Error:", dbError);
+      throw new Error(`Database Insert Failed: ${dbError.message} (Check if table 'posts' exists)`);
     }
 
     // --- STEP F: SUCCESS RESPONSE ---

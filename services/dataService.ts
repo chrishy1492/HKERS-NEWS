@@ -89,8 +89,15 @@ export const getPosts = async (): Promise<Post[]> => {
       .limit(100); // Get last 100 posts
       
     if (!error && data) {
-      localStorage.setItem('hker_posts_cache', JSON.stringify(data));
-      return data as Post[];
+      // Hydrate missing fields that might not be in DB schema
+      const hydratedPosts = data.map((p: any) => ({
+        ...p,
+        authorName: p.authorName || (p.isBot ? 'HKER Bot 🤖' : 'HKER Member'),
+        authorAvatar: p.authorAvatar || (p.isBot ? '🤖' : '😀')
+      }));
+
+      localStorage.setItem('hker_posts_cache', JSON.stringify(hydratedPosts));
+      return hydratedPosts as Post[];
     }
   }
   const cached = localStorage.getItem('hker_posts_cache');
@@ -100,9 +107,30 @@ export const getPosts = async (): Promise<Post[]> => {
 export const savePost = async (post: Post): Promise<boolean> => {
   const isConnected = await checkSupabaseConnection();
   if (isConnected) {
-    const { error } = await supabase.from('posts').upsert(post);
+    // STRICT ALLOW-LIST: Only send fields that actually exist in the DB schema.
+    // This prevents "Column not found" errors (PGRST204) for UI fields like authorAvatar.
+    const dbPost = {
+      id: post.id,
+      titleCN: post.titleCN,
+      titleEN: post.titleEN,
+      contentCN: post.contentCN,
+      contentEN: post.contentEN,
+      authorId: post.authorId,
+      timestamp: post.timestamp,
+      region: post.region,
+      topic: post.topic,
+      likes: post.likes,
+      loves: post.loves,
+      isBot: post.isBot,
+      sourceUrl: post.sourceUrl,
+      sourceName: post.sourceName
+    };
+
+    const { error } = await supabase.from('posts').upsert(dbPost);
     if (error) {
-      console.error("Supabase Save Post Error:", JSON.stringify(error, null, 2), "Post Data:", post);
+      console.error("Supabase Save Post Error:", JSON.stringify(error, null, 2));
+      // Log the payload to debug [object Object] issues
+      console.log("Failed Payload:", JSON.stringify(dbPost, null, 2));
       return false;
     }
     return true;

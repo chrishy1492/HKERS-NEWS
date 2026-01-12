@@ -8,8 +8,8 @@ import { GoogleGenAI } from "@google/genai";
  */
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://wgkcwnyxjhnlkrdjvzyj.supabase.co';
-const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || 'sb_publishable_O_E1KKVTudZg2Ipob5E14g_eExGWDBG'; 
-const GEMINI_API_KEY = process.env.API_KEY;
+const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY; // Essential for write access
+const GEMINI_API_KEY = process.env.API_KEY || process.env.GEMINI_API_KEY;
 
 const REGIONS = ["中國香港", "台灣", "英國", "美國", "加拿大", "澳洲", "歐洲"];
 const TOPICS = ["地產", "時事", "財經", "娛樂", "旅遊", "數碼", "汽車", "社區活動"];
@@ -23,15 +23,20 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: `Method ${req.method} Not Allowed` });
   }
 
+  // Critical Check
+  if (!SUPABASE_SERVICE_KEY) {
+     console.error("Missing SUPABASE_SERVICE_ROLE_KEY in Environment Variables");
+     return res.status(500).json({ error: "Configuration Error: Missing SUPABASE_SERVICE_ROLE_KEY" });
+  }
   if (!GEMINI_API_KEY) {
-    return res.status(500).json({ error: "Server Configuration Error: Missing GEMINI_API_KEY" });
+     return res.status(500).json({ error: "Configuration Error: Missing GEMINI_API_KEY" });
   }
 
   try {
     const startTime = Date.now();
     
-    // Init
-    const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+    // Init with Service Key
+    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
     const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
 
     // Params
@@ -41,12 +46,21 @@ export default async function handler(req, res) {
     // Gemini
     const model = "gemini-2.5-flash";
     const prompt = `
-      You are a reporter for HKER News.
-      TASK: Search for a REAL news event from the last 24 hours related to "${region}" and "${topic}".
+      You are a senior editor for HKER News (Web3 Community).
+      TASK: Search for a REAL, LATEST news event (last 24h) related to "${region}" and "${topic}".
+      
       REQUIREMENTS:
       1. Use 'googleSearch' to verify facts.
       2. Return ONLY raw JSON. No markdown.
-      3. JSON Schema: {"titleCN": "...", "titleEN": "...", "contentCN": "...", "contentEN": "...", "sourceName": "..."}
+      
+      OUTPUT JSON FORMAT:
+      {
+        "titleCN": "Traditional Chinese Headline",
+        "titleEN": "English Headline",
+        "contentCN": "Traditional Chinese summary (80-100 words)",
+        "contentEN": "English summary (80-100 words)",
+        "sourceName": "Source (e.g. BBC)"
+      }
     `;
 
     const aiResponse = await ai.models.generateContent({
@@ -81,7 +95,7 @@ export default async function handler(req, res) {
         if (webChunk) sourceUrl = webChunk.web.uri;
     }
 
-    // Save
+    // Save to 'posts' table
     const newPost = {
       id: crypto.randomUUID(),
       titleCN: newsData.titleCN,
@@ -91,8 +105,6 @@ export default async function handler(req, res) {
       region: region,
       topic: topic,
       authorId: 'bot-auto-gen',
-      authorName: 'HKER Bot 🤖',
-      authorAvatar: '🤖',
       timestamp: Date.now(),
       likes: 0,
       loves: 0,
