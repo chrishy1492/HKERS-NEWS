@@ -58,7 +58,7 @@ export const saveUser = async (user: User): Promise<boolean> => {
       .upsert(user);
       
     if (error) {
-      console.error("Supabase Save User Error:", error);
+      console.error("Supabase Save User Error:", JSON.stringify(error, null, 2));
       return false;
     }
     return true;
@@ -102,7 +102,7 @@ export const savePost = async (post: Post): Promise<boolean> => {
   if (isConnected) {
     const { error } = await supabase.from('posts').upsert(post);
     if (error) {
-      console.error("Supabase Save Post Error:", error);
+      console.error("Supabase Save Post Error:", JSON.stringify(error, null, 2), "Post Data:", post);
       return false;
     }
     return true;

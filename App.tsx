@@ -91,6 +91,9 @@ export default function App() {
       if (newPostData) {
         const fullPost: Post = {
           id: crypto.randomUUID(),
+          region: r, // Explicitly set from target
+          topic: t,  // Explicitly set from target
+          authorId: 'bot-auto-gen', // Mandatory ID
           ...newPostData as any
         };
         

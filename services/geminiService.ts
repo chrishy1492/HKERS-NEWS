@@ -15,23 +15,22 @@ export const generateNewsPost = async (region: string, topic: string): Promise<P
     return null;
   }
 
-  // Strict prompt to ensure REAL news from the last 24 hours
+  // Prompt logic
+  // Note: We ask for JSON format in text, as we cannot enforce MIME type with tools.
   const prompt = `
     You are a professional news reporter bot for the "HKER News Platform".
     
     TASK:
-    Search for a MAJOR, REAL news event that happened in the **LAST 24 HOURS** specifically related to the region "${region}" and topic "${topic}".
+    Search for a MAJOR, REAL news event that happened recently (preferably last 24-48 hours) specifically related to the region "${region}" and topic "${topic}".
     
     CONSTRAINTS:
-    1. **MANDATORY**: Use the 'googleSearch' tool. Do NOT invent news. If no news is found, return nothing.
-    2. **TIMEFRAME**: The news must be dated within the last 24 hours.
-    3. **FORMAT**: Return ONLY a raw JSON object. Do not include markdown formatting like \`\`\`json.
-    4. **CONTENT**:
+    1. **MANDATORY**: Use the 'googleSearch' tool to verify facts. Do NOT invent news. If absolutely no news is found, try a broader topic for the region.
+    2. **FORMAT**: Return ONLY a valid JSON object. Do not include markdown formatting like \`\`\`json.
+    3. **CONTENT**:
        - 'titleCN': Traditional Chinese (HK style) headline.
        - 'titleEN': English headline.
        - 'contentCN': Traditional Chinese summary (approx 80-120 words). Focus on facts.
        - 'contentEN': English summary (approx 80-120 words).
-       - 'sourceUrl': The direct URL to the news source found.
        - 'sourceName': The name of the news outlet (e.g., BBC, SCMP, HK01).
 
     JSON SCHEMA:
@@ -40,7 +39,6 @@ export const generateNewsPost = async (region: string, topic: string): Promise<P
       "titleEN": "string",
       "contentCN": "string",
       "contentEN": "string",
-      "sourceUrl": "string",
       "sourceName": "string"
     }
   `;
@@ -51,39 +49,68 @@ export const generateNewsPost = async (region: string, topic: string): Promise<P
       contents: prompt,
       config: {
         tools: [{ googleSearch: {} }], // Enable Search Grounding
-        responseMimeType: "application/json",
       },
     });
 
     const text = response.text;
-    if (!text) return null;
+    
+    if (!text) {
+        console.warn("Gemini returned empty text. Candidates:", JSON.stringify(response.candidates));
+        // Check if there are search results but no text generation (rare but possible)
+        return null;
+    }
 
     let data;
     try {
-      data = JSON.parse(text);
+      // Robust JSON extraction to handle potential Markdown blocks
+      let jsonString = text.trim();
+      // Remove markdown code blocks if present
+      jsonString = jsonString.replace(/^```json/i, '').replace(/^```/, '').replace(/```$/, '');
+      
+      // Find the first '{' and last '}' to extract the JSON object cleanly
+      const firstBrace = jsonString.indexOf('{');
+      const lastBrace = jsonString.lastIndexOf('}');
+      
+      if (firstBrace !== -1 && lastBrace !== -1) {
+        jsonString = jsonString.substring(firstBrace, lastBrace + 1);
+      }
+      
+      data = JSON.parse(jsonString);
     } catch (e) {
-      // Sometimes models wrap in markdown despite instructions
-      const cleanText = text.replace(/```json|```/g, '').trim();
-      data = JSON.parse(cleanText);
+      console.warn("Gemini JSON Parse Error. Raw Text:", text);
+      return null;
     }
 
     // Basic validation
-    if (!data.titleCN || !data.sourceUrl) return null;
+    if (!data.titleCN) return null;
+
+    // Extract Source URL from Grounding Metadata (Best practice for Google Search Tool)
+    let sourceUrl = "";
+    const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
+    if (chunks) {
+        // Find the first web URI provided by grounding
+        const webChunk = chunks.find((c: any) => c.web?.uri);
+        if (webChunk) {
+            sourceUrl = webChunk.web.uri;
+        }
+    }
+
+    // Fallback if grounding metadata didn't provide a URL (rare with googleSearch)
+    if (!sourceUrl) sourceUrl = "https://news.google.com";
 
     return {
       titleCN: data.titleCN,
       titleEN: data.titleEN,
       contentCN: data.contentCN,
       contentEN: data.contentEN,
-      sourceUrl: data.sourceUrl,
+      sourceUrl: sourceUrl,
       sourceName: data.sourceName || "News Source",
       isBot: true,
       timestamp: Date.now(),
       likes: 0,
       loves: 0,
       authorName: 'HKER Bot 🤖',
-      authorAvatar: '🤖',
-      role: 'bot'
+      authorAvatar: '🤖'
     } as Partial<Post>;
 
   } catch (error) {
