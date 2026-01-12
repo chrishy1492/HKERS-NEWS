@@ -34,6 +34,7 @@ export default function App() {
   const [selectedRegion, setSelectedRegion] = useState<Region>("全部");
   const [selectedTopic, setSelectedTopic] = useState<Topic>("全部");
   const [searchQuery, setSearchQuery] = useState("");
+  const [isRefreshing, setIsRefreshing] = useState(false);
   
   // State: Bot & System
   const [botStatus, setBotStatus] = useState<{lastRun: string | null, isRunning: boolean, error: string | null}>({ lastRun: null, isRunning: false, error: null });
@@ -332,7 +333,7 @@ export default function App() {
                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
              </div>
              
-             {/* DESKTOP NAV BUTTONS */}
+             {/* DESKTOP NAV BUTTONS (ADDED FOR VISIBILITY) */}
              <button 
                 onClick={() => setCurrentView('games')} 
                 className={`flex items-center gap-2 px-4 py-2 rounded-full text-xs font-bold transition-all ${currentView === 'games' ? 'bg-hker-gold text-black' : 'bg-slate-800 hover:bg-slate-700 text-white'}`}
