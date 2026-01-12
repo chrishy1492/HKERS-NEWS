@@ -579,7 +579,8 @@ const AiFortuneEngine = ({ onBack }: { onBack: () => void }) => {
                   <div className="text-sm font-bold text-white truncate">{result.career.focus}</div>
                 </div>
               </div>
-              <p className="text-xs text-slate-400 mt-2">>> {result.career.advice}</p>
+              {/* FIXED: Escaped '>>' to '&gt;&gt;' for valid JSX */}
+              <p className="text-xs text-slate-400 mt-2">&gt;&gt; {result.career.advice}</p>
             </div>
 
             {/* Wealth Module */}
