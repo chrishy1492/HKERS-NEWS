@@ -24,7 +24,6 @@ export default async function handler(req, res) {
   }
 
   if (!SUPABASE_SERVICE_KEY) {
-     console.error("Missing SUPABASE_SERVICE_ROLE_KEY");
      return res.status(500).json({ error: "Configuration Error: Missing SUPABASE_SERVICE_ROLE_KEY" });
   }
   if (!GEMINI_API_KEY) {
@@ -35,22 +34,23 @@ export default async function handler(req, res) {
     const startTime = Date.now();
     
     // Init
-    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
+    const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
     const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
 
-    // Params
-    const region = REGIONS[Math.floor(Math.random() * REGIONS.length)];
-    const topic = TOPICS[Math.floor(Math.random() * TOPICS.length)];
+    // Target (Search guidance)
+    const targetRegion = REGIONS[Math.floor(Math.random() * REGIONS.length)];
+    const targetTopic = TOPICS[Math.floor(Math.random() * TOPICS.length)];
 
     // Gemini
     const model = "gemini-2.5-flash";
     const prompt = `
       You are a senior editor for HKER News.
-      TASK: Search for a REAL, LATEST news event (last 24h) related to "${region}" and "${topic}".
+      TASK: Search for a REAL, LATEST news event (last 24-48h) related to "${targetRegion}" and "${targetTopic}".
       
       REQUIREMENTS:
       1. Use 'googleSearch' to verify facts.
       2. Return ONLY raw JSON. No markdown.
+      3. CRITICAL: Analyze the content and determine the most accurate 'region' and 'category'.
       
       OUTPUT JSON FORMAT:
       {
@@ -58,6 +58,8 @@ export default async function handler(req, res) {
         "titleEN": "English Headline",
         "contentCN": "Traditional Chinese summary (80-100 words)",
         "contentEN": "English summary (80-100 words)",
+        "region": "The most relevant region",
+        "category": "The most relevant topic",
         "sourceName": "Source Name"
       }
     `;
@@ -72,7 +74,7 @@ export default async function handler(req, res) {
     if (!text) throw new Error("Gemini returned empty text");
 
     // Parse
-    let newsData;
+    let article;
     try {
       let jsonString = text.trim();
       jsonString = jsonString.replace(/^```json/i, '').replace(/^```/, '').replace(/```$/, '');
@@ -81,7 +83,7 @@ export default async function handler(req, res) {
       if (firstBrace !== -1 && lastBrace !== -1) {
         jsonString = jsonString.substring(firstBrace, lastBrace + 1);
       }
-      newsData = JSON.parse(jsonString);
+      article = JSON.parse(jsonString);
     } catch (e) {
       throw new Error("Failed to parse Gemini response as JSON");
     }
@@ -93,33 +95,36 @@ export default async function handler(req, res) {
         const webChunk = chunks.find((c) => c.web?.uri);
         if (webChunk) sourceUrl = webChunk.web.uri;
     }
+    article.url = sourceUrl;
 
-    // SAVE Logic (Verified against schema)
-    const newPost = {
-      id: crypto.randomUUID(),
-      titleCN: newsData.titleCN,
-      titleEN: newsData.titleEN,
-      contentCN: newsData.contentCN,
-      contentEN: newsData.contentEN,
-      region: region,         // Mapped Region
-      topic: topic,           // Mapped Topic (Category)
-      authorId: 'bot-auto-gen',
-      timestamp: Date.now(),
-      likes: 0,
-      loves: 0,
-      isBot: true,
-      sourceUrl: sourceUrl,
-      sourceName: newsData.sourceName || "HKER AI"
-    };
+    // SAVE Logic (Matched to request)
+    const { data, error } = await supabaseAdmin
+      .from('posts')
+      .insert({
+        id: crypto.randomUUID(),
+        titleCN: article.titleCN,
+        titleEN: article.titleEN,
+        contentCN: article.contentCN,
+        contentEN: article.contentEN,
+        region: article.region || '未分類',      // AI Determined
+        topic: article.category || '時事',       // AI Determined (mapped to DB 'topic')
+        sourceUrl: article.url,
+        sourceName: article.sourceName || "HKER AI",
+        authorName: 'HKER News Bot',
+        authorId: 'bot-auto-gen',
+        isBot: true,
+        timestamp: Date.now(),
+        likes: 0,
+        loves: 0
+      });
 
-    const { error: dbError } = await supabase.from('posts').insert(newPost);
-    if (dbError) throw new Error(`Database Insert Failed: ${dbError.message}`);
+    if (error) throw new Error(`Database Insert Failed: ${error.message}`);
 
     const duration = Date.now() - startTime;
     return res.status(200).json({
       status: 'success',
       message: 'News Generated and Saved',
-      data: { title: newsData.titleCN, region, topic },
+      data: { title: article.titleCN, region: article.region, category: article.category },
       duration: `${duration}ms`
     });
 
