@@ -48,18 +48,20 @@ export default async function handler(req, res) {
       TASK: Search for a REAL, LATEST news event (last 24-48h) related to "${targetRegion}" and "${targetTopic}".
       
       REQUIREMENTS:
-      1. Use 'googleSearch' to verify facts.
-      2. Return ONLY raw JSON. No markdown.
-      3. CRITICAL: Analyze the content and determine the most accurate 'region' and 'category'.
+      1. Use 'googleSearch' to verify facts. Do not invent news.
+      2. Analyze the content and determine the most accurate 'region' and 'category' from the provided lists.
+         - Regions: ${JSON.stringify(REGIONS)}
+         - Categories: ${JSON.stringify(TOPICS)}
+      3. Return ONLY raw JSON. No markdown.
       
       OUTPUT JSON FORMAT:
       {
         "titleCN": "Traditional Chinese Headline",
         "titleEN": "English Headline",
-        "contentCN": "Traditional Chinese summary (80-100 words)",
-        "contentEN": "English summary (80-100 words)",
+        "contentCN": "Traditional Chinese summary (80-120 words). Focus on facts.",
+        "contentEN": "English summary (80-120 words)",
         "region": "The most relevant region",
-        "category": "The most relevant topic",
+        "category": "The most relevant category",
         "sourceName": "Source Name"
       }
     `;

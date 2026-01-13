@@ -5,7 +5,7 @@ import { GoogleGenAI } from "@google/genai";
 /**
  * HKER BOT - SERVERLESS FUNCTION
  * Path: /pages/api/bot.js
- * Triggered by: cron-job.org
+ * Triggered by: cron-job.org or manual trigger
  */
 
 // --- CONFIGURATION ---
@@ -13,7 +13,7 @@ const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://wgkcwnyxjh
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY; 
 const GEMINI_API_KEY = process.env.API_KEY || process.env.GEMINI_API_KEY;
 
-// Defined lists for validation/guidance
+// Defined lists for AI guidance to ensure frontend compatibility
 const REGIONS = ["中國香港", "台灣", "英國", "美國", "加拿大", "澳洲", "歐洲"];
 const TOPICS = ["地產", "時事", "財經", "娛樂", "旅遊", "數碼", "汽車", "社區活動"];
 
@@ -44,9 +44,10 @@ export default async function handler(req, res) {
     const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
 
     // --- STEP B: TARGET PARAMETERS ---
+    // We select a broad target to guide the search, but AI will finalize categorization
     const targetRegion = REGIONS[Math.floor(Math.random() * REGIONS.length)];
     const targetTopic = TOPICS[Math.floor(Math.random() * TOPICS.length)];
-    console.log(`Target Search: ${targetRegion} - ${targetTopic}`);
+    console.log(`Target Search Guide: ${targetRegion} - ${targetTopic}`);
 
     // --- STEP C: GEMINI PROMPT ---
     const model = "gemini-2.5-flash";
@@ -55,19 +56,21 @@ export default async function handler(req, res) {
       TASK: Search for a REAL, LATEST news event (last 24-48h) related to "${targetRegion}" and "${targetTopic}".
       
       REQUIREMENTS:
-      1. Use 'googleSearch' to verify facts.
-      2. Return ONLY raw JSON. No markdown.
-      3. CRITICAL: Analyze the content and determine the most accurate 'region' and 'category'.
+      1. Use 'googleSearch' to verify facts. Do not invent news.
+      2. Analyze the content and determine the most accurate 'region' and 'category' from the provided lists.
+         - Regions: ${JSON.stringify(REGIONS)}
+         - Categories: ${JSON.stringify(TOPICS)}
+      3. Return ONLY raw JSON. No markdown.
       
       OUTPUT JSON FORMAT:
       {
         "titleCN": "Traditional Chinese Headline",
         "titleEN": "English Headline",
-        "contentCN": "Traditional Chinese summary (80-100 words)",
-        "contentEN": "English summary (80-100 words)",
-        "region": "The most relevant region (e.g., 中國香港, 英國, etc.)",
-        "category": "The most relevant topic (e.g., 時事, 財經, 地產, etc.)",
-        "sourceName": "Source Name"
+        "contentCN": "Traditional Chinese summary (80-120 words). Focus on facts.",
+        "contentEN": "English summary (80-120 words)",
+        "region": "The most relevant region from the list",
+        "category": "The most relevant category from the list",
+        "sourceName": "Source Name (e.g. BBC, SCMP, HK01)"
       }
     `;
 
@@ -81,7 +84,7 @@ export default async function handler(req, res) {
     if (!text) throw new Error("Gemini returned empty text");
 
     // --- STEP D: PARSE ---
-    let article; // Naming consistent with your request logic
+    let article; 
     try {
       let jsonString = text.trim();
       jsonString = jsonString.replace(/^```json/i, '').replace(/^```/, '').replace(/```$/, '');
@@ -105,22 +108,25 @@ export default async function handler(req, res) {
     article.url = sourceUrl;
 
     // --- STEP E: SAVE (CUSTOM LOGIC) ---
-    // This matches the specific structure requested, mapped to DB columns
+    // Using the schema defined in types.ts (titleCN, topic, etc.) while fulfilling the request logic
     const { data, error } = await supabaseAdmin
       .from('posts') 
       .insert({
         id: crypto.randomUUID(),
-        titleCN: article.titleCN, // Maps to 'title' concept
+        titleCN: article.titleCN,
         titleEN: article.titleEN,
-        contentCN: article.contentCN, // Maps to 'translatedContent' concept
-        contentEN: article.contentEN, // Maps to 'content' concept
-        region: article.region || '未分類',      // AI 自動判斷的地區
-        topic: article.category || '時事',       // AI 自動判斷的主題 (Database column is 'topic')
-        sourceUrl: article.url,                  // Source URL
+        contentCN: article.contentCN,
+        contentEN: article.contentEN,
+        
+        // AI Determined fields
+        region: article.region || targetRegion,
+        topic: article.category || targetTopic, // Mapped to DB 'topic' column
+        
+        sourceUrl: article.url,
         sourceName: article.sourceName || "HKER AI",
         
-        // System Fields
-        authorName: 'HKER News Bot', // Specific Author Name
+        // Author Identity
+        authorName: 'HKER News Bot',
         authorId: 'bot-auto-gen',
         isBot: true,
         timestamp: Date.now(),
