@@ -8,7 +8,7 @@ import { GoogleGenAI } from "@google/genai";
  */
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://wgkcwnyxjhnlkrdjvzyj.supabase.co';
-const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY; // Essential for write access
+const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY; 
 const GEMINI_API_KEY = process.env.API_KEY || process.env.GEMINI_API_KEY;
 
 const REGIONS = ["中國香港", "台灣", "英國", "美國", "加拿大", "澳洲", "歐洲"];
@@ -23,9 +23,8 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: `Method ${req.method} Not Allowed` });
   }
 
-  // Critical Check
   if (!SUPABASE_SERVICE_KEY) {
-     console.error("Missing SUPABASE_SERVICE_ROLE_KEY in Environment Variables");
+     console.error("Missing SUPABASE_SERVICE_ROLE_KEY");
      return res.status(500).json({ error: "Configuration Error: Missing SUPABASE_SERVICE_ROLE_KEY" });
   }
   if (!GEMINI_API_KEY) {
@@ -35,7 +34,7 @@ export default async function handler(req, res) {
   try {
     const startTime = Date.now();
     
-    // Init with Service Key
+    // Init
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
     const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
 
@@ -46,7 +45,7 @@ export default async function handler(req, res) {
     // Gemini
     const model = "gemini-2.5-flash";
     const prompt = `
-      You are a senior editor for HKER News (Web3 Community).
+      You are a senior editor for HKER News.
       TASK: Search for a REAL, LATEST news event (last 24h) related to "${region}" and "${topic}".
       
       REQUIREMENTS:
@@ -59,7 +58,7 @@ export default async function handler(req, res) {
         "titleEN": "English Headline",
         "contentCN": "Traditional Chinese summary (80-100 words)",
         "contentEN": "English summary (80-100 words)",
-        "sourceName": "Source (e.g. BBC)"
+        "sourceName": "Source Name"
       }
     `;
 
@@ -87,7 +86,7 @@ export default async function handler(req, res) {
       throw new Error("Failed to parse Gemini response as JSON");
     }
 
-    // Extract URL
+    // URL
     let sourceUrl = "https://news.google.com";
     const chunks = aiResponse.candidates?.[0]?.groundingMetadata?.groundingChunks;
     if (chunks) {
@@ -95,15 +94,15 @@ export default async function handler(req, res) {
         if (webChunk) sourceUrl = webChunk.web.uri;
     }
 
-    // Save to 'posts' table
+    // SAVE Logic (Verified against schema)
     const newPost = {
       id: crypto.randomUUID(),
       titleCN: newsData.titleCN,
       titleEN: newsData.titleEN,
       contentCN: newsData.contentCN,
       contentEN: newsData.contentEN,
-      region: region,
-      topic: topic,
+      region: region,         // Mapped Region
+      topic: topic,           // Mapped Topic (Category)
       authorId: 'bot-auto-gen',
       timestamp: Date.now(),
       likes: 0,
