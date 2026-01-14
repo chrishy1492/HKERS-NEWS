@@ -23,25 +23,22 @@ const SYSTEM_NEWS = {
   sourceName: "System Admin"
 };
 
-// 【優化】定義一個自動重試的函數 (Retry Helper)
 async function askAIWithRetry(ai, model, contents, config, retries = 3) {
   for (let i = 0; i < retries; i++) {
     try {
-      // Attempt generation
       const result = await ai.models.generateContent({ model, contents, config });
       return result;
     } catch (error) {
       const errStr = error.toString().toLowerCase();
-      // 如果遇到 AI 塞車 (503/Overloaded) 或 配額 (429)，等待後重試
       if (i < retries - 1 && (errStr.includes('503') || errStr.includes('overloaded') || errStr.includes('429'))) {
-        console.log(`AI 忙碌中 (Busy/Quota)，正在進行第 ${i + 1} 次重試 (Retrying in 5s)...`);
-        await new Promise(resolve => setTimeout(resolve, 5000)); // 等待 5 秒
+        console.log(`AI Busy/Quota, Retrying in 5s (Attempt ${i + 1})...`);
+        await new Promise(resolve => setTimeout(resolve, 5000));
         continue;
       }
       throw error;
     }
   }
-  throw new Error("AI 嘗試多次後仍然失敗 (Max Retries Exceeded)");
+  throw new Error("AI Max Retries Exceeded");
 }
 
 export default async function handler(req, res) {
@@ -108,7 +105,6 @@ export default async function handler(req, res) {
         );
         
         text = aiResponse.text;
-        
         const chunks = aiResponse.candidates?.[0]?.groundingMetadata?.groundingChunks;
         if (chunks) {
             const webChunk = chunks.find((c) => c.web?.uri);
@@ -116,8 +112,7 @@ export default async function handler(req, res) {
         }
         usedSearch = true;
     } catch (e) {
-        console.warn("Bot Primary AI Failed (Search). Switching to Fallback...");
-        // ATTEMPT 2: Fallback Model (With Retry)
+        console.warn("Bot Primary AI Failed. Switching to Fallback...");
         try {
             const fallbackResponse = await askAIWithRetry(
               ai,
@@ -127,8 +122,7 @@ export default async function handler(req, res) {
             );
             text = fallbackResponse.text;
         } catch (fbErr) {
-            // ATTEMPT 3: Hard Mock
-            console.error("Bot Fallback AI Failed completely (Max Retries). Using Mock.");
+            console.error("Bot Fallback AI Failed completely. Using Mock.");
             text = JSON.stringify(SYSTEM_NEWS);
         }
     }
@@ -149,20 +143,20 @@ export default async function handler(req, res) {
       article = SYSTEM_NEWS;
     }
 
-    // SAVE Logic
+    // SAVE Logic - USE SNAKE_CASE
     const dbPayload = {
         id: crypto.randomUUID(),
-        titleCN: article.titleCN || "無標題",
-        titleEN: article.titleEN || "No Title",
-        contentCN: article.contentCN || "內容生成中...",
-        contentEN: article.contentEN || "Content generating...",
+        title_cn: article.titleCN || "無標題",
+        title_en: article.titleEN || "No Title",
+        content_cn: article.contentCN || "內容生成中...",
+        content_en: article.contentEN || "Content generating...",
         region: article.region || targetRegion || "未分類",
         category: article.category || targetTopic || "時事", 
         url: sourceUrl || article.url,
-        sourceName: article.sourceName || "HKER AI",
-        authorName: 'HKER News Bot',
-        authorId: 'bot-auto-gen',
-        isBot: true,
+        source_name: article.sourceName || "HKER AI",
+        author_name: 'HKER News Bot',
+        author_id: 'bot-auto-gen',
+        is_bot: true,
         likes: 0,
         loves: 0
     };

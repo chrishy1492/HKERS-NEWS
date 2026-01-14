@@ -24,13 +24,12 @@ const ADMIN_EMAILS = [
 export const getUsers = async (): Promise<User[]> => {
   const isConnected = await checkSupabaseConnection();
   if (isConnected) {
-    // Try to order by created_at if it exists, otherwise just get all
     const { data, error } = await supabase
       .from('users')
       .select('*');
       
     if (!error && data) {
-      // Sort in memory to be safe against missing DB sort columns
+      // Sort in memory
       const sorted = (data as User[]).sort((a, b) => (b.joinedAt || 0) - (a.joinedAt || 0));
       localStorage.setItem('hker_users_cache', JSON.stringify(sorted));
       return sorted;
@@ -53,7 +52,6 @@ export const saveUser = async (user: User): Promise<boolean> => {
 
   // 2. Sync to Cloud
   if (isConnected) {
-    // Determine if insert or update
     const { error } = await supabase
       .from('users')
       .upsert(user);
@@ -64,7 +62,7 @@ export const saveUser = async (user: User): Promise<boolean> => {
     }
     return true;
   }
-  return true; // Return true if saved locally at least
+  return true; 
 };
 
 export const deleteUser = async (userId: string): Promise<void> => {
@@ -72,7 +70,6 @@ export const deleteUser = async (userId: string): Promise<void> => {
   if (isConnected) {
     await supabase.from('users').delete().eq('id', userId);
   }
-  // Local cleanup
   const users = await getUsers();
   const newUsers = users.filter(u => u.id !== userId);
   localStorage.setItem('hker_users_cache', JSON.stringify(newUsers));
@@ -89,22 +86,35 @@ export const getPosts = async (): Promise<Post[]> => {
       .limit(100); 
       
     if (!error && data) {
-      // Hydrate missing fields & map DB columns to Frontend Types
+      // MAP DB (snake_case) -> FRONTEND (camelCase)
       const hydratedPosts = data.map((p: any) => ({
-        ...p,
-        // MAP DB -> Frontend
-        sourceUrl: p.url || p.sourceUrl, 
-        topic: p.category || p.topic,    
-        // Normalize Timestamp: Try created_at (ISO) -> timestamp (num) -> inserted_at (ISO) -> fallback
+        id: p.id,
+        // Titles
+        titleCN: p.title_cn || p.titleCN || p.title,
+        titleEN: p.title_en || p.titleEN,
+        // Contents
+        contentCN: p.content_cn || p.contentCN || p.content,
+        contentEN: p.content_en || p.contentEN,
+        // Meta
+        region: p.region,
+        topic: p.category || p.topic, 
+        sourceUrl: p.url || p.source_url || p.sourceUrl,
+        sourceName: p.source_name || p.sourceName,
+        // Author
+        authorId: p.author_id || p.authorId,
+        authorName: p.author_name || p.authorName || (p.is_bot || p.isBot ? 'HKER Bot 🤖' : 'HKER Member'),
+        authorAvatar: p.author_avatar || p.authorAvatar || (p.is_bot || p.isBot ? '🤖' : '😀'),
+        isBot: !!(p.is_bot || p.isBot),
+        // Stats
+        likes: p.likes || 0,
+        loves: p.loves || 0,
+        // Time
         timestamp: p.timestamp 
           || (p.created_at ? new Date(p.created_at).getTime() : 0)
           || (p.inserted_at ? new Date(p.inserted_at).getTime() : Date.now()),
-        
-        authorName: p.authorName || (p.isBot ? 'HKER Bot 🤖' : 'HKER Member'),
-        authorAvatar: p.authorAvatar || (p.isBot ? '🤖' : '😀')
       }));
 
-      // Sort client side to ensure order regardless of DB schema
+      // Sort client side
       hydratedPosts.sort((a: Post, b: Post) => b.timestamp - a.timestamp);
 
       localStorage.setItem('hker_posts_cache', JSON.stringify(hydratedPosts));
@@ -118,24 +128,24 @@ export const getPosts = async (): Promise<Post[]> => {
 export const savePost = async (post: Post): Promise<boolean> => {
   const isConnected = await checkSupabaseConnection();
   if (isConnected) {
-    // STRICT ALLOW-LIST & MAPPING: 
-    // OMIT 'timestamp' and 'created_at' to let DB use default value (fixing PGRST204)
+    // MAP FRONTEND (camelCase) -> DB (snake_case)
     const dbPost = {
       id: post.id,
-      titleCN: post.titleCN,
-      titleEN: post.titleEN,
-      contentCN: post.contentCN,
-      contentEN: post.contentEN,
-      authorId: post.authorId,
-      // Removed created_at/timestamp to prevent "Column not found" errors.
-      // The DB should have a default `now()` for the creation time column.
+      title_cn: post.titleCN,
+      title_en: post.titleEN,
+      content_cn: post.contentCN,
+      content_en: post.contentEN,
+      author_id: post.authorId,
+      author_name: post.authorName,
+      author_avatar: post.authorAvatar,
       region: post.region,
-      category: post.topic, // MAP topic -> category
-      url: post.sourceUrl,  // MAP sourceUrl -> url
+      category: post.topic,
+      url: post.sourceUrl,
+      source_name: post.sourceName,
+      is_bot: post.isBot,
       likes: post.likes,
-      loves: post.loves,
-      isBot: post.isBot,
-      sourceName: post.sourceName
+      loves: post.loves
+      // Note: created_at is handled by DB default
     };
 
     // Remove undefined keys
@@ -160,7 +170,6 @@ export const deletePost = async (postId: string): Promise<void> => {
   if (isConnected) {
     await supabase.from('posts').delete().eq('id', postId);
   }
-  // Optimistic update
   const posts = await getPosts();
   const newPosts = posts.filter(p => p.id !== postId);
   localStorage.setItem('hker_posts_cache', JSON.stringify(newPosts));
