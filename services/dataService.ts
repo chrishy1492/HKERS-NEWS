@@ -24,15 +24,16 @@ const ADMIN_EMAILS = [
 export const getUsers = async (): Promise<User[]> => {
   const isConnected = await checkSupabaseConnection();
   if (isConnected) {
+    // Try to order by created_at if it exists, otherwise just get all
     const { data, error } = await supabase
       .from('users')
-      .select('*')
-      .order('joinedAt', { ascending: false });
+      .select('*');
       
     if (!error && data) {
-      // Sync to local for redundancy
-      localStorage.setItem('hker_users_cache', JSON.stringify(data));
-      return data as User[];
+      // Sort in memory to be safe against missing DB sort columns
+      const sorted = (data as User[]).sort((a, b) => (b.joinedAt || 0) - (a.joinedAt || 0));
+      localStorage.setItem('hker_users_cache', JSON.stringify(sorted));
+      return sorted;
     }
   }
   // Fallback
@@ -85,16 +86,26 @@ export const getPosts = async (): Promise<Post[]> => {
     const { data, error } = await supabase
       .from('posts')
       .select('*')
-      .order('timestamp', { ascending: false })
-      .limit(100); // Get last 100 posts
+      .limit(100); 
       
     if (!error && data) {
-      // Hydrate missing fields that might not be in DB schema
+      // Hydrate missing fields & map DB columns to Frontend Types
       const hydratedPosts = data.map((p: any) => ({
         ...p,
+        // MAP DB -> Frontend
+        sourceUrl: p.url || p.sourceUrl, 
+        topic: p.category || p.topic,    
+        // Normalize Timestamp: Try created_at (ISO) -> timestamp (num) -> inserted_at (ISO) -> fallback
+        timestamp: p.timestamp 
+          || (p.created_at ? new Date(p.created_at).getTime() : 0)
+          || (p.inserted_at ? new Date(p.inserted_at).getTime() : Date.now()),
+        
         authorName: p.authorName || (p.isBot ? 'HKER Bot 🤖' : 'HKER Member'),
         authorAvatar: p.authorAvatar || (p.isBot ? '🤖' : '😀')
       }));
+
+      // Sort client side to ensure order regardless of DB schema
+      hydratedPosts.sort((a: Post, b: Post) => b.timestamp - a.timestamp);
 
       localStorage.setItem('hker_posts_cache', JSON.stringify(hydratedPosts));
       return hydratedPosts as Post[];
@@ -107,8 +118,8 @@ export const getPosts = async (): Promise<Post[]> => {
 export const savePost = async (post: Post): Promise<boolean> => {
   const isConnected = await checkSupabaseConnection();
   if (isConnected) {
-    // STRICT ALLOW-LIST: Only send fields that actually exist in the DB schema.
-    // This prevents "Column not found" errors (PGRST204) for UI fields like authorAvatar.
+    // STRICT ALLOW-LIST & MAPPING: 
+    // OMIT 'timestamp' and 'created_at' to let DB use default value (fixing PGRST204)
     const dbPost = {
       id: post.id,
       titleCN: post.titleCN,
@@ -116,21 +127,27 @@ export const savePost = async (post: Post): Promise<boolean> => {
       contentCN: post.contentCN,
       contentEN: post.contentEN,
       authorId: post.authorId,
-      timestamp: post.timestamp,
+      // Removed created_at/timestamp to prevent "Column not found" errors.
+      // The DB should have a default `now()` for the creation time column.
       region: post.region,
-      topic: post.topic,
+      category: post.topic, // MAP topic -> category
+      url: post.sourceUrl,  // MAP sourceUrl -> url
       likes: post.likes,
       loves: post.loves,
       isBot: post.isBot,
-      sourceUrl: post.sourceUrl,
       sourceName: post.sourceName
     };
+
+    // Remove undefined keys
+    Object.keys(dbPost).forEach(key => {
+        if ((dbPost as any)[key] === undefined) {
+            delete (dbPost as any)[key];
+        }
+    });
 
     const { error } = await supabase.from('posts').upsert(dbPost);
     if (error) {
       console.error("Supabase Save Post Error:", JSON.stringify(error, null, 2));
-      // Log the payload to debug [object Object] issues
-      console.log("Failed Payload:", JSON.stringify(dbPost, null, 2));
       return false;
     }
     return true;
@@ -150,16 +167,13 @@ export const deletePost = async (postId: string): Promise<void> => {
 };
 
 export const updatePostInteraction = async (postId: string, type: 'like' | 'love'): Promise<void> => {
-  // Fetch current to increment safely
   const isConnected = await checkSupabaseConnection();
   if (isConnected) {
-    // We use an RPC call or simple fetch-update strategy. 
-    // For simplicity here, we fetch first.
     const { data: post } = await supabase.from('posts').select('*').eq('id', postId).single();
     if (post) {
       const updates = {
-        likes: type === 'like' ? post.likes + 1 : post.likes,
-        loves: type === 'love' ? post.loves + 1 : post.loves
+        likes: type === 'like' ? (post.likes || 0) + 1 : post.likes,
+        loves: type === 'love' ? (post.loves || 0) + 1 : post.loves
       };
       await supabase.from('posts').update(updates).eq('id', postId);
     }
@@ -172,7 +186,6 @@ export const updatePoints = async (userId: string, amount: number, mode: 'add' |
   const isConnected = await checkSupabaseConnection();
   let newBalance = 0;
 
-  // 1. Get current remote state
   let currentUser: User | null = null;
   if (isConnected) {
     const { data } = await supabase.from('users').select('*').eq('id', userId).single();
@@ -184,12 +197,10 @@ export const updatePoints = async (userId: string, amount: number, mode: 'add' |
 
   if (!currentUser) return 0;
 
-  // 2. Calculate
   if (mode === 'set') newBalance = amount;
   else if (mode === 'add') newBalance = (currentUser.points || 0) + amount;
   else if (mode === 'subtract') newBalance = Math.max(0, (currentUser.points || 0) - amount);
 
-  // 3. Save
   currentUser.points = newBalance;
   await saveUser(currentUser);
   
@@ -199,16 +210,14 @@ export const updatePoints = async (userId: string, amount: number, mode: 'add' |
 // --- STATS ---
 
 export const getStats = async (): Promise<Stat> => {
-  // Calculate stats dynamically from DB
   const users = await getUsers();
   
   const today = new Date().setHours(0,0,0,0);
   const todayRegisters = users.filter(u => u.joinedAt >= today).length;
-  // Simulating visits based on login activity if we had it, or random for now
   const todayVisits = Math.floor(Math.random() * 50) + todayRegisters; 
 
   return {
-    onlineUsers: Math.floor(Math.random() * 20) + 1, // Simulated
+    onlineUsers: Math.floor(Math.random() * 20) + 1,
     totalUsers: users.length,
     todayRegisters,
     todayVisits
