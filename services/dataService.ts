@@ -86,24 +86,24 @@ export const getPosts = async (): Promise<Post[]> => {
       .limit(100); 
       
     if (!error && data) {
-      // MAP DB (snake_case) -> FRONTEND (camelCase)
+      // MAP DB -> FRONTEND (camelCase)
       const hydratedPosts = data.map((p: any) => ({
         id: p.id,
         // Titles
-        titleCN: p.title_cn || p.titleCN || p.title,
-        titleEN: p.title_en || p.titleEN,
+        titleCN: p.title || p.titleCN,
+        titleEN: p.title_en || p.titleEN || p.title, // Fallback to title if EN missing
         // Contents
-        contentCN: p.content_cn || p.contentCN || p.content,
-        contentEN: p.content_en || p.contentEN,
+        contentCN: p.contentCN || p.content_cn || p.content, // Prioritize explicit CN column
+        contentEN: p.content_en || p.contentEN || p.content, // Fallback to content
         // Meta
         region: p.region,
         topic: p.category || p.topic, 
-        sourceUrl: p.url || p.source_url || p.sourceUrl,
+        sourceUrl: p.url || p.sourceUrl,
         sourceName: p.source_name || p.sourceName,
         // Author
         authorId: p.author_id || p.authorId,
-        authorName: p.author_name || p.authorName || (p.is_bot || p.isBot ? 'HKER Bot 🤖' : 'HKER Member'),
-        authorAvatar: p.author_avatar || p.authorAvatar || (p.is_bot || p.isBot ? '🤖' : '😀'),
+        authorName: p.author || p.authorName || (p.is_bot || p.isBot ? 'HKER Bot 🤖' : 'HKER Member'),
+        authorAvatar: (p.is_bot || p.isBot ? '🤖' : '😀'), // Generated client-side
         isBot: !!(p.is_bot || p.isBot),
         // Stats
         likes: p.likes || 0,
@@ -128,27 +128,25 @@ export const getPosts = async (): Promise<Post[]> => {
 export const savePost = async (post: Post): Promise<boolean> => {
   const isConnected = await checkSupabaseConnection();
   if (isConnected) {
-    // MAP FRONTEND (camelCase) -> DB (snake_case)
+    // MAP FRONTEND (camelCase) -> DB (Correct Schema Columns as verified by user)
     const dbPost = {
       id: post.id,
-      title_cn: post.titleCN,
-      title_en: post.titleEN,
-      content_cn: post.contentCN,
-      content_en: post.contentEN,
-      author_id: post.authorId,
-      author_name: post.authorName,
-      author_avatar: post.authorAvatar,
+      title: post.titleCN,        // DB 'title'
+      // title_en: post.titleEN,  // Optional: Include if DB supports it, else omit to be safe
+      content: post.contentEN,    // DB 'content' (English/Description)
+      contentCN: post.contentCN,  // DB 'contentCN' (Specific CN column)
       region: post.region,
       category: post.topic,
       url: post.sourceUrl,
-      source_name: post.sourceName,
-      is_bot: post.isBot,
-      likes: post.likes,
-      loves: post.loves
-      // Note: created_at is handled by DB default
+      // source_name: post.sourceName,
+      author: post.authorName,    // DB 'author'
+      author_id: post.authorId,   // DB 'author_id'
+      // is_bot: post.isBot,
+      // likes: post.likes,
+      // loves: post.loves
     };
 
-    // Remove undefined keys
+    // Remove undefined keys to prevent null errors
     Object.keys(dbPost).forEach(key => {
         if ((dbPost as any)[key] === undefined) {
             delete (dbPost as any)[key];

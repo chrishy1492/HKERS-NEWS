@@ -3,7 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { GoogleGenAI } from "@google/genai";
 
 /**
- * HKER BOT - SERVERLESS FUNCTION
+ * HKER BOT - SERVERLESS FUNCTION (STABLE VERSION)
  * Path: /pages/api/bot.js
  */
 
@@ -23,7 +23,7 @@ const SYSTEM_NEWS = {
   sourceName: "System Admin"
 };
 
-// 【優化】定義一個自動重試的函數 (Retry Helper)
+// Retry Helper
 async function askAIWithRetry(ai, model, contents, config, retries = 3) {
   for (let i = 0; i < retries; i++) {
     try {
@@ -31,16 +31,15 @@ async function askAIWithRetry(ai, model, contents, config, retries = 3) {
       return result;
     } catch (error) {
       const errStr = error.toString().toLowerCase();
-      // 如果遇到 AI 塞車 (503/Overloaded) 或 配額 (429)，等待後重試
       if (i < retries - 1 && (errStr.includes('503') || errStr.includes('overloaded') || errStr.includes('429') || errStr.includes('quota'))) {
-        console.log(`AI 忙碌中 (Busy/Quota)，正在進行第 ${i + 1} 次重試 (Retrying in 5s)...`);
-        await new Promise(resolve => setTimeout(resolve, 5000)); // 等待 5 秒
+        console.log(`AI Busy/Quota, Retrying in 5s (Attempt ${i + 1})...`);
+        await new Promise(resolve => setTimeout(resolve, 5000));
         continue;
       }
       throw error;
     }
   }
-  throw new Error("AI 嘗試多次後仍然失敗 (Max Retries Exceeded)");
+  throw new Error("AI Max Retries Exceeded");
 }
 
 export default async function handler(req, res) {
@@ -51,35 +50,28 @@ export default async function handler(req, res) {
   if (req.method !== 'GET') return res.status(405).json({ error: `Method ${req.method} Not Allowed` });
   
   if (!SUPABASE_SERVICE_KEY) {
-    console.error("CRITICAL: SUPABASE_SERVICE_ROLE_KEY is missing.");
-    return res.status(500).json({ error: "Server Error: Missing SUPABASE_SERVICE_ROLE_KEY" });
+     return res.status(500).json({ error: "Configuration Error: Missing SUPABASE_SERVICE_ROLE_KEY" });
   }
   if (!GEMINI_API_KEY) {
-    return res.status(500).json({ error: "Server Error: Missing GEMINI_API_KEY" });
+     return res.status(500).json({ error: "Configuration Error: Missing GEMINI_API_KEY" });
   }
 
   try {
     const startTime = Date.now();
-    console.log("--- BOT STARTED ---");
-
     const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
     const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
 
+    // Target
     const targetRegion = REGIONS[Math.floor(Math.random() * REGIONS.length)];
     const targetTopic = TOPICS[Math.floor(Math.random() * TOPICS.length)];
-    console.log(`Target: ${targetRegion} - ${targetTopic}`);
 
     const model = "gemini-3-flash-preview";
     const fallbackModel = "gemini-2.5-flash";
-    
+
     const getPrompt = (useSearch) => `
       You are a senior editor for HKER News.
       TASK: Search for a REAL, LATEST news event related to "${targetRegion}" and "${targetTopic}".
-      ${!useSearch ? 'NOTE: Search tool unavailable. Use internal knowledge to generate a plausible news summary.' : ''}
-      
-      REQUIREMENTS:
-      1. ${useSearch ? "Use 'googleSearch' to verify facts." : "Generate realistic content."}
-      2. Return ONLY raw JSON. No markdown.
+      ${!useSearch ? 'NOTE: Search tool unavailable. Use internal knowledge.' : ''}
       
       OUTPUT JSON FORMAT:
       {
@@ -97,7 +89,7 @@ export default async function handler(req, res) {
     let sourceUrl = "https://news.google.com";
     let usedSearch = false;
 
-    // ATTEMPT 1: Search (With Retry)
+    // AI Generation (Search + Fallback)
     try {
         const aiResponse = await askAIWithRetry(
           ai, 
@@ -105,7 +97,6 @@ export default async function handler(req, res) {
           getPrompt(true), 
           { tools: [{ googleSearch: {} }] }
         );
-        
         text = aiResponse.text;
         const chunks = aiResponse.candidates?.[0]?.groundingMetadata?.groundingChunks;
         if (chunks) {
@@ -114,18 +105,13 @@ export default async function handler(req, res) {
         }
         usedSearch = true;
     } catch (e) {
-        console.warn("Bot Primary AI Failed. Switching to Fallback...");
+        console.warn("Primary AI Failed. Switching to Fallback...");
         try {
-            const fallbackResponse = await askAIWithRetry(
-              ai,
-              fallbackModel,
-              getPrompt(false),
-              {}
-            );
+            const fallbackResponse = await askAIWithRetry(ai, fallbackModel, getPrompt(false), {});
             text = fallbackResponse.text;
         } catch (fbErr) {
-            console.error("Bot Fallback AI Failed completely. Using Mock.");
-            text = JSON.stringify(SYSTEM_NEWS);
+             console.error("AI Failed completely. Using Mock.");
+             text = JSON.stringify(SYSTEM_NEWS);
         }
     }
 
@@ -137,51 +123,36 @@ export default async function handler(req, res) {
       jsonString = jsonString.replace(/^```json/i, '').replace(/^```/, '').replace(/```$/, '');
       const firstBrace = jsonString.indexOf('{');
       const lastBrace = jsonString.lastIndexOf('}');
-      if (firstBrace !== -1 && lastBrace !== -1) {
-        jsonString = jsonString.substring(firstBrace, lastBrace + 1);
-      }
+      if (firstBrace !== -1 && lastBrace !== -1) jsonString = jsonString.substring(firstBrace, lastBrace + 1);
       article = JSON.parse(jsonString);
     } catch (e) {
       article = SYSTEM_NEWS;
     }
 
-    // SAVE Logic - USE SNAKE_CASE for DB columns to fix PGRST204
+    // STABLE DB PAYLOAD (Strictly matching user verified schema)
     const dbPayload = {
-        id: crypto.randomUUID(),
-        title_cn: article.titleCN || "無標題",
-        title_en: article.titleEN || "No Title",
-        content_cn: article.contentCN || "內容生成中...",
-        content_en: article.contentEN || "Content generating...",
-        region: article.region || targetRegion || "未分類",
-        category: article.category || targetTopic || "時事", 
-        url: sourceUrl || article.url,
-        source_name: article.sourceName || "HKER AI",
-        author_name: 'HKER News Bot',
-        author_id: 'bot-auto-gen', // Fixed ID for bot
-        is_bot: true,
-        likes: 0,
-        loves: 0
+      title: article.titleCN || "無標題",
+      content: article.contentEN || article.contentCN || "內容...", // English or Summary
+      contentCN: article.contentCN || "內容...", // Explicit CN Column
+      region: article.region || targetRegion || "其他",
+      category: article.category || targetTopic || "時事",
+      url: sourceUrl || article.url,
+      author: 'AI_Bot',
+      author_id: 'bot_001' // Fixed ID for stability
     };
 
-    const { data, error } = await supabaseAdmin
-      .from('posts') 
-      .insert(dbPayload);
+    const { error } = await supabaseAdmin.from('posts').insert([dbPayload]);
 
     if (error) {
-      console.error("Supabase Write Error:", error);
-      console.log("Failed Payload:", JSON.stringify(dbPayload));
-      throw new Error(`Database Insert Failed: ${error.message} (Check Supabase Logs)`);
+       console.error("Supabase Write Error:", error);
+       throw new Error(`Database Insert Failed: ${error.message}`);
     }
 
     const duration = Date.now() - startTime;
     return res.status(200).json({
       status: 'success',
-      message: usedSearch ? 'News Generated (Search)' : 'News Generated (Fallback/Mock)',
-      data: { 
-        title: article.titleCN, 
-        region: dbPayload.region, 
-        category: dbPayload.category 
-      },
+      message: usedSearch ? 'Generated (Search)' : 'Generated (Fallback)',
+      data: { title: article.titleCN },
       duration: `${duration}ms`
     });
 
