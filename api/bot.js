@@ -23,7 +23,7 @@ const SYSTEM_NEWS = {
   sourceName: "System Admin"
 };
 
-// Retry Helper
+// 【優化】定義一個自動重試的函數 (Retry Helper)
 async function askAIWithRetry(ai, model, contents, config, retries = 3) {
   for (let i = 0; i < retries; i++) {
     try {
@@ -31,15 +31,16 @@ async function askAIWithRetry(ai, model, contents, config, retries = 3) {
       return result;
     } catch (error) {
       const errStr = error.toString().toLowerCase();
-      if (i < retries - 1 && (errStr.includes('503') || errStr.includes('overloaded') || errStr.includes('429'))) {
-        console.log(`AI Busy/Quota, Retrying in 5s (Attempt ${i + 1})...`);
-        await new Promise(resolve => setTimeout(resolve, 5000));
+      // 如果遇到 AI 塞車 (503/Overloaded) 或 配額 (429)，等待後重試
+      if (i < retries - 1 && (errStr.includes('503') || errStr.includes('overloaded') || errStr.includes('429') || errStr.includes('quota'))) {
+        console.log(`AI 忙碌中 (Busy/Quota)，正在進行第 ${i + 1} 次重試 (Retrying in 5s)...`);
+        await new Promise(resolve => setTimeout(resolve, 5000)); // 等待 5 秒
         continue;
       }
       throw error;
     }
   }
-  throw new Error("AI Max Retries Exceeded");
+  throw new Error("AI 嘗試多次後仍然失敗 (Max Retries Exceeded)");
 }
 
 export default async function handler(req, res) {
@@ -97,7 +98,7 @@ export default async function handler(req, res) {
     let sourceUrl = "https://news.google.com";
     let usedSearch = false;
 
-    // ATTEMPT 1: Search
+    // ATTEMPT 1: Search (With Retry)
     try {
         const aiResponse = await askAIWithRetry(
           ai, 
@@ -115,7 +116,7 @@ export default async function handler(req, res) {
         usedSearch = true;
     } catch (e) {
         console.warn("Bot Primary AI Failed. Switching to Fallback...");
-        // ATTEMPT 2: Fallback
+        // ATTEMPT 2: Fallback (With Retry)
         try {
             const fallbackResponse = await askAIWithRetry(
               ai,
@@ -147,7 +148,7 @@ export default async function handler(req, res) {
       article = SYSTEM_NEWS;
     }
 
-    // SAVE Logic - USE SNAKE_CASE for DB columns
+    // SAVE Logic - USE SNAKE_CASE for DB columns to fix PGRST204
     const dbPayload = {
         id: crypto.randomUUID(),
         title_cn: article.titleCN || "無標題",
@@ -159,7 +160,7 @@ export default async function handler(req, res) {
         url: sourceUrl || article.url,
         source_name: article.sourceName || "HKER AI",
         author_name: 'HKER News Bot',
-        author_id: 'bot-auto-gen',
+        author_id: 'bot-auto-gen', // Fixed ID for bot
         is_bot: true,
         likes: 0,
         loves: 0
@@ -169,7 +170,10 @@ export default async function handler(req, res) {
       .from('posts')
       .insert(dbPayload);
 
-    if (error) throw new Error(`Database Insert Failed: ${error.message}`);
+    if (error) {
+       console.error("Supabase Write Error:", error);
+       throw new Error(`Database Insert Failed: ${error.message}`);
+    }
 
     const duration = Date.now() - startTime;
     return res.status(200).json({
