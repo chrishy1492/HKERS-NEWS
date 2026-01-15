@@ -88,7 +88,8 @@ export const getPosts = async (): Promise<Post[]> => {
     if (!error && data) {
       // MAP DB -> FRONTEND (camelCase)
       const hydratedPosts = data.map((p: any) => ({
-        id: p.id,
+        // FIX 22P02: Convert BigInt ID to string for frontend compatibility
+        id: String(p.id),
         // Titles
         titleCN: p.title || p.titleCN,
         titleEN: p.title_en || p.titleEN || p.title, // Fallback to title if EN missing
@@ -129,16 +130,15 @@ export const savePost = async (post: Post): Promise<boolean> => {
   const isConnected = await checkSupabaseConnection();
   if (isConnected) {
     // MAP FRONTEND (camelCase) -> DB (Correct Schema Columns as verified by user)
-    const dbPost = {
-      id: post.id,
+    const dbPost: any = {
+      // Note: We handle 'id' separately below to avoid 22P02 error on bigint columns
       title: post.titleCN,        // DB 'title'
-      // title_en: post.titleEN,  // Optional: Include if DB supports it, else omit to be safe
+      // title_en: post.titleEN,  // Optional
       content: post.contentEN,    // DB 'content' (English/Description)
       contentCN: post.contentCN,  // DB 'contentCN' (Specific CN column)
       region: post.region,
       category: post.topic,
       url: post.sourceUrl,
-      // source_name: post.sourceName,
       author: post.authorName,    // DB 'author'
       author_id: post.authorId,   // DB 'author_id'
       // is_bot: post.isBot,
@@ -146,10 +146,19 @@ export const savePost = async (post: Post): Promise<boolean> => {
       // loves: post.loves
     };
 
+    // CRITICAL FIX FOR 22P02 (BigInt Error):
+    // If the post.id is a UUID (contains hyphens), it comes from client generation.
+    // We MUST NOT send UUID to a bigint column. Let DB auto-increment.
+    // If post.id is a numeric string (from fetching existing post), we send it for updates.
+    if (post.id && !post.id.includes('-') && !isNaN(Number(post.id))) {
+      dbPost.id = parseInt(post.id);
+    } 
+    // If it's a UUID, we omit 'id' so Supabase treats it as a new insert with auto-generated ID.
+
     // Remove undefined keys to prevent null errors
     Object.keys(dbPost).forEach(key => {
-        if ((dbPost as any)[key] === undefined) {
-            delete (dbPost as any)[key];
+        if (dbPost[key] === undefined) {
+            delete dbPost[key];
         }
     });
 
@@ -166,7 +175,10 @@ export const savePost = async (post: Post): Promise<boolean> => {
 export const deletePost = async (postId: string): Promise<void> => {
   const isConnected = await checkSupabaseConnection();
   if (isConnected) {
-    await supabase.from('posts').delete().eq('id', postId);
+    // Only attempt delete if ID is valid (not a temp UUID)
+    if (!postId.includes('-')) {
+        await supabase.from('posts').delete().eq('id', postId);
+    }
   }
   const posts = await getPosts();
   const newPosts = posts.filter(p => p.id !== postId);
@@ -175,7 +187,7 @@ export const deletePost = async (postId: string): Promise<void> => {
 
 export const updatePostInteraction = async (postId: string, type: 'like' | 'love'): Promise<void> => {
   const isConnected = await checkSupabaseConnection();
-  if (isConnected) {
+  if (isConnected && !postId.includes('-')) {
     const { data: post } = await supabase.from('posts').select('*').eq('id', postId).single();
     if (post) {
       const updates = {
