@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
   Users, Shield, Search, RefreshCw, Gamepad2, Coins, 
@@ -50,26 +51,50 @@ export default function App() {
   }, []);
 
   // --- INIT & SYNC ---
+
+  // 1. Session Persistence Check (Run once on mount)
+  useEffect(() => {
+    const checkSession = async () => {
+      const storedUserId = localStorage.getItem('hker_user_id');
+      if (storedUserId) {
+        const users = await DataService.getUsers();
+        const found = users.find(u => u.id === storedUserId);
+        if (found) {
+          setUser(found);
+          setShowAuthModal(false); // Skip login screen if session valid
+          addLog(`Session restored for: ${found.email}`);
+        } else {
+          localStorage.removeItem('hker_user_id'); // Clean invalid session
+        }
+      }
+    };
+    checkSession();
+  }, [addLog]);
+
   const refreshData = useCallback(async () => {
     // 1. Fetch Posts (Cloud First)
     const fetchedPosts = await DataService.getPosts();
     setPosts(fetchedPosts);
     
-    // 2. Sync User Data if logged in
+    // 2. Sync User Data if logged in (Update points/level in background)
     if (user) {
       const users = await DataService.getUsers();
       const updatedUser = users.find(u => u.id === user.id);
-      if (updatedUser) setUser(updatedUser);
+      if (updatedUser) {
+        // Only update if points or vital info changed to avoid re-renders
+        if(updatedUser.points !== user.points || updatedUser.vipLevel !== user.vipLevel) {
+           setUser(updatedUser);
+        }
+      }
     }
   }, [user]);
 
   useEffect(() => {
     refreshData();
-    addLog("System initialized. Connected to DataService.");
     // Auto-refresh every 30s to keep sync
     const interval = setInterval(refreshData, 30000);
     return () => clearInterval(interval);
-  }, [refreshData, addLog]);
+  }, [refreshData]);
 
   // --- BOT AUTOMATION LOGIC ---
   const executeBotTask = useCallback(async (isManual = false) => {
@@ -147,6 +172,7 @@ export default function App() {
       const found = allUsers.find(u => u.email === email && u.password === password);
       if (found) {
         setUser(found);
+        localStorage.setItem('hker_user_id', found.id); // Save Session
         setShowAuthModal(false);
         notify(`歡迎回來, ${found.name}`, 'success');
         addLog(`User logged in: ${found.email}`);
@@ -178,6 +204,7 @@ export default function App() {
       const success = await DataService.saveUser(newUser);
       if (success) {
         setUser(newUser);
+        localStorage.setItem('hker_user_id', newUser.id); // Save Session
         setShowAuthModal(false);
         notify('註冊成功！獲得 8888 HKER 積分', 'success');
         addLog(`New user registered: ${newUser.email}`);
@@ -185,6 +212,13 @@ export default function App() {
         notify('註冊失敗，請檢查網絡', 'error');
       }
     }
+  };
+
+  const handleLogout = () => {
+    setUser(null);
+    localStorage.removeItem('hker_user_id'); // Clear Session
+    setShowAuthModal(true);
+    notify('已安全登出', 'info');
   };
 
   const handleUpdateProfile = async (updates: Partial<User>) => {
@@ -221,6 +255,35 @@ export default function App() {
     // Simulate Email Logic
     addLog(`Withdrawal Request: ${user.email} - ${amount} HKER`);
     alert(`提幣申請已提交！\n數量: ${amount}\n錢包: ${user.solAddress}\n系統已通知管理員。`);
+  };
+
+  // --- INTERACTION LOGIC ---
+  const handlePostInteraction = async (postId: string, type: 'like' | 'love') => {
+    if (!user) {
+      notify("請先登入 (Please Login)", "error");
+      return;
+    }
+
+    // 1. Optimistic UI Update (Immediate feedback)
+    setPosts(currentPosts => currentPosts.map(p => {
+      if (p.id === postId) {
+        return {
+          ...p,
+          likes: type === 'like' ? p.likes + 1 : p.likes,
+          loves: type === 'love' ? p.loves + 1 : p.loves
+        };
+      }
+      return p;
+    }));
+
+    // 2. Background API Call
+    try {
+      await DataService.updatePostInteraction(postId, type);
+      // Optional: Add points to author or user here in a real app
+    } catch (error) {
+      console.error("Interaction failed", error);
+      // Revert if needed, but for likes usually safe to ignore failure in UI
+    }
   };
 
   // --- RENDER HELPERS ---
@@ -366,7 +429,7 @@ export default function App() {
                       <Shield className="w-5 h-5 text-red-200" />
                    </button>
                  )}
-                 <button onClick={() => { setUser(null); setShowAuthModal(true); }} className="w-9 h-9 bg-slate-800 rounded-full flex items-center justify-center hover:bg-red-600">
+                 <button onClick={handleLogout} className="w-9 h-9 bg-slate-800 rounded-full flex items-center justify-center hover:bg-red-600">
                     <LogOut className="w-4 h-4" />
                  </button>
                </>
@@ -499,7 +562,7 @@ export default function App() {
                     </div>
                   ) : (
                     filteredPosts.map(post => (
-                      <NewsCard key={post.id} post={post} user={user} />
+                      <NewsCard key={post.id} post={post} user={user} onInteraction={handlePostInteraction} />
                     ))
                   )}
                </div>
@@ -607,13 +670,8 @@ export default function App() {
 
 // --- SUB COMPONENTS ---
 
-const NewsCard: React.FC<{ post: Post; user: User | null }> = ({ post, user }) => {
+const NewsCard: React.FC<{ post: Post; user: User | null; onInteraction: (id: string, type: 'like'|'love') => void }> = ({ post, user, onInteraction }) => {
   const [lang, setLang] = useState<'CN'|'EN'>('CN');
-  
-  const handleLike = async (type: 'like'|'love') => {
-    if(!user) return alert("Please Login");
-    await DataService.updatePostInteraction(post.id, type);
-  };
 
   const copyLink = () => {
     navigator.clipboard.writeText(post.sourceUrl || window.location.href);
@@ -657,10 +715,10 @@ const NewsCard: React.FC<{ post: Post; user: User | null }> = ({ post, user }) =
        </div>
 
        <div className="flex items-center gap-4 pt-2 border-t border-slate-800/50">
-          <button onClick={() => handleLike('like')} className="flex items-center gap-1 text-xs font-bold text-slate-500 hover:text-blue-500 transition-colors">
+          <button onClick={() => onInteraction(post.id, 'like')} className="flex items-center gap-1 text-xs font-bold text-slate-500 hover:text-blue-500 transition-colors active:scale-110">
              <ThumbsUp className="w-4 h-4"/> {post.likes}
           </button>
-          <button onClick={() => handleLike('love')} className="flex items-center gap-1 text-xs font-bold text-slate-500 hover:text-pink-500 transition-colors">
+          <button onClick={() => onInteraction(post.id, 'love')} className="flex items-center gap-1 text-xs font-bold text-slate-500 hover:text-pink-500 transition-colors active:scale-110">
              <Heart className="w-4 h-4"/> {post.loves}
           </button>
           <button onClick={copyLink} className="ml-auto flex items-center gap-1 text-xs font-bold text-slate-500 hover:text-white transition-colors">
