@@ -166,6 +166,11 @@ export const savePost = async (post: Post): Promise<boolean> => {
 
     const { error } = await supabase.from('posts').upsert(dbPost);
     if (error) {
+      // Fix 23505: Gracefully handle duplicate key (URL) errors
+      if (error.code === '23505') {
+        console.warn("Post already exists (Duplicate URL). Skipping to prevent error.");
+        return true; 
+      }
       console.error("Supabase Save Post Error:", JSON.stringify(error, null, 2));
       return false;
     }

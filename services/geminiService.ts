@@ -90,12 +90,22 @@ export const generateNewsPost = async (region: string, topic: string): Promise<P
     } catch (retryError: any) {
         console.error("Gemini Fallback Failed:", retryError);
         
+        // Robust 429 Check
+        const errStr = JSON.stringify(retryError);
+        const isQuotaError = 
+            retryError.status === 429 || 
+            (retryError.error && retryError.error.code === 429) || 
+            errStr.includes('429') || 
+            errStr.includes('RESOURCE_EXHAUSTED') ||
+            retryError.message?.includes('429');
+
         // ATTEMPT 3: ULTIMATE FALLBACK (Return Mock Data if Quota Exhausted)
-        if (retryError.toString().includes('429') || retryError.status === 429) {
+        if (isQuotaError) {
            console.warn("Quota Exhausted on Fallback. Returning System News.");
            return {
              ...SYSTEM_NEWS,
-             sourceUrl: "https://news.google.com",
+             // Fix 23505: Append timestamp to make URL unique per generated notice
+             sourceUrl: `https://news.google.com/system-status?t=${Date.now()}`,
              isBot: true,
              timestamp: Date.now(),
              likes: 0,

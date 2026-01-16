@@ -9,26 +9,25 @@ export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store, max-age=0');
 
   try {
-    // 1. 強力搜尋：混合繁體、簡體與英文
-    const query = encodeURIComponent('(香港 OR "Hong Kong" OR "HK News")');
+    // 1. 強力搜尋：改用 Top Headlines 以確保獲取最新熱門新聞 (擴大範圍)
     let articles = [];
     
-    // 策略 A: 搜尋所有相關新聞
+    // 策略 A: 搜尋 Top Headlines (針對 'Hong Kong' 關鍵字)
     try {
         const newsResponse = await fetch(
-          `https://newsapi.org/v2/everything?q=${query}&sortBy=publishedAt&pageSize=5&apiKey=${process.env.NEWS_API_KEY}`
+          `https://newsapi.org/v2/top-headlines?q=${encodeURIComponent('Hong Kong')}&pageSize=5&apiKey=${process.env.NEWS_API_KEY}`
         );
         if (newsResponse.ok) {
             const newsData = await newsResponse.json();
             articles = newsData.articles || [];
         } else {
-            console.warn("NewsAPI Everything Endpoint Failed:", newsResponse.statusText);
+            console.warn("NewsAPI Top-Headlines Endpoint Failed:", newsResponse.statusText);
         }
-    } catch (e) { console.warn("Fetch Error (Everything):", e.message); }
+    } catch (e) { console.warn("Fetch Error (Top Headlines):", e.message); }
 
-    // 策略 B: 如果沒新聞，嘗試抓取香港頭條 (Top Headlines) 作為備案
+    // 策略 B: 如果關鍵字搜尋沒結果，嘗試直接抓取香港地區頭條 (Country: hk)
     if (articles.length === 0) {
-        console.log("策略 A 無結果，切換至策略 B (Top Headlines)...");
+        console.log("策略 A 無結果，切換至策略 B (Region Headlines)...");
         try {
             const backupResponse = await fetch(
                 `https://newsapi.org/v2/top-headlines?country=hk&pageSize=3&apiKey=${process.env.NEWS_API_KEY}`
@@ -37,7 +36,7 @@ export default async function handler(req, res) {
                 const backupData = await backupResponse.json();
                 articles = backupData.articles || [];
             }
-        } catch (e) { console.warn("Fetch Error (Headlines):", e.message); }
+        } catch (e) { console.warn("Fetch Error (Region Headlines):", e.message); }
     }
 
     if (articles.length === 0) {
