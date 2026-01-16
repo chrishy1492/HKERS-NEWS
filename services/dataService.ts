@@ -129,13 +129,12 @@ export const getPosts = async (): Promise<Post[]> => {
 export const savePost = async (post: Post): Promise<boolean> => {
   const isConnected = await checkSupabaseConnection();
   if (isConnected) {
-    // MAP FRONTEND (camelCase) -> DB (Correct Schema Columns as verified by user)
+    // MAP FRONTEND (camelCase) -> DB (Correct Schema Columns)
     const dbPost: any = {
-      // Note: We handle 'id' separately below to avoid 22P02 error on bigint columns
       title: post.titleCN,        // DB 'title'
-      // title_en: post.titleEN,  // Optional
-      content: post.contentEN,    // DB 'content' (English/Description)
-      contentCN: post.contentCN,  // DB 'contentCN' (Specific CN column)
+      // title_en: post.titleEN,
+      content: post.contentEN,    // DB 'content'
+      contentCN: post.contentCN,  // DB 'contentCN'
       region: post.region,
       category: post.topic,
       url: post.sourceUrl,
@@ -146,16 +145,19 @@ export const savePost = async (post: Post): Promise<boolean> => {
       // loves: post.loves
     };
 
-    // CRITICAL FIX FOR 22P02 (BigInt Error):
-    // If the post.id is a UUID (contains hyphens), it comes from client generation.
-    // We MUST NOT send UUID to a bigint column. Let DB auto-increment.
-    // If post.id is a numeric string (from fetching existing post), we send it for updates.
+    // FIX 23502 (Not Null ID) & 22P02 (BigInt):
+    // The DB 'id' column is BigInt Not Null and apparently not auto-incrementing.
+    // 1. If post.id is numeric, it's an update to an existing row.
+    // 2. If post.id is a UUID (client-generated), it's a new post. We must generate a numeric ID.
+    
     if (post.id && !post.id.includes('-') && !isNaN(Number(post.id))) {
       dbPost.id = parseInt(post.id);
-    } 
-    // If it's a UUID, we omit 'id' so Supabase treats it as a new insert with auto-generated ID.
+    } else {
+      // Generate numeric ID for new post using timestamp + random to fit in BigInt
+      dbPost.id = Date.now() + Math.floor(Math.random() * 100000);
+    }
 
-    // Remove undefined keys to prevent null errors
+    // Remove undefined keys
     Object.keys(dbPost).forEach(key => {
         if (dbPost[key] === undefined) {
             delete dbPost[key];

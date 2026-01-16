@@ -3,47 +3,60 @@ import { createClient } from '@supabase/supabase-js';
 import { GoogleGenAI } from "@google/genai";
 
 const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
-// 使用專案現有的 @google/genai SDK
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || process.env.API_KEY });
 
 export default async function handler(req, res) {
-  // 防止緩存
   res.setHeader('Cache-Control', 'no-store, max-age=0');
 
   try {
-    // 1. 強化搜尋：包含多種語言關鍵字，確保 NewsAPI 一定能抓到東西
+    // 1. 強力搜尋：混合繁體、簡體與英文
     const query = encodeURIComponent('(香港 OR "Hong Kong" OR "HK News")');
-    const newsResponse = await fetch(
-      `https://newsapi.org/v2/everything?q=${query}&sortBy=publishedAt&pageSize=5&apiKey=${process.env.NEWS_API_KEY}`
-    );
+    let articles = [];
     
-    // NewsAPI 軟性錯誤處理
-    if (!newsResponse.ok) {
-         console.warn("NewsAPI Error:", newsResponse.statusText);
-         // 回傳 200 避免 Cron Job 報錯
-         return res.status(200).json({ success: false, message: "NewsAPI 暫時不可用，已略過" });
+    // 策略 A: 搜尋所有相關新聞
+    try {
+        const newsResponse = await fetch(
+          `https://newsapi.org/v2/everything?q=${query}&sortBy=publishedAt&pageSize=5&apiKey=${process.env.NEWS_API_KEY}`
+        );
+        if (newsResponse.ok) {
+            const newsData = await newsResponse.json();
+            articles = newsData.articles || [];
+        } else {
+            console.warn("NewsAPI Everything Endpoint Failed:", newsResponse.statusText);
+        }
+    } catch (e) { console.warn("Fetch Error (Everything):", e.message); }
+
+    // 策略 B: 如果沒新聞，嘗試抓取香港頭條 (Top Headlines) 作為備案
+    if (articles.length === 0) {
+        console.log("策略 A 無結果，切換至策略 B (Top Headlines)...");
+        try {
+            const backupResponse = await fetch(
+                `https://newsapi.org/v2/top-headlines?country=hk&pageSize=3&apiKey=${process.env.NEWS_API_KEY}`
+            );
+            if (backupResponse.ok) {
+                const backupData = await backupResponse.json();
+                articles = backupData.articles || [];
+            }
+        } catch (e) { console.warn("Fetch Error (Headlines):", e.message); }
     }
 
-    const newsData = await newsResponse.json();
-    
-    // 如果真的沒新聞，這段會回傳成功但告知無資料，不會顯示錯誤
-    if (!newsData.articles || newsData.articles.length === 0) {
-      return res.status(200).json({ success: true, message: "當前全球無匹配新聞，稍後再試" });
+    if (articles.length === 0) {
+      return res.status(200).json({ success: true, message: "當前全球無匹配新聞，等待下次運行" });
     }
 
-    const articles = newsData.articles.slice(0, 3); // 每次處理 3 則
+    const processedArticles = articles.slice(0, 3);
     const results = [];
 
-    for (const article of articles) {
+    for (const article of processedArticles) {
       try {
-        // 預設資料，防止 AI 失敗
-        let aiData = { contentCN: article.description || article.title, region: '香港', category: '時事' };
+        let aiData = { 
+            contentCN: article.description || article.title, 
+            region: '香港', 
+            category: '時事' 
+        };
         
-        // 2. 嘗試呼叫 AI
         try {
-          const prompt = `翻譯並分析：${article.title}。請嚴格回傳 JSON：{"contentCN":"簡體內容","region":"香港","category":"時事"}`;
-          
-          // 使用專案標準模型 gemini-2.5-flash
+          const prompt = `翻譯並分類：${article.title}。請嚴格回傳 JSON：{"contentCN":"簡體翻譯","region":"香港","category":"時事"}`;
           const aiResult = await ai.models.generateContent({
              model: 'gemini-2.5-flash',
              contents: prompt,
@@ -57,14 +70,15 @@ export default async function handler(req, res) {
              aiData = JSON.parse(cleanJson);
           }
         } catch (aiErr) {
-          console.error("AI 忙碌中，使用原始資料");
+          console.warn("AI 忙碌或出錯，使用原文替代");
         }
 
-        // 3. 執行寫入 (對齊您已建立的所有欄位)
+        // 3. 寫入資料庫 - 手動生成 ID 以避免 23502 錯誤
         const { error: dbError } = await supabase.from('posts').insert([{
+          id: Date.now() + Math.floor(Math.random() * 100000),
           title: article.title,
           content: article.description || '',
-          contentCN: aiData.contentCN,
+          contentCN: aiData.contentCN || article.description || '',
           url: article.url,
           region: aiData.region || '香港',
           category: aiData.category || '時事',
@@ -73,13 +87,19 @@ export default async function handler(req, res) {
           source_name: article.source.name || 'NewsAPI'
         }]);
 
-        if (!dbError) results.push(article.title);
+        if (!dbError) {
+            results.push(article.title);
+        } else if (dbError.code === '23505') {
+            // 忽略重複內容
+        } else {
+            console.error("DB Insert Error:", dbError.message);
+        }
       } catch (innerError) { continue; }
     }
 
     return res.status(200).json({ success: true, inserted: results });
   } catch (error) {
-    // 即使系統報錯也回傳 200，防止 cron-job 頻繁顯示 500
-    return res.status(200).json({ success: false, error: "系統暫時忙碌" });
+    console.error("Critical Bot Error:", error);
+    return res.status(200).json({ success: false, error: "System Busy" });
   }
 }
