@@ -88,24 +88,27 @@ export const generateNewsPost = async (region: string, topic: string): Promise<P
         });
         text = response.text || "";
     } catch (retryError: any) {
-        console.error("Gemini Fallback Failed:", retryError);
+        // Robust 429/Quota Check
+        // We handle various error shapes: standard Error, GoogleGenAIError, or raw JSON objects
+        const errString = String(retryError);
+        const errJSON = JSON.stringify(retryError); 
         
-        // Robust 429 Check
-        const errStr = JSON.stringify(retryError);
         const isQuotaError = 
-            retryError.status === 429 || 
-            (retryError.error && retryError.error.code === 429) || 
-            errStr.includes('429') || 
-            errStr.includes('RESOURCE_EXHAUSTED') ||
-            retryError.message?.includes('429');
+            errString.includes('429') || 
+            errString.includes('RESOURCE_EXHAUSTED') || 
+            errJSON.includes('429') || 
+            errJSON.includes('RESOURCE_EXHAUSTED') ||
+            (retryError?.error?.code === 429) ||
+            (retryError?.status === 429) ||
+            (retryError?.code === 429);
 
         // ATTEMPT 3: ULTIMATE FALLBACK (Return Mock Data if Quota Exhausted)
         if (isQuotaError) {
-           console.warn("Quota Exhausted on Fallback. Returning System News.");
+           console.warn("Gemini Quota Exhausted (429). Returning System News.");
            return {
              ...SYSTEM_NEWS,
-             // Fix 23505: Append timestamp to make URL unique per generated notice
-             sourceUrl: `https://news.google.com/system-status?t=${Date.now()}`,
+             // Append random string to ensure URL uniqueness (Fix 23505 on System News)
+             sourceUrl: `https://news.google.com/system-status?t=${Date.now()}-${Math.floor(Math.random()*1000)}`,
              isBot: true,
              timestamp: Date.now(),
              likes: 0,
@@ -114,6 +117,8 @@ export const generateNewsPost = async (region: string, topic: string): Promise<P
              authorAvatar: '⚠️'
            };
         }
+
+        console.error("Gemini Fallback Failed:", retryError);
         return null;
     }
   }
