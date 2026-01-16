@@ -671,20 +671,21 @@ export const LittleMary: React.FC<GameProps> = ({ user, onUpdatePoints, onBack }
   const [isRunning, setIsRunning] = useState(false);
   const [logs, setLogs] = useState('請下注');
   const [winAmt, setWinAmt] = useState(0);
+  const [chip, setChip] = useState(100);
   
-  const handleBet = (id: string, delta: number) => {
+  const handleBet = (id: string, amount: number) => {
     if (isRunning) return;
     const current = bets[id] || 0;
-    const next = current + delta;
+    const next = current + amount;
     if (next < 0) return;
     
-    if (delta > 0 && user.points < delta) {
+    if (amount > 0 && user.points < amount) {
       alert("積分不足 No Points");
       return;
     }
     
-    if (delta > 0) onUpdatePoints(-delta);
-    else onUpdatePoints(Math.abs(delta)); 
+    if (amount > 0) onUpdatePoints(-amount);
+    else onUpdatePoints(Math.abs(amount)); 
 
     setBets(prev => ({ ...prev, [id]: next }));
   };
@@ -833,17 +834,27 @@ export const LittleMary: React.FC<GameProps> = ({ user, onUpdatePoints, onBack }
       {/* BETTING CONTROLS (Moved Below) */}
       <div className="flex-1 bg-slate-900/50 p-2 rounded-xl border border-slate-800 overflow-y-auto">
            <div className="flex justify-between items-center mb-2 px-2">
-              <span className="text-xs text-slate-400 font-bold">BETTING BOARD</span>
-              <div className="flex gap-2 text-xs">
+              <div className="flex gap-1">
+                 {[100, 1000, 5000].map(val => (
+                    <button 
+                      key={val}
+                      onClick={() => setChip(val)}
+                      className={`px-2 py-1 text-xs font-bold rounded ${chip === val ? 'bg-yellow-600 text-black' : 'bg-slate-700 text-slate-400'}`}
+                    >
+                      {val}
+                    </button>
+                 ))}
+              </div>
+              <div className="flex gap-2 text-xs items-center">
                  <span className="text-slate-500">Total: <span className="text-white">{totalBet}</span></span>
-                 <button onClick={() => setBets({})} disabled={isRunning} className="text-red-400 hover:text-red-300 font-bold">CLEAR</button>
+                 <button onClick={() => setBets({})} disabled={isRunning} className="text-red-400 hover:text-red-300 font-bold ml-1">CLEAR</button>
               </div>
            </div>
            <div className="grid grid-cols-4 gap-2 mb-2">
               {LM_SYMBOLS.map(s => (
                 <button 
                    key={s.id} 
-                   onClick={() => handleBet(s.id, 100)}
+                   onClick={() => handleBet(s.id, chip)}
                    disabled={isRunning}
                    className={`flex flex-col items-center bg-slate-800 rounded p-2 border relative active:scale-95 transition-all ${bets[s.id] ? 'border-yellow-500 bg-slate-700 shadow-md' : 'border-slate-600'}`}
                 >

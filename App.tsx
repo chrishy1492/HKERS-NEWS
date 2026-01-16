@@ -264,7 +264,7 @@ export default function App() {
       return;
     }
 
-    // 1. Optimistic UI Update (Immediate feedback)
+    // 1. Optimistic UI Update (Immediate feedback for post)
     setPosts(currentPosts => currentPosts.map(p => {
       if (p.id === postId) {
         return {
@@ -276,13 +276,24 @@ export default function App() {
       return p;
     }));
 
-    // 2. Background API Call
+    // 2. Reward User Logic (150 Points)
+    const REWARD_POINTS = 150;
     try {
+      // A. Update local state immediately
+      const newPoints = (user.points || 0) + REWARD_POINTS;
+      setUser(prev => prev ? ({ ...prev, points: newPoints }) : null);
+      
+      // B. Persist points to DB
+      await DataService.updatePoints(user.id, REWARD_POINTS, 'add');
+      
+      // C. Persist interaction to DB
       await DataService.updatePostInteraction(postId, type);
-      // Optional: Add points to author or user here in a real app
+
+      notify(`互動成功！獎勵 +${REWARD_POINTS} 積分`, 'success');
     } catch (error) {
-      console.error("Interaction failed", error);
-      // Revert if needed, but for likes usually safe to ignore failure in UI
+      console.error("Interaction/Reward failed", error);
+      notify("網絡錯誤，積分未更新", "error");
+      // Optional: Revert optimistic updates here if strict consistency is needed
     }
   };
 
