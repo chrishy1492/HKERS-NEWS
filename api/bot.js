@@ -3,8 +3,9 @@ import { createClient } from '@supabase/supabase-js';
 import { GoogleGenAI } from "@google/genai";
 
 /**
- * 專業新聞機器人 (v2.0)
+ * 專業新聞機器人 (v2.1)
  * 功能：自動抓取全球新聞、AI 摘要避版權、自動分類、24小時工作
+ * 優化：提升 NewsAPI 抓取成功率與保底邏輯
  */
 
 // 1. 初始化 Supabase 與 Gemini AI
@@ -16,7 +17,7 @@ const supabase = createClient(
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || process.env.API_KEY });
 
 // 2. 專業新聞來源白名單 (確保公信力)
-const TRUSTED_DOMAINS = 'bbc.com,cnn.com,reuters.com,bloomberg.com,scmp.com,theguardian.com,apnews.com,wsj.com';
+const TRUSTED_DOMAINS = 'bbc.com,cnn.com,reuters.com,bloomberg.com,scmp.com,theguardian.com,apnews.com,wsj.com,nytimes.com';
 
 export default async function handler(req, res) {
     // 防止 Vercel 緩存
@@ -36,17 +37,18 @@ export default async function handler(req, res) {
         // 3. 時間過濾：嚴格遵守 36 小時內的限制
         const timeLimit = new Date(Date.now() - 36 * 60 * 60 * 1000).toISOString();
 
-        // 4. 全球地區關鍵字 (英文搜尋以獲取一手資料)
-        const query = encodeURIComponent('(Hong Kong OR Taiwan OR UK OR USA OR Canada OR Australia OR Europe)');
+        // 4. 全球地區與主題關鍵字
+        const queryKeywords = '(Hong Kong OR Taiwan OR UK OR USA OR Canada OR Australia OR Europe)';
+        const query = encodeURIComponent(queryKeywords);
         
         let articles = [];
         let apiUrl = "";
         let newsResponse = null;
         let newsData = null;
 
-        // --- 階段一：嚴格權威模式 ---
+        // --- 階段一：嚴格權威模式 (使用 everything 介面 + 權威域名) ---
         try {
-            apiUrl = `https://newsapi.org/v2/everything?q=${query}&domains=${TRUSTED_DOMAINS}&from=${timeLimit}&sortBy=publishedAt&language=en&pageSize=20&apiKey=${process.env.NEWS_API_KEY}`;
+            apiUrl = `https://newsapi.org/v2/everything?q=${query}&domains=${TRUSTED_DOMAINS}&from=${timeLimit}&sortBy=publishedAt&pageSize=40&apiKey=${process.env.NEWS_API_KEY}`;
             newsResponse = await fetch(apiUrl);
             if (newsResponse.ok) {
                 newsData = await newsResponse.json();
@@ -57,11 +59,12 @@ export default async function handler(req, res) {
             console.warn("階段一搜尋失敗:", e);
         }
 
-        // --- 階段二：寬鬆關鍵字模式 ---
+        // --- 階段二：寬鬆全球模式 (如果權威來源無資料) ---
         if (articles.length === 0) {
             console.log("⚠️ 權威來源無資料，嘗試全球寬鬆搜尋...");
+            // 移除 domains 限制，搜尋全球所有英文來源，並使用 relevancy 排序以提高匹配度
             try {
-                apiUrl = `https://newsapi.org/v2/everything?q=${query}&from=${timeLimit}&sortBy=publishedAt&language=en&pageSize=20&apiKey=${process.env.NEWS_API_KEY}`;
+                apiUrl = `https://newsapi.org/v2/everything?q=${query}&from=${timeLimit}&sortBy=relevancy&language=en&pageSize=40&apiKey=${process.env.NEWS_API_KEY}`;
                 newsResponse = await fetch(apiUrl);
                 if (newsResponse.ok) {
                     newsData = await newsResponse.json();
@@ -73,11 +76,12 @@ export default async function handler(req, res) {
             }
         }
 
-        // --- 階段三：保底活躍模式 ---
+        // --- 階段三：保底活躍模式 (抓取全球最熱門頭條) ---
         if (articles.length === 0) {
-            console.log("⚠️ 搜尋無匹配，執行保底熱門新聞...");
+            console.log("⚠️ 關鍵字搜尋無匹配，執行保底熱門頭條...");
             try {
-                apiUrl = `https://newsapi.org/v2/top-headlines?language=en&pageSize=20&apiKey=${process.env.NEWS_API_KEY}`;
+                // top-headlines 不建議同時帶 q 和其他過濾，這裡直接抓取全球英文頭條
+                apiUrl = `https://newsapi.org/v2/top-headlines?language=en&pageSize=40&apiKey=${process.env.NEWS_API_KEY}`;
                 newsResponse = await fetch(apiUrl);
                 if (newsResponse.ok) {
                     newsData = await newsResponse.json();
@@ -94,10 +98,11 @@ export default async function handler(req, res) {
 
         // 5. 循環處理抓到的文章
         for (const article of articles) {
-            // 單次運行限制發佈 3 則，防止短時間大量發貼被判斷為惡意行為
-            if (stats.published >= 3) break; 
+            // 單次運行限制發佈 5 則，增加 24 小時內的活躍度與覆蓋率
+            if (stats.published >= 5) break; 
 
-            if (!article.title || !article.description) continue;
+            // 基本過濾：標題太短或內容缺失的通常是無效數據
+            if (!article.title || article.title.length < 10 || !article.description) continue;
             
             // 檢查重複：根據 URL 判斷
             const { data: existing } = await supabase
@@ -121,12 +126,12 @@ export default async function handler(req, res) {
                 [新聞來源]: ${article.source.name}
 
                 工作要求：
-                1. 重新撰寫標題與內容，嚴禁直接翻譯。
-                2. 內容摘要約 150 字，以報導重點為主。
-                3. 從 [中國香港, 台灣, 英國, 美國, 加拿大, 澳洲, 歐洲, 其他] 選擇一個最相關地區。
-                4. 從 [地產, 時事, 財經, 娛樂, 旅遊, 數碼, 汽車, 宗教, 優惠, 校園, 天氣, 社區活動] 選擇一個主題。
+                1. 重新撰寫標題與內容，嚴禁直接翻譯，請用專業報導口吻改寫。
+                2. 內容摘要約 150-200 字，以提取事實重點為主。
+                3. 從以下清單選擇一個最相關地區：[中國香港, 台灣, 英國, 美國, 加拿大, 澳洲, 歐洲, 其他]。
+                4. 從以下清單選擇一個最相關主題：[地產, 時事, 財經, 娛樂, 旅遊, 數碼, 汽車, 宗教, 優惠, 校園, 天氣, 社區活動]。
 
-                請僅回傳 JSON：
+                請僅回傳 JSON 格式數據：
                 {
                     "titleTC": "新編寫標題",
                     "summaryTC": "改寫摘要內容",
@@ -152,15 +157,15 @@ export default async function handler(req, res) {
                 if (aiResult.text) {
                     try {
                         aiData = JSON.parse(aiResult.text);
-                    } catch (parseErr) {
-                        const cleanJson = aiResult.text.replace(/```json|```/g, "").trim();
-                        try {
-                           aiData = JSON.parse(cleanJson);
-                        } catch(e) {}
+                    } catch (parseError) {
+                         const cleanJson = aiResult.text.replace(/```json|```/g, "").trim();
+                         try {
+                            aiData = JSON.parse(cleanJson);
+                         } catch(e) {}
                     }
                 }
 
-                // 7. 同步貯存發貼資料
+                // 7. 同步存儲發貼資料
                 const { error: insertError } = await supabase.from('posts').insert([{
                     id: Date.now() + Math.floor(Math.random() * 100000), // 生成手動 ID
                     title: aiData.titleTC,
@@ -179,12 +184,12 @@ export default async function handler(req, res) {
                     results.push(aiData.titleTC);
                     stats.published++;
                 } else {
-                    console.error("DB Insert Error:", insertError);
+                    console.error("資料庫寫入失敗:", insertError.message);
                 }
 
             } catch (err) {
                 stats.errors++;
-                console.error(`AI 處理出錯:`, err.message);
+                console.error(`處理文章時出錯 (${article.title.substring(0, 20)}...):`, err.message);
                 continue; 
             }
         }
@@ -198,6 +203,7 @@ export default async function handler(req, res) {
         });
 
     } catch (error) {
-        return res.status(200).json({ success: false, error: error.message });
+        console.error("全局捕捉錯誤:", error);
+        return res.status(500).json({ success: false, error: error.message });
     }
 }
