@@ -265,7 +265,12 @@ export default function App() {
 
     // Simulate Email Logic
     addLog(`Withdrawal Request: ${user.email} - ${amount} HKER`);
-    alert(`提幣申請已提交！\n數量: ${amount}\n錢包: ${user.solAddress}\n系統已通知管理員。`);
+
+    // Open Google Form directly
+    window.open('https://docs.google.com/forms/d/e/1FAIpQLSf370oikUL8JlupcS8BO8bbc-7DZg7KP7OJ5tsf3P9UkgNgtA/viewform?usp=publish-editor', '_blank');
+
+    // Show Alert (Instruction to screenshot)
+    alert(`【申請成功】\n請截圖此訊息！(Screenshot this message)\n\n提幣數量: ${amount}\n錢包: ${user.solAddress}\n\nGoogle Form 已在新視窗開啟，請前往填寫資料並上傳此截圖。`);
   };
 
   // --- INTERACTION LOGIC ---
