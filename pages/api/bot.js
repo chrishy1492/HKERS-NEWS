@@ -12,10 +12,13 @@ export default async function handler(req, res) {
     // 1. 強力搜尋：改用 Top Headlines 以確保獲取最新熱門新聞 (擴大範圍)
     let articles = [];
     
-    // 策略 A: 搜尋 Top Headlines (針對 'Hong Kong' 關鍵字)
+    // 策略 A: 搜尋 Top Headlines (擴大關鍵字：香港, China, AI, Tech)
+    // 修正：使用更廣泛的關鍵字組合，確保即使 NewsAPI 對單一關鍵字無結果也能抓取到相關新聞
+    const query = encodeURIComponent('(香港 OR "Hong Kong" OR "China News" OR "AI")');
+
     try {
         const newsResponse = await fetch(
-          `https://newsapi.org/v2/top-headlines?q=${encodeURIComponent('Hong Kong')}&pageSize=5&apiKey=${process.env.NEWS_API_KEY}`
+          `https://newsapi.org/v2/top-headlines?q=${query}&pageSize=5&apiKey=${process.env.NEWS_API_KEY}`
         );
         if (newsResponse.ok) {
             const newsData = await newsResponse.json();

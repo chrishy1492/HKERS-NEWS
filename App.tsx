@@ -134,7 +134,10 @@ export default function App() {
         
         if (isManual) notify('機械人發貼成功 (Synced to Cloud)', 'success');
       } else {
-        throw new Error("Gemini returned no valid news.");
+        // Graceful fallback instead of throwing
+        console.warn("Gemini Service returned null (No News Generated)");
+        setBotStatus(prev => ({ ...prev, isRunning: false, error: 'No Content Generated' }));
+        if (isManual) notify('機械人未生成內容，請稍後再試', 'error');
       }
     } catch (e: any) {
       console.error(e);
