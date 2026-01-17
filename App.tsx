@@ -60,7 +60,9 @@ export default function App() {
         const users = await DataService.getUsers();
         const found = users.find(u => u.id === storedUserId);
         if (found) {
-          setUser(found);
+          // Send Heartbeat immediately on restore
+          await DataService.updateHeartbeat(found.id);
+          setUser({ ...found, lastLogin: Date.now() });
           setShowAuthModal(false); // Skip login screen if session valid
           addLog(`Session restored for: ${found.email}`);
         } else {
@@ -78,6 +80,9 @@ export default function App() {
     
     // 2. Sync User Data if logged in (Update points/level in background)
     if (user) {
+      // HEARTBEAT: Keep user "Online"
+      DataService.updateHeartbeat(user.id).catch(err => console.error("Heartbeat failed", err));
+
       const users = await DataService.getUsers();
       const updatedUser = users.find(u => u.id === user.id);
       if (updatedUser) {
@@ -91,7 +96,7 @@ export default function App() {
 
   useEffect(() => {
     refreshData();
-    // Auto-refresh every 30s to keep sync
+    // Auto-refresh every 30s to keep sync and send heartbeat
     const interval = setInterval(refreshData, 30000);
     return () => clearInterval(interval);
   }, [refreshData]);
@@ -174,7 +179,9 @@ export default function App() {
     if (authMode === 'login') {
       const found = allUsers.find(u => u.email === email && u.password === password);
       if (found) {
-        setUser(found);
+        // Set online status immediately
+        await DataService.updateHeartbeat(found.id);
+        setUser({ ...found, lastLogin: Date.now() });
         localStorage.setItem('hker_user_id', found.id); // Save Session
         setShowAuthModal(false);
         notify(`歡迎回來, ${found.name}`, 'success');
@@ -201,7 +208,8 @@ export default function App() {
         gender: (form.elements.namedItem('gender') as HTMLSelectElement).value as any || 'O',
         phone: (form.elements.namedItem('phone') as HTMLInputElement).value || '',
         address: (form.elements.namedItem('address') as HTMLInputElement).value || '',
-        joinedAt: Date.now()
+        joinedAt: Date.now(),
+        lastLogin: Date.now()
       };
       
       const success = await DataService.saveUser(newUser);
@@ -783,9 +791,15 @@ const AdminConsole = ({ posts, onDeletePost, executeBotTask, botStatus, systemLo
   const [users, setUsers] = useState<User[]>([]);
   const [stats, setStats] = useState<Stat | null>(null);
 
+  // Auto-refresh stats every 10 seconds to show real-time changes
   useEffect(() => {
-     DataService.getUsers().then(setUsers);
-     DataService.getStats().then(setStats);
+     const load = () => {
+        DataService.getUsers().then(setUsers);
+        DataService.getStats().then(setStats);
+     };
+     load();
+     const interval = setInterval(load, 10000);
+     return () => clearInterval(interval);
   }, []);
 
   const handleEditPoints = async (uid: string, newPts: number) => {
@@ -858,7 +872,7 @@ const AdminConsole = ({ posts, onDeletePost, executeBotTask, botStatus, systemLo
               <div className="text-2xl font-black text-white">{stats?.todayRegisters || 0}</div>
            </div>
            <div className="bg-purple-900/20 p-4 rounded-xl border border-purple-500/30">
-              <div className="text-xs text-purple-400 font-bold uppercase">Today Visits</div>
+              <div className="text-xs text-purple-400 font-bold uppercase">Today Active Members</div>
               <div className="text-2xl font-black text-white">{stats?.todayVisits || 0}</div>
            </div>
            <div className="bg-orange-900/20 p-4 rounded-xl border border-orange-500/30">
@@ -879,13 +893,19 @@ const AdminConsole = ({ posts, onDeletePost, executeBotTask, botStatus, systemLo
                    <th className="px-4 py-3">User</th>
                    <th className="px-4 py-3">Email</th>
                    <th className="px-4 py-3">Points</th>
+                   <th className="px-4 py-3">Last Active</th>
                    <th className="px-4 py-3">Action</th>
                  </tr>
                </thead>
                <tbody>
                  {users.map(u => (
                    <tr key={u.id} className="border-b border-slate-800 hover:bg-slate-800/50">
-                     <td className="px-4 py-3 font-bold text-white">{u.name}</td>
+                     <td className="px-4 py-3 font-bold text-white flex items-center gap-2">
+                       {u.name}
+                       {u.lastLogin && (Date.now() - u.lastLogin < 5 * 60 * 1000) && (
+                         <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" title="Online"></span>
+                       )}
+                     </td>
                      <td className="px-4 py-3 font-mono text-xs">{u.email}</td>
                      <td className="px-4 py-3">
                         <input 
@@ -894,6 +914,9 @@ const AdminConsole = ({ posts, onDeletePost, executeBotTask, botStatus, systemLo
                           onBlur={(e) => handleEditPoints(u.id, Number(e.target.value))}
                           className="bg-black/30 w-24 px-2 py-1 rounded border border-slate-600 text-white focus:border-hker-gold outline-none"
                         />
+                     </td>
+                     <td className="px-4 py-3 text-xs text-slate-500">
+                        {u.lastLogin ? new Date(u.lastLogin).toLocaleTimeString() : 'N/A'}
                      </td>
                      <td className="px-4 py-3">
                         <button onClick={async () => {
