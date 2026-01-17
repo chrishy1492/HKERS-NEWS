@@ -645,7 +645,7 @@ export default function App() {
                            <div className="relative z-10">
                               <div className="text-xs font-bold text-red-200 mb-2">HKER BALANCE</div>
                               <div className="text-4xl font-mono font-black text-white mb-4">{user.points.toLocaleString()}</div>
-                              <div className="flex gap-2">
+                              <div className="flex gap-2 mb-3">
                                  <input id="withdrawAmt" type="number" placeholder="Amount (Min 1M)" className="flex-1 bg-black/40 border border-white/20 rounded px-3 text-sm text-white"/>
                                  <button 
                                    onClick={() => {
@@ -657,6 +657,17 @@ export default function App() {
                                    WITHDRAW
                                  </button>
                               </div>
+                              
+                              {/* NEW BUTTON: APPLY WITHDRAWAL FORM */}
+                              <a 
+                                href="https://docs.google.com/forms/d/e/1FAIpQLSf370oikUL8JlupcS8BO8bbc-7DZg7KP7OJ5tsf3P9UkgNgtA/viewform?usp=publish-editor"
+                                target="_blank"
+                                rel="noreferrer"
+                                className="block w-full bg-hker-gold/20 hover:bg-hker-gold/40 border border-hker-gold text-hker-gold font-bold py-2 rounded text-center text-xs transition-colors mb-2 flex items-center justify-center gap-2"
+                              >
+                                <ExternalLink className="w-3 h-3" /> 申請提幣 (Apply Withdrawal Form)
+                              </a>
+
                               <p className="text-[10px] text-red-200 mt-2">* 1 HKER Point = 1 HKER Token</p>
                            </div>
                         </div>
