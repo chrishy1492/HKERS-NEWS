@@ -652,6 +652,32 @@ export default function App() {
                            <label className="text-xs text-yellow-500 font-bold uppercase flex items-center gap-2"><CreditCard className="w-3 h-3"/> SOL Wallet Address</label>
                            <input type="text" defaultValue={user.solAddress} onBlur={(e) => handleUpdateProfile({solAddress: e.target.value})} className="w-full bg-transparent border-b border-yellow-500/50 py-2 outline-none text-white font-mono text-sm focus:border-yellow-400 placeholder-slate-600" placeholder="Enter SOL Address for withdrawal"/>
                         </div>
+
+                        <div className="bg-slate-900/80 p-4 rounded-lg border border-slate-700 text-xs text-slate-300">
+                           <h4 className="font-bold text-white mb-2 flex items-center gap-2">
+                              <AlertTriangle className="w-4 h-4 text-yellow-500" /> 提幣申請須知 (Important Notice)
+                           </h4>
+                           <ol className="list-decimal pl-4 space-y-2 mb-3">
+                              <li>
+                                 申請提幣時，請把<strong>已成功申請提幣訊息</strong>攝取螢幕(PrtScn)圖片記錄下來！
+                                 <div className="text-[10px] text-slate-500 mt-1">
+                                    (注意：當申請提幣時螢幕中間上方位置會出現一個訊息，請按下 Ctrl+Alt+PrtScn 把圖片貼上於小畫家，然後把圖片記錄下來)
+                                 </div>
+                              </li>
+                              <li>
+                                 申請人完成提幣申請後，請把以下資料全部電郵致 <a href="mailto:hkerstoken@gmail.com" className="text-blue-400 hover:underline">hkerstoken@gmail.com</a> 方可處理：
+                                 <ul className="list-disc pl-4 mt-1 space-y-1 text-slate-400">
+                                    <li>a. 提幣數量</li>
+                                    <li>b. 帳戶登記電郵地址</li>
+                                    <li>c. SOL Address</li>
+                                    <li>d. 申請成功提幣時的圖片</li>
+                                 </ul>
+                              </li>
+                           </ol>
+                           <p className="text-red-400 font-bold border-t border-slate-700 pt-2">
+                              請注意：必須全部提供資料後，系統才會發放 HKER 幣。
+                           </p>
+                        </div>
                      </div>
                   </div>
                </div>

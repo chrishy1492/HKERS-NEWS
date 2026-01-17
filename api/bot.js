@@ -9,40 +9,45 @@ export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store, max-age=0');
 
   try {
-    // 1. 強力搜尋：改用 Top Headlines 以確保獲取最新熱門新聞 (擴大範圍)
     let articles = [];
-    
-    // 策略 A: 搜尋 Top Headlines (針對 'Hong Kong' 關鍵字)
+
+    // 1. 策略 A: 廣泛搜尋 (Everything Endpoint)
+    // 使用 (香港 OR "Hong Kong" OR "HK") 關鍵字，按相關性排序，抓取過去一個月內最相關的新聞
+    console.log("執行策略 A: NewsAPI Everything Search...");
     try {
+        const query = encodeURIComponent('(香港 OR "Hong Kong" OR "HK")');
         const newsResponse = await fetch(
-          `https://newsapi.org/v2/top-headlines?q=${encodeURIComponent('Hong Kong')}&pageSize=5&apiKey=${process.env.NEWS_API_KEY}`
+          `https://newsapi.org/v2/everything?q=${query}&sortBy=relevancy&pageSize=10&apiKey=${process.env.NEWS_API_KEY}`
         );
+        
         if (newsResponse.ok) {
             const newsData = await newsResponse.json();
             articles = newsData.articles || [];
         } else {
-            console.warn("NewsAPI Top-Headlines Endpoint Failed:", newsResponse.statusText);
+             console.warn("NewsAPI Everything Endpoint Failed:", newsResponse.statusText);
         }
-    } catch (e) { console.warn("Fetch Error (Top Headlines):", e.message); }
+    } catch (e) { console.warn("Fetch Error (Strategy A):", e.message); }
 
-    // 策略 B: 如果關鍵字搜尋沒結果，嘗試直接抓取香港地區頭條 (Country: hk)
+    // 2. 策略 B: 強制備案 (Top Headlines - Technology/ZH)
+    // 如果策略 A 無結果 (或失敗)，強制抓取中文科技頭條，確保一定有內容產出
     if (articles.length === 0) {
-        console.log("策略 A 無結果，切換至策略 B (Region Headlines)...");
+        console.log("策略 A 無結果，切換至策略 B (Tech Headlines)...");
         try {
-            const backupResponse = await fetch(
-                `https://newsapi.org/v2/top-headlines?country=hk&pageSize=3&apiKey=${process.env.NEWS_API_KEY}`
+            const topResponse = await fetch(
+                `https://newsapi.org/v2/top-headlines?category=technology&language=zh&pageSize=5&apiKey=${process.env.NEWS_API_KEY}`
             );
-            if (backupResponse.ok) {
-                const backupData = await backupResponse.json();
-                articles = backupData.articles || [];
+            if (topResponse.ok) {
+                const topData = await topResponse.json();
+                articles = topData.articles || [];
             }
-        } catch (e) { console.warn("Fetch Error (Region Headlines):", e.message); }
+        } catch (e) { console.warn("Fetch Error (Strategy B):", e.message); }
     }
 
     if (articles.length === 0) {
       return res.status(200).json({ success: true, message: "當前全球無匹配新聞，等待下次運行" });
     }
 
+    // 取前 3 篇進行處理
     const processedArticles = articles.slice(0, 3);
     const results = [];
 
@@ -72,7 +77,7 @@ export default async function handler(req, res) {
           console.warn("AI 忙碌或出錯，使用原文替代");
         }
 
-        // 3. 寫入資料庫 - 手動生成 ID 以避免 23502 錯誤
+        // 3. 寫入資料庫
         const { error: dbError } = await supabase.from('posts').insert([{
           id: Date.now() + Math.floor(Math.random() * 100000),
           title: article.title,
@@ -89,7 +94,7 @@ export default async function handler(req, res) {
         if (!dbError) {
             results.push(article.title);
         } else if (dbError.code === '23505') {
-            // 忽略重複內容
+            // 忽略重複內容 (Duplicate URL)
         } else {
             console.error("DB Insert Error:", dbError.message);
         }
