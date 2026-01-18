@@ -1,60 +1,60 @@
 
-// api/cron.js
-// Vercel Serverless Function
-// 這不依賴 Next.js，直接由 Vercel 基礎設施執行
-// 用途：解決 Cron Job 404 問題
+// api/cron.js - Vercel Serverless Function (ES Module)
+import { createClient } from '@supabase/supabase-js';
 
-const { createClient } = require('@supabase/supabase-js');
+export default async function handler(req, res) {
+  try {
+    const timestamp = new Date().toISOString();
+    console.log(`[CRON] Function started (ESM) at ${timestamp}`);
 
-module.exports = async (req, res) => {
-  // Vercel Cron 預設發送 GET 請求
-  if (req.method !== 'GET') {
-    return res.status(405).json({ error: 'Method Not Allowed' });
-  }
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-  const timestamp = new Date().toISOString();
-  console.log(`[CRON] Vercel Native Function Started at ${timestamp}`);
+    console.log('[CRON] Env Check:', { 
+      hasUrl: !!supabaseUrl, 
+      hasKey: !!serviceKey 
+    });
 
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if (!supabaseUrl || !serviceKey) {
-    console.error('[CRON] Error: Missing Environment Variables');
-    return res.status(500).json({ error: 'Missing env vars' });
-  }
-
-  const supabase = createClient(supabaseUrl, serviceKey, {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false
+    if (!supabaseUrl || !serviceKey) {
+      throw new Error('Missing Supabase environment variables');
     }
-  });
 
-  // 使用時間戳作為唯一 ID，避免 Primary Key 衝突
-  const uniqueId = Date.now();
+    const supabase = createClient(supabaseUrl, serviceKey, {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false
+      }
+    });
 
-  const testData = {
-    id: uniqueId,
-    title: `Vercel Native Cron Test ${timestamp}`,
-    content: '成功！這是用根目錄 api/cron.js (Serverless Function) 寫入的測試資料。此路徑繞過了 Vite 前端路由。',
-    contentCN: '成功！這是用根目錄 api/cron.js (Serverless Function) 寫入的測試資料。此路徑繞過了 Vite 前端路由。',
-    url: `https://vercel-native-cron-${uniqueId}.example.com`,
-    region: '測試',
-    category: '系統公告',
-    author: 'VercelBot',
-    author_id: 'vercel_cron_native',
-    created_at: timestamp
-  };
+    // 產生唯一 ID 和 URL 以避免資料庫約束錯誤
+    const uniqueId = Date.now();
 
-  console.log('[CRON] Attempting insert:', JSON.stringify(testData));
+    const testData = {
+      id: uniqueId,
+      title: `ES Module Test ${timestamp}`,
+      content: '成功！這是用 ES module api/cron.js 寫入的測試資料。',
+      contentCN: '成功！這是用 ES module api/cron.js 寫入的測試資料。', // 補全必填欄位
+      url: `https://es-module-test-${uniqueId}.com`, // 確保 URL 唯一
+      region: '測試',
+      category: '系統公告', // 補全必填欄位
+      author: 'CronBot',    // 補全必填欄位
+      author_id: 'cron_bot_esm', // 補全必填欄位
+      created_at: timestamp
+    };
 
-  const { data, error } = await supabase.from('posts').insert([testData]).select();
+    console.log('[CRON] Inserting data:', JSON.stringify(testData));
 
-  if (error) {
-    console.error('[CRON] Insert failed:', error.message);
-    return res.status(500).json({ error: error.message, details: error });
+    const { data, error } = await supabase.from('posts').insert([testData]).select();
+
+    if (error) {
+      console.error('[CRON] Supabase Insert Error:', error);
+      throw error;
+    }
+
+    console.log('[CRON] Success:', data);
+    res.status(200).json({ success: true, data });
+  } catch (err) {
+    console.error('[CRON] Critical Error:', err.message || err);
+    res.status(500).json({ error: err.message || 'Internal Server Error' });
   }
-
-  console.log('[CRON] Insert Success:', data);
-  return res.status(200).json({ success: true, message: 'Test insert OK', data });
-};
+}
