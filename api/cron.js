@@ -1,24 +1,25 @@
 
 // api/cron.js
-// Vercel Serverless Function (Native)
-// 這是直接部署在 Vercel 基礎設施上的函數，不經過 Next.js 路由層
+// Vercel Serverless Function
+// 這不依賴 Next.js，直接由 Vercel 基礎設施執行
+// 用途：解決 Cron Job 404 問題
 
 const { createClient } = require('@supabase/supabase-js');
 
 module.exports = async (req, res) => {
-  // 只允許 GET
+  // Vercel Cron 預設發送 GET 請求
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method Not Allowed' });
   }
 
   const timestamp = new Date().toISOString();
-  console.log(`[CRON] Vercel Native Function Triggered at ${timestamp}`);
+  console.log(`[CRON] Vercel Native Function Started at ${timestamp}`);
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
   if (!supabaseUrl || !serviceKey) {
-    console.error('[CRON] Missing Environment Variables');
+    console.error('[CRON] Error: Missing Environment Variables');
     return res.status(500).json({ error: 'Missing env vars' });
   }
 
@@ -29,31 +30,31 @@ module.exports = async (req, res) => {
     }
   });
 
-  // 產生唯一 ID (使用時間戳避免 BigInt 衝突)
+  // 使用時間戳作為唯一 ID，避免 Primary Key 衝突
   const uniqueId = Date.now();
 
   const testData = {
     id: uniqueId,
-    title: `Vercel Native Function Test - ${new Date().toLocaleTimeString('en-HK')}`,
-    content: '成功！這是用 Vercel 原生 root/api/cron.js 寫入的測試資料。',
-    contentCN: '成功！這是用 Vercel 原生 root/api/cron.js 寫入的測試資料。',
-    url: `https://vercel-native-test-${uniqueId}.example.com`,
+    title: `Vercel Native Cron Test ${timestamp}`,
+    content: '成功！這是用根目錄 api/cron.js (Serverless Function) 寫入的測試資料。此路徑繞過了 Vite 前端路由。',
+    contentCN: '成功！這是用根目錄 api/cron.js (Serverless Function) 寫入的測試資料。此路徑繞過了 Vite 前端路由。',
+    url: `https://vercel-native-cron-${uniqueId}.example.com`,
     region: '測試',
     category: '系統公告',
     author: 'VercelBot',
-    author_id: 'vercel_native_cron',
+    author_id: 'vercel_cron_native',
     created_at: timestamp
   };
 
-  console.log('[CRON] Inserting data:', JSON.stringify(testData));
+  console.log('[CRON] Attempting insert:', JSON.stringify(testData));
 
   const { data, error } = await supabase.from('posts').insert([testData]).select();
 
   if (error) {
-    console.error('[CRON] Insert Error:', error.message);
+    console.error('[CRON] Insert failed:', error.message);
     return res.status(500).json({ error: error.message, details: error });
   }
 
-  console.log('[CRON] Success:', data);
-  return res.status(200).json({ success: true, message: 'Insert OK', data });
+  console.log('[CRON] Insert Success:', data);
+  return res.status(200).json({ success: true, message: 'Test insert OK', data });
 };
