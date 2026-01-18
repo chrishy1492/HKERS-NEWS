@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { User } from '../types';
 import { Trophy, RotateCcw, Volume2, VolumeX, Dice5, ArrowLeft, Zap, Shield, Info, DollarSign, Play, XCircle, Cpu, Activity, Disc, Music } from 'lucide-react';
@@ -8,23 +7,6 @@ interface GameProps {
   onUpdatePoints: (amount: number) => void;
   onBack?: () => void;
 }
-
-// --- SHARED COMPONENTS ---
-
-const BalanceDisplay = ({ points }: { points: number }) => (
-  <div className="flex items-center gap-2 bg-black/40 px-3 py-1.5 rounded-full border border-hker-gold/30 shadow-inner min-w-[100px] justify-center">
-    <div className="w-2 h-2 rounded-full bg-hker-gold animate-pulse shadow-[0_0_5px_gold]" />
-    <span className="text-xs font-mono font-bold text-hker-gold tracking-wider">
-      {points.toLocaleString()}
-    </span>
-  </div>
-);
-
-const SoundToggle = ({ muted, onToggle }: { muted: boolean, onToggle: () => void }) => (
-  <button onClick={onToggle} className="absolute top-2 right-2 p-2 bg-black/40 rounded-full hover:bg-black/60 transition-colors text-hker-gold z-50 border border-slate-600">
-    {muted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
-  </button>
-);
 
 // --- AUDIO ENGINE (Procedural Ambient Music) ---
 // Generates soft, relaxing drone sounds without external files
@@ -92,6 +74,13 @@ class AmbientAudio {
 }
 
 const ambientAudio = new AmbientAudio();
+
+// --- SHARED UTILS ---
+const SoundToggle = ({ muted, onToggle }: { muted: boolean, onToggle: () => void }) => (
+  <button onClick={onToggle} className="absolute top-2 right-2 p-2 bg-black/40 rounded-full hover:bg-black/60 transition-colors text-hker-gold z-50 border border-slate-600">
+    {muted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+  </button>
+);
 
 // ==========================================
 // GAME 1: CYBER BLITZ 21 (BLACKJACK)
@@ -335,12 +324,9 @@ export const CyberBlackjack: React.FC<GameProps> = ({ user, onUpdatePoints, onBa
       {/* Header */}
       <div className="flex justify-between items-center p-4 bg-slate-900/80 border-b border-indigo-500/30 relative z-10">
          {onBack && <button onClick={onBack} className="p-1 hover:bg-slate-800 rounded"><ArrowLeft className="w-5 h-5 text-indigo-400"/></button>}
-         <div className="flex items-center gap-4">
-             <div className="flex items-center gap-2">
-                <Zap className="text-cyan-400 w-5 h-5 fill-current" />
-                <h3 className="font-black italic text-lg tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-cyan-400">CYBER 21</h3>
-             </div>
-             <BalanceDisplay points={user.points} />
+         <div className="flex items-center gap-2">
+            <Zap className="text-cyan-400 w-5 h-5 fill-current" />
+            <h3 className="font-black italic text-lg tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-cyan-400">CYBER 21</h3>
          </div>
          <button onClick={() => setShowRules(true)}><Info className="w-5 h-5 text-slate-400 hover:text-white" /></button>
       </div>
@@ -562,11 +548,9 @@ export const SlotMachine: React.FC<GameProps> = ({ user, onUpdatePoints, onBack 
       {/* Header */}
       <div className="flex justify-between items-center mb-4">
          {onBack && <button onClick={onBack} className="p-1 hover:bg-slate-700 rounded"><ArrowLeft className="w-5 h-5 text-slate-400"/></button>}
-         <div className="flex items-center gap-2 flex-1 justify-center">
-             <Trophy className="w-5 h-5 text-hker-gold" />
-             <h3 className="text-xl font-black text-hker-gold uppercase tracking-widest">AI Slots</h3>
-             <BalanceDisplay points={user.points} />
-         </div>
+         <h3 className="text-xl font-black text-hker-gold flex items-center justify-center gap-2 uppercase tracking-widest flex-1">
+            <Trophy className="w-5 h-5" /> AI Slots Turbo
+         </h3>
          <div className="w-6"></div>
       </div>
 
@@ -633,7 +617,7 @@ export const SlotMachine: React.FC<GameProps> = ({ user, onUpdatePoints, onBack 
 };
 
 // ==========================================
-// GAME 3: LITTLE MARY (Xiao Ma Li) - REFACTORED
+// GAME 3: LITTLE MARY (Xiao Ma Li)
 // ==========================================
 const LM_SYMBOLS = [
   { id: 'bar', name: 'BAR', odds: 100, char: '🎰', color: 'bg-red-900 border-red-500' },
@@ -669,23 +653,22 @@ export const LittleMary: React.FC<GameProps> = ({ user, onUpdatePoints, onBack }
   const [activeIdx, setActiveIdx] = useState(0);
   const [bets, setBets] = useState<Record<string, number>>({});
   const [isRunning, setIsRunning] = useState(false);
-  const [logs, setLogs] = useState('請下注');
+  const [logs, setLogs] = useState('請下注 Place Bets');
   const [winAmt, setWinAmt] = useState(0);
-  const [chip, setChip] = useState(100);
   
-  const handleBet = (id: string, amount: number) => {
+  const handleBet = (id: string, delta: number) => {
     if (isRunning) return;
     const current = bets[id] || 0;
-    const next = current + amount;
+    const next = current + delta;
     if (next < 0) return;
     
-    if (amount > 0 && user.points < amount) {
+    if (delta > 0 && user.points < delta) {
       alert("積分不足 No Points");
       return;
     }
     
-    if (amount > 0) onUpdatePoints(-amount);
-    else onUpdatePoints(Math.abs(amount)); 
+    if (delta > 0) onUpdatePoints(-delta);
+    else onUpdatePoints(Math.abs(delta)); 
 
     setBets(prev => ({ ...prev, [id]: next }));
   };
@@ -693,12 +676,12 @@ export const LittleMary: React.FC<GameProps> = ({ user, onUpdatePoints, onBack }
   const spin = () => {
     const totalBet = Object.values(bets).reduce((a: number, b: number) => a + b, 0);
     if (totalBet === 0) {
-      setLogs("請先下注!");
+      setLogs("請先下注! Bet first!");
       return;
     }
 
     setIsRunning(true);
-    setLogs("Running...");
+    setLogs("Running... (High Speed)");
     setWinAmt(0);
 
     const rand = Math.floor(Math.random() * 1000);
@@ -747,9 +730,9 @@ export const LittleMary: React.FC<GameProps> = ({ user, onUpdatePoints, onBack }
       const win = bet * sym.odds + bet; 
       onUpdatePoints(win);
       setWinAmt(win);
-      setLogs(`WIN! ${sym.name}`);
+      setLogs(`WIN! ${sym.name} +${win}`);
     } else {
-      setLogs(`開: ${sym?.name || '-'}`);
+      setLogs(`Result: ${sym?.name || '-'} (No Bet)`);
     }
   };
 
@@ -768,23 +751,18 @@ export const LittleMary: React.FC<GameProps> = ({ user, onUpdatePoints, onBack }
     );
   };
 
-  const totalBet = Object.values(bets).reduce((a: number, b: number) => a + b, 0);
-
   return (
-    <div className="bg-[#1a1a1a] p-2 rounded-lg border-2 border-hker-gold/50 text-center shadow-xl h-full flex flex-col max-w-lg mx-auto relative overflow-y-auto">
-       <div className="flex items-center justify-between mb-2 px-2 sticky top-0 bg-[#1a1a1a] z-50 py-2 border-b border-slate-800">
+    <div className="bg-[#1a1a1a] p-2 rounded-lg border-2 border-hker-gold/50 text-center shadow-xl h-full flex flex-col max-w-lg mx-auto relative">
+       <div className="flex items-center justify-between mb-2 px-2">
         {onBack && <button onClick={onBack} className="p-1 hover:bg-slate-700 rounded"><ArrowLeft className="w-5 h-5 text-slate-400"/></button>}
-        <div className="flex items-center gap-2">
-             <h3 className="text-lg font-black text-hker-gold uppercase tracking-widest hidden sm:block">Little Mary</h3>
-             <BalanceDisplay points={user.points} />
-        </div>
+        <h3 className="text-lg font-black text-hker-gold flex items-center gap-2 uppercase tracking-widest mx-auto">
+          <Zap className="w-4 h-4 text-yellow-400" /> 小瑪莉 Little Mary
+        </h3>
         <div className="w-6"></div> 
       </div>
 
-      {/* WHEEL AREA */}
-      <div className="relative aspect-square w-full max-w-sm mx-auto bg-black/40 rounded-xl border border-slate-700 p-2 mb-2 shrink-0">
-         {/* Wheel Grid */}
-         <div className="absolute inset-0 grid grid-cols-7 grid-rows-7 gap-1 p-1 pointer-events-none">
+      <div className="relative aspect-square w-full bg-black/40 rounded-xl border border-slate-700 p-2 mb-2">
+        <div className="absolute inset-0 grid grid-cols-7 grid-rows-7 gap-1 p-1 pointer-events-none">
           {renderGridItem(0, "col-start-1 row-start-1")}
           {renderGridItem(1, "col-start-2 row-start-1")}
           {renderGridItem(2, "col-start-3 row-start-1")}
@@ -812,60 +790,43 @@ export const LittleMary: React.FC<GameProps> = ({ user, onUpdatePoints, onBack }
            {renderGridItem(21, "col-start-1 row-start-4")}
            {renderGridItem(22, "col-start-1 row-start-3")}
            {renderGridItem(23, "col-start-1 row-start-2")}
-         </div>
+        </div>
 
-         {/* Center Spin Area (Refactored to be cleaner) */}
-         <div className="absolute inset-[22%] flex flex-col items-center justify-center z-20 pointer-events-auto bg-slate-900/80 rounded-full border-4 border-slate-700 backdrop-blur-sm shadow-2xl">
-             <div className={`text-sm md:text-xl font-black mb-1 ${winAmt > 0 ? 'text-green-400 animate-bounce' : 'text-white'}`}>
-                {logs.split(' ')[0]}
-             </div>
-             {winAmt > 0 && <div className="text-yellow-400 font-bold mb-1">+{winAmt}</div>}
-             
-             <button 
-                onClick={spin}
-                disabled={isRunning}
-                className="w-14 h-14 md:w-20 md:h-20 rounded-full bg-gradient-to-br from-red-600 to-red-900 text-white font-black shadow-lg hover:scale-105 active:scale-95 transition-transform border-2 border-red-400 flex items-center justify-center text-sm md:text-base"
-              >
-                {isRunning ? <RotateCcw className="animate-spin w-6 h-6"/> : 'SPIN'}
-              </button>
-         </div>
-      </div>
-
-      {/* BETTING CONTROLS (Moved Below) */}
-      <div className="flex-1 bg-slate-900/50 p-2 rounded-xl border border-slate-800 overflow-y-auto">
-           <div className="flex justify-between items-center mb-2 px-2">
-              <div className="flex gap-1">
-                 {[100, 1000, 5000].map(val => (
-                    <button 
-                      key={val}
-                      onClick={() => setChip(val)}
-                      className={`px-2 py-1 text-xs font-bold rounded ${chip === val ? 'bg-yellow-600 text-black' : 'bg-slate-700 text-slate-400'}`}
-                    >
-                      {val}
-                    </button>
-                 ))}
-              </div>
-              <div className="flex gap-2 text-xs items-center">
-                 <span className="text-slate-500">Total: <span className="text-white">{totalBet}</span></span>
-                 <button onClick={() => setBets({})} disabled={isRunning} className="text-red-400 hover:text-red-300 font-bold ml-1">CLEAR</button>
-              </div>
+        <div className="absolute inset-[15%] flex flex-col items-center justify-center z-20 pointer-events-auto">
+           <div className={`text-xl font-black mb-2 ${winAmt > 0 ? 'text-green-400 animate-bounce' : 'text-white'}`}>
+              {logs}
            </div>
-           <div className="grid grid-cols-4 gap-2 mb-2">
+           
+           <div className="grid grid-cols-4 gap-1 w-full mb-2">
               {LM_SYMBOLS.map(s => (
-                <button 
-                   key={s.id} 
-                   onClick={() => handleBet(s.id, chip)}
-                   disabled={isRunning}
-                   className={`flex flex-col items-center bg-slate-800 rounded p-2 border relative active:scale-95 transition-all ${bets[s.id] ? 'border-yellow-500 bg-slate-700 shadow-md' : 'border-slate-600'}`}
-                >
-                   <div className="text-2xl mb-1">{s.char}</div>
-                   <div className="text-[9px] text-slate-400">x{s.odds}</div>
-                   {bets[s.id] ? (
-                      <div className="absolute top-1 right-1 bg-yellow-500 text-black text-[9px] font-bold px-1.5 rounded-full">{bets[s.id]}</div>
-                   ) : null}
-                </button>
+                <div key={s.id} className="flex flex-col items-center bg-slate-800/90 rounded p-1 border border-slate-600">
+                   <div className="text-xl mb-1">{s.char}</div>
+                   <div className="text-[9px] text-slate-400 mb-1">x{s.odds}</div>
+                   <div className="text-yellow-400 font-bold text-xs mb-1">{bets[s.id] || 0}</div>
+                   <div className="flex gap-1">
+                     <button onClick={() => handleBet(s.id, 100)} className="w-5 h-5 bg-green-700 rounded text-[10px] hover:bg-green-600">+</button>
+                   </div>
+                </div>
               ))}
            </div>
+           
+           <div className="flex gap-2 w-full px-4">
+              <button 
+                onClick={() => setBets({})} 
+                disabled={isRunning}
+                className="bg-slate-700 text-slate-300 text-xs px-3 py-2 rounded hover:bg-slate-600"
+              >
+                Clear
+              </button>
+              <button 
+                onClick={spin}
+                disabled={isRunning}
+                className="flex-1 bg-gradient-to-r from-red-600 to-red-800 text-white font-black py-2 rounded shadow-lg hover:scale-105 active:scale-95 transition-transform"
+              >
+                {isRunning ? '...' : 'SPIN'}
+              </button>
+           </div>
+        </div>
       </div>
     </div>
   );
@@ -888,7 +849,7 @@ export const HooHeyHow: React.FC<GameProps> = ({ user, onUpdatePoints, onBack })
   const [results, setResults] = useState<string[]>(['fish', 'fish', 'fish']);
   const [isRolling, setIsRolling] = useState(false);
   const [muted, setMuted] = useState(false);
-  const [logs, setLogs] = useState<string>('請下注');
+  const [logs, setLogs] = useState<string>('請下注 Place Bets');
   const [showResult, setShowResult] = useState(false);
   const [chip, setChip] = useState(100);
 
@@ -907,12 +868,12 @@ export const HooHeyHow: React.FC<GameProps> = ({ user, onUpdatePoints, onBack })
 
   const roll = () => {
     if (Object.keys(bets).length === 0) {
-      setLogs("請先下注！");
+      setLogs("請先下注！Please bet first.");
       return;
     }
     setIsRolling(true);
     setShowResult(false);
-    setLogs("Rolling...");
+    setLogs("Rolling... (2x Speed)");
 
     let interval = setInterval(() => {
       setResults([
@@ -949,7 +910,7 @@ export const HooHeyHow: React.FC<GameProps> = ({ user, onUpdatePoints, onBack })
 
     if (totalWin > 0) {
       onUpdatePoints(totalWin);
-      setLogs(`WIN! +${totalWin}`);
+      setLogs(`WIN! +${totalWin} HKER`);
     } else {
       setLogs("莊家通吃 House Wins");
     }
@@ -962,11 +923,9 @@ export const HooHeyHow: React.FC<GameProps> = ({ user, onUpdatePoints, onBack })
       
       <div className="flex items-center justify-between mb-2">
         {onBack && <button onClick={onBack} className="p-1 hover:bg-slate-700 rounded"><ArrowLeft className="w-5 h-5 text-slate-400"/></button>}
-        <div className="flex items-center gap-2 justify-center flex-1">
-             <Dice5 className="w-5 h-5 text-hker-gold" />
-             <h3 className="text-lg font-black text-hker-gold uppercase tracking-widest hidden sm:block">魚蝦蟹</h3>
-             <BalanceDisplay points={user.points} />
-        </div>
+        <h3 className="text-lg font-black text-hker-gold flex items-center gap-2 uppercase tracking-widest mx-auto">
+          <Dice5 className="w-5 h-5" /> 魚蝦蟹 Hoo Hey How
+        </h3>
         <div className="w-6"></div> 
       </div>
 
@@ -1199,10 +1158,9 @@ export const Baccarat: React.FC<GameProps> = ({ user, onUpdatePoints, onBack }) 
       {/* Top Bar */}
       <div className="flex justify-between items-center bg-black/50 p-3 rounded-lg border-b border-white/10 mb-4">
          {onBack && <button onClick={onBack} className="p-1 hover:bg-white/10 rounded"><ArrowLeft className="w-5 h-5 text-green-400"/></button>}
-         <div className="flex items-center gap-2 justify-center flex-1">
-             <Cpu className="text-green-500 w-5 h-5 animate-pulse" />
-             <h3 className="font-bold tracking-widest text-green-400">AI BACCARAT</h3>
-             <BalanceDisplay points={user.points} />
+         <div className="flex items-center gap-2">
+            <Cpu className="text-green-500 w-5 h-5 animate-pulse" />
+            <h3 className="font-bold tracking-widest text-green-400">AI TURBO BACCARAT <span className="text-[10px] text-gray-500">v2.5</span></h3>
          </div>
          <button onClick={() => setShowRules(true)}><Info className="w-5 h-5 text-gray-400 hover:text-white" /></button>
       </div>
@@ -1349,7 +1307,7 @@ export const Baccarat: React.FC<GameProps> = ({ user, onUpdatePoints, onBack }) 
 // GAME 6: QUANTUM PULSE ROULETTE (AI TURBO)
 // ==========================================
 export const QuantumRoulette: React.FC<GameProps> = ({ user, onUpdatePoints, onBack }) => {
-  // Directly use user.points for balance display and logic to ensure sync
+  const [balance, setBalance] = useState(user.points);
   const [betAmount, setBetAmount] = useState(100);
   const [currentBet, setCurrentBet] = useState<{type: string, val: any, odds: number} | null>(null);
   const [isSpinning, setIsSpinning] = useState(false);
@@ -1535,12 +1493,9 @@ export const QuantumRoulette: React.FC<GameProps> = ({ user, onUpdatePoints, onB
       {/* Header */}
       <div className="flex justify-between items-center p-2 border-b border-cyan-900 mb-2">
          {onBack && <button onClick={onBack}><ArrowLeft className="w-5 h-5"/></button>}
-         <div className="flex items-center gap-2 justify-center flex-1">
-            <div className="text-center">
-                <div className="text-xs text-gray-500">QUANTUM</div>
-                <div className="font-bold text-white hidden sm:block">ROULETTE</div>
-            </div>
-            <BalanceDisplay points={user.points} />
+         <div className="text-center">
+            <div className="text-xs text-gray-500">QUANTUM ENGINE</div>
+            <div className="font-bold text-white">AI ROULETTE</div>
          </div>
          <button onClick={() => setShowRules(!showRules)}><Info className="w-5 h-5"/></button>
       </div>
