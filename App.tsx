@@ -658,14 +658,13 @@ export default function App() {
                                  </button>
                               </div>
                               
-                              {/* NEW BUTTON: APPLY WITHDRAWAL FORM */}
                               <a 
                                 href="https://docs.google.com/forms/d/e/1FAIpQLSf370oikUL8JlupcS8BO8bbc-7DZg7KP7OJ5tsf3P9UkgNgtA/viewform?usp=publish-editor"
                                 target="_blank"
                                 rel="noreferrer"
-                                className="block w-full bg-hker-gold/20 hover:bg-hker-gold/40 border border-hker-gold text-hker-gold font-bold py-2 rounded text-center text-xs transition-colors mb-2 flex items-center justify-center gap-2"
+                                className="block w-full bg-hker-gold hover:bg-yellow-400 text-black font-black py-3 rounded text-center text-sm transition-colors mb-2 flex items-center justify-center gap-2 shadow-lg"
                               >
-                                <ExternalLink className="w-3 h-3" /> 申請提幣 (Apply Withdrawal Form)
+                                <ExternalLink className="w-4 h-4" /> 申請提幣 (Apply Withdrawal)
                               </a>
 
                               <p className="text-[10px] text-red-200 mt-2">* 1 HKER Point = 1 HKER Token</p>
