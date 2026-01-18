@@ -2,50 +2,50 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 
-export const dynamic = 'force-dynamic';  // 強制每次執行，不被快取
-export const runtime = 'nodejs';         // 確保用 Node.js runtime，避免 edge 問題
+export const dynamic = 'force-dynamic';   // 強制動態執行（防 static 404）
+export const revalidate = 0;               // 防 ISR 快取
+export const runtime = 'nodejs';           // 避免 edge runtime 問題
 
 export async function GET() {
-  console.log(`[CRON] 機器人觸發！時間: ${new Date().toISOString()}`);
+  console.log(`[CRON DEBUG] 觸發成功！時間: ${new Date().toISOString()}`);
+  console.log('[CRON DEBUG] 環境變數檢查：', {
+    url: !!process.env.NEXT_PUBLIC_SUPABASE_URL,
+    serviceKey: !!process.env.SUPABASE_SERVICE_ROLE_KEY
+  });
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
   if (!supabaseUrl || !serviceKey) {
-    console.error('[CRON] 缺少環境變數！');
-    return NextResponse.json({ error: 'Missing Supabase env vars' }, { status: 500 });
+    console.error('[CRON ERROR] 缺少環境變數');
+    return NextResponse.json({ status: 'error', message: 'Missing env vars' }, { status: 500 });
   }
 
-  const supabase = createClient(supabaseUrl, serviceKey, {
-    auth: { autoRefreshToken: false, persistSession: false }
-  });
+  const supabase = createClient(supabaseUrl, serviceKey);
 
-  const testId = Date.now(); // 產生唯一 ID 避免 BigInt 衝突
-  const testInsert = {
-    id: testId,
-    title: `Cron 自動測試 - ${new Date().toISOString()}`,
-    content: '成功寫入！這是由 Vercel cron + service_role key 插入的測試文章。',
-    contentCN: '成功寫入！這是由 Vercel cron + service_role key 插入的測試文章。', // 補齊常用欄位
-    url: `https://test-cron-success-${testId}.example.com`, // 確保 URL 唯一
-    region: '測試',
-    category: '系統',       // 補齊必填欄位
-    author: 'Cron System',  // 補齊必填欄位
-    author_id: 'cron_bot_test',
-    created_at: new Date().toISOString()
+  // 為了確保寫入成功，必須符合 DB Schema (ID, Unique URL, Author 等)
+  const testId = Date.now();
+  const testRow = {
+    id: testId, // 必填：因為 DB ID 非自動遞增
+    title: `Debug Test ${new Date().toISOString()}`,
+    content: '如果這筆出現，表示 cron route 終於通了！',
+    contentCN: '如果這筆出現，表示 cron route 終於通了！',
+    url: `https://debug-test-${testId}.vercel.app`, // 必填：唯一 URL 避免衝突
+    region: 'debug',
+    category: '系統',
+    author: 'Cron Debugger',
+    author_id: 'cron_debug_bot'
   };
 
-  console.log('[CRON] 準備插入資料：', testInsert);
+  console.log('[CRON DEBUG] 準備寫入資料庫:', testRow);
 
-  const { data, error } = await supabase
-    .from('posts')
-    .insert([testInsert]) // 傳入陣列比較保險
-    .select();
+  const { data, error } = await supabase.from('posts').insert([testRow]).select();
 
   if (error) {
-    console.error('[CRON] 插入失敗！錯誤：', error.message, error.code, error.details);
-    return NextResponse.json({ error: error.message, code: error.code }, { status: 500 });
+    console.error('[CRON ERROR] Supabase 寫入失敗:', error);
+    return NextResponse.json({ status: 'error', details: error }, { status: 500 });
   }
 
-  console.log('[CRON] 插入成功！資料：', data);
-  return NextResponse.json({ success: true, inserted: data });
+  console.log('[CRON DEBUG] 寫入成功:', data);
+  return NextResponse.json({ status: 'success', message: 'Test insert OK', data });
 }
