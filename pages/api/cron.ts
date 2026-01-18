@@ -3,57 +3,55 @@ import { createClient } from '@supabase/supabase-js';
 import type { NextApiRequest, NextApiResponse } from 'next';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  // 1. 只允許 GET 請求 (Vercel Cron 預設使用 GET)
+  // 1. 嚴格限制為 GET 方法 (Cron Job 標準)
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method Not Allowed' });
   }
 
-  const timestamp = new Date().toISOString();
-  console.log(`[CRON] 機器人觸發成功！時間: ${timestamp}`);
+  console.log(`[CRON] 觸發！時間: ${new Date().toISOString()}`);
 
-  // 2. 檢查環境變數
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
   if (!supabaseUrl || !serviceKey) {
-    console.error('[CRON] 嚴重錯誤：缺少 Supabase 環境變數！');
+    console.error('[CRON] 缺少環境變數 (Missing Env Vars)');
     return res.status(500).json({ error: 'Missing env vars' });
   }
 
-  // 3. 初始化 Supabase (使用 Service Role Key 繞過 RLS)
+  // 初始化 Supabase (Service Role)
   const supabase = createClient(supabaseUrl, serviceKey, {
-    auth: { autoRefreshToken: false, persistSession: false }
+    auth: {
+        autoRefreshToken: false,
+        persistSession: false
+    }
   });
 
-  // 4. 準備測試資料
-  // 注意：我們必須符合 posts 資料表的 Schema (id 為 bigint, 必填欄位等)
-  const testId = Date.now();
+  // 2. 準備測試資料
+  // 注意：補全了 author_id, category, contentCN 等可能必填的欄位，防止 DB 報錯
+  const timestamp = Date.now();
   const testData = {
-    id: testId,
-    title: `Cron 測試 (Pages Router) - ${new Date().toLocaleTimeString('en-HK')}`,
-    content: '成功寫入！這證明 Pages Router 的 /api/cron 已經通了，insert 正常執行。',
-    contentCN: '成功寫入！這證明 Pages Router 的 /api/cron 已經通了，insert 正常執行。',
-    url: `https://pages-cron-test-${testId}.example.com`, // 確保 URL 唯一避免衝突
-    region: '系統',
+    id: timestamp, // 確保 ID 唯一且為數字
+    title: `測試文章 (Pages Router) - ${new Date().toISOString()}`,
+    content: '成功！這是由 Vercel cron 透過 Pages Router 寫入的測試資料。',
+    contentCN: '成功！這是由 Vercel cron 透過 Pages Router 寫入的測試資料。',
+    url: `https://test-pages-router-${timestamp}.vercel.app`, // 確保 URL 唯一避免 Unique Constraint Error
+    region: '測試',
     category: '系統公告',
-    author: 'Cron Bot',
-    author_id: 'cron_sys_pages',
-    created_at: timestamp
+    author: 'CronBot',
+    author_id: 'cron_bot_system',
+    created_at: new Date().toISOString()
   };
 
-  console.log('[CRON] 準備插入這筆測試資料：', JSON.stringify(testData));
+  console.log('[CRON] 準備插入資料：', JSON.stringify(testData));
 
-  // 5. 執行寫入
-  const { data, error } = await supabase
-    .from('posts')
-    .insert([testData])
-    .select();
+  // 3. 執行寫入
+  const { data, error } = await supabase.from('posts').insert([testData]).select();
 
   if (error) {
-    console.error('[CRON] Supabase 插入失敗：', error.message, error.details);
+    console.error('[CRON] 資料庫錯誤：', error.message);
     return res.status(500).json({ error: error.message, details: error });
   }
 
-  console.log('[CRON] 插入成功！', data);
-  return res.status(200).json({ success: true, inserted: data });
+  console.log('[CRON] 寫入成功：', data);
+  return res.status(200).json({ success: true, data });
 }
