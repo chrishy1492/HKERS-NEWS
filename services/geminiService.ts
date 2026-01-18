@@ -1,149 +1,158 @@
 
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, Type } from "@google/genai";
 import { Post } from "../types";
 
 const GEMINI_MODEL = "gemini-3-flash-preview"; 
-const GEMINI_FALLBACK_MODEL = "gemini-2.5-flash"; // Use older model for backup
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
 
-// Mock News for Extreme Failure Scenarios (429 on all models)
+// Mock News for Failure Scenarios (Quota Exceeded, Network Error, etc.)
 const SYSTEM_NEWS = {
   titleCN: "【系統公告】AI 新聞生成服務繁忙",
   titleEN: "System Notice: AI News Service Busy",
-  contentCN: "由於目前 AI 系統使用量已達上限，即時新聞生成暫時受限。我們將盡快恢復服務。請稍後再試。此期間您可以瀏覽其他社區帖子。",
-  contentEN: "Due to high traffic on our AI services, real-time news generation is temporarily limited. We are working to restore service. Please browse other community posts in the meantime.",
-  sourceName: "System Admin"
+  contentCN: "由於目前 AI 系統使用量已達上限或連線不穩定，即時新聞生成暫時受限。系統已自動生成此公告。請稍後再試。此期間您可以瀏覽其他社區帖子。",
+  contentEN: "Due to high traffic or network instability, real-time news generation is temporarily limited. This notice was generated automatically. Please try again later.",
+  sourceName: "HKER System"
 };
 
 export const generateNewsPost = async (region: string, topic: string): Promise<Partial<Post> | null> => {
+  // Graceful handling of missing API Key
   if (!process.env.API_KEY) {
     console.error("No API Key available for Gemini.");
-    return null;
+    return {
+        ...SYSTEM_NEWS,
+        contentCN: "系統未檢測到有效的 API Key。請聯繫管理員檢查環境變數配置。",
+        contentEN: "No valid API Key detected. Please contact the administrator.",
+        sourceUrl: "https://hker.news/system-status",
+        isBot: true,
+        timestamp: Date.now(),
+        likes: 0,
+        loves: 0,
+        authorName: 'System Bot 🤖',
+        authorAvatar: '⚠️',
+        id: `sys-no-key-${Date.now()}` // Temporary ID
+    };
   }
 
-  // Common Prompt Builder
-  const buildPrompt = (useSearch: boolean) => `
+  // Common Prompt
+  const basePrompt = `
     You are a professional news reporter bot for the "HKER News Platform".
+    TASK: Generate a news summary related to the region "${region}" and topic "${topic}".
     
-    TASK:
-    Generate a news summary related to the region "${region}" and topic "${topic}".
-    ${useSearch ? 'Search for a MAJOR, REAL news event that happened recently (last 24-48 hours).' : 'Since search is unavailable, rely on your internal knowledge base to generate a plausible, recent-sounding news piece fitting these tags. Make it realistic.'}
-    
-    CONSTRAINTS:
-    1. ${useSearch ? "Use 'googleSearch' to verify facts." : "Be creative but plausible."}
-    2. **FORMAT**: Return ONLY a valid JSON object. No markdown formatting.
-    3. **CONTENT**:
-       - 'titleCN': Traditional Chinese (HK style) headline.
-       - 'titleEN': English headline.
-       - 'contentCN': Traditional Chinese summary (approx 80-120 words). Focus on facts.
-       - 'contentEN': English summary (approx 80-120 words).
-       - 'sourceName': ${useSearch ? "The name of the news outlet found." : "Put 'HKER Analysis'."}
-
-    JSON SCHEMA:
-    {
-      "titleCN": "string",
-      "titleEN": "string",
-      "contentCN": "string",
-      "contentEN": "string",
-      "sourceName": "string"
-    }
+    REQUIREMENTS:
+    - titleCN: Traditional Chinese (HK style) headline.
+    - titleEN: English headline.
+    - contentCN: Traditional Chinese summary (80-120 words).
+    - contentEN: English summary (80-120 words).
+    - sourceName: The name of the news outlet or "HKER Analysis".
   `;
 
-  let text = "";
+  let data: any = null;
   let sourceUrl = "";
-  let usedFallback = false;
 
+  // --- ATTEMPT 1: Search Grounding (Real-time news) ---
   try {
-    // ATTEMPT 1: Try with Search Grounding (Primary Model)
+    const prompt = `${basePrompt}
+    Search for a MAJOR, REAL news event that happened recently (last 24-48 hours).
+    Verify facts using Google Search.
+    Output the result as a valid JSON object.`;
+
     const response = await ai.models.generateContent({
       model: GEMINI_MODEL,
-      contents: buildPrompt(true),
+      contents: prompt,
       config: {
-        tools: [{ googleSearch: {} }], 
+        tools: [{ googleSearch: {} }],
+        responseMimeType: "application/json", // Enforce JSON even with tools
       },
     });
-    
+
     if (response.text) {
-        text = response.text;
+        try {
+            data = JSON.parse(response.text);
+        } catch (e) {
+            // Try to extract JSON if markdown exists
+            const text = response.text;
+            const jsonStr = text.substring(text.indexOf('{'), text.lastIndexOf('}') + 1);
+            if (jsonStr) data = JSON.parse(jsonStr);
+        }
+
+        // Extract Source URL from grounding metadata
         const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
         if (chunks) {
             const webChunk = chunks.find((c: any) => c.web?.uri);
             if (webChunk) sourceUrl = webChunk.web.uri;
         }
     }
-    
   } catch (e: any) {
-    const errorMsg = e.toString().toLowerCase();
-    
-    // ATTEMPT 2: Fallback to Secondary Model without Tools (If 429 or Error)
-    console.warn(`Gemini Primary Attempt Failed (${errorMsg}). Switching to Fallback...`);
-    usedFallback = true;
-    
+    console.warn("Gemini Primary Attempt Failed:", e.message);
+  }
+
+  // --- ATTEMPT 2: Fallback (Creative Generation without Search) ---
+  if (!data || !data.titleCN) {
+    console.log("Switching to Fallback Model (No Search)...");
     try {
         const response = await ai.models.generateContent({
-            model: GEMINI_FALLBACK_MODEL, // Switch model to avoid shared quota issues if possible
-            contents: buildPrompt(false),
-            config: {}, // No tools
+            model: GEMINI_MODEL, // Reuse same model, it's efficient
+            contents: `${basePrompt}
+            Since search is unavailable, rely on your internal knowledge base to generate a PLAUSIBLE, realistic-sounding news piece fitting these tags.
+            Do not make up fake events if possible, generalize real trends.`,
+            config: {
+                responseMimeType: "application/json",
+                responseSchema: {
+                    type: Type.OBJECT,
+                    properties: {
+                        titleCN: { type: Type.STRING },
+                        titleEN: { type: Type.STRING },
+                        contentCN: { type: Type.STRING },
+                        contentEN: { type: Type.STRING },
+                        sourceName: { type: Type.STRING },
+                    },
+                    required: ["titleCN", "titleEN", "contentCN", "contentEN", "sourceName"],
+                }
+            },
         });
-        text = response.text || "";
-    } catch (retryError: any) {
-        // Robust 429 Check - Check BEFORE logging as error
-        const errStr = JSON.stringify(retryError);
-        const isQuotaError = 
-            retryError.status === 429 || 
-            (retryError.error && retryError.error.code === 429) || 
-            errStr.includes('429') || 
-            errStr.includes('RESOURCE_EXHAUSTED') ||
-            retryError.message?.includes('429');
-
-        // ATTEMPT 3: ULTIMATE FALLBACK (Return Mock Data if Quota Exhausted)
-        if (isQuotaError) {
-           console.warn("Gemini Quota Exhausted (429). Returning System News.");
-           return {
+        
+        if (response.text) {
+            data = JSON.parse(response.text);
+        }
+    } catch (e: any) {
+        console.error("Gemini Fallback Failed:", e.message);
+        // If Quota Error or other critical failure, use SYSTEM_NEWS
+        return {
              ...SYSTEM_NEWS,
-             // Fix 23505: Append timestamp to make URL unique per generated notice
-             sourceUrl: `https://news.google.com/system-status?t=${Date.now()}`,
+             sourceUrl: `https://news.google.com/search?q=${encodeURIComponent(topic)}`,
              isBot: true,
              timestamp: Date.now(),
              likes: 0,
              loves: 0,
              authorName: 'System Bot 🤖',
-             authorAvatar: '⚠️'
-           };
-        }
-
-        console.error("Gemini Fallback Failed:", retryError);
-        return null;
+             authorAvatar: '⚠️',
+             id: `sys-error-${Date.now()}`
+        };
     }
   }
 
-  if (!text) return null;
-
-  let data;
-  try {
-    let jsonString = text.trim();
-    jsonString = jsonString.replace(/^```json/i, '').replace(/^```/, '').replace(/```$/, '');
-    
-    const firstBrace = jsonString.indexOf('{');
-    const lastBrace = jsonString.lastIndexOf('}');
-    
-    if (firstBrace !== -1 && lastBrace !== -1) {
-      jsonString = jsonString.substring(firstBrace, lastBrace + 1);
-    }
-    
-    data = JSON.parse(jsonString);
-  } catch (e) {
-    console.warn("Gemini JSON Parse Error. Raw Text:", text);
-    // If we have text but it's not JSON, we might just return null or try to salvage?
-    // Returning null is safer to avoid bad UI.
-    return null;
+  // Final Validation
+  if (!data || !data.titleCN) {
+      return {
+          ...SYSTEM_NEWS,
+          contentCN: "生成新聞時發生未預期的錯誤，請稍後再試。",
+          contentEN: "Unexpected error during news generation. Please try again later.",
+          sourceUrl: "https://hker.news",
+          isBot: true,
+          timestamp: Date.now(),
+          likes: 0,
+          loves: 0,
+          authorName: 'System Bot 🤖',
+          authorAvatar: '⚠️',
+          id: `sys-fail-${Date.now()}`
+      };
   }
 
-  if (!data.titleCN) return null;
-
-  // Fallback URL
-  if (!sourceUrl) sourceUrl = "https://news.google.com/search?q=" + encodeURIComponent(data.titleEN || region);
+  // Fallback URL if grounding failed
+  if (!sourceUrl) {
+      sourceUrl = "https://news.google.com/search?q=" + encodeURIComponent(data.titleEN || region);
+  }
 
   return {
     titleCN: data.titleCN,

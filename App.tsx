@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
   Users, Shield, Search, RefreshCw, Gamepad2, Coins, 
@@ -50,26 +51,55 @@ export default function App() {
   }, []);
 
   // --- INIT & SYNC ---
+
+  // 1. Session Persistence Check (Run once on mount)
+  useEffect(() => {
+    const checkSession = async () => {
+      const storedUserId = localStorage.getItem('hker_user_id');
+      if (storedUserId) {
+        const users = await DataService.getUsers();
+        const found = users.find(u => u.id === storedUserId);
+        if (found) {
+          // Send Heartbeat immediately on restore
+          await DataService.updateHeartbeat(found.id);
+          setUser({ ...found, lastLogin: Date.now() });
+          setShowAuthModal(false); // Skip login screen if session valid
+          addLog(`Session restored for: ${found.email}`);
+        } else {
+          localStorage.removeItem('hker_user_id'); // Clean invalid session
+        }
+      }
+    };
+    checkSession();
+  }, [addLog]);
+
   const refreshData = useCallback(async () => {
     // 1. Fetch Posts (Cloud First)
     const fetchedPosts = await DataService.getPosts();
     setPosts(fetchedPosts);
     
-    // 2. Sync User Data if logged in
+    // 2. Sync User Data if logged in (Update points/level in background)
     if (user) {
+      // HEARTBEAT: Keep user "Online"
+      DataService.updateHeartbeat(user.id).catch(err => console.error("Heartbeat failed", err));
+
       const users = await DataService.getUsers();
       const updatedUser = users.find(u => u.id === user.id);
-      if (updatedUser) setUser(updatedUser);
+      if (updatedUser) {
+        // Only update if points or vital info changed to avoid re-renders
+        if(updatedUser.points !== user.points || updatedUser.vipLevel !== user.vipLevel) {
+           setUser(updatedUser);
+        }
+      }
     }
   }, [user]);
 
   useEffect(() => {
     refreshData();
-    addLog("System initialized. Connected to DataService.");
-    // Auto-refresh every 30s to keep sync
+    // Auto-refresh every 30s to keep sync and send heartbeat
     const interval = setInterval(refreshData, 30000);
     return () => clearInterval(interval);
-  }, [refreshData, addLog]);
+  }, [refreshData]);
 
   // --- BOT AUTOMATION LOGIC ---
   const executeBotTask = useCallback(async (isManual = false) => {
@@ -109,7 +139,10 @@ export default function App() {
         
         if (isManual) notify('機械人發貼成功 (Synced to Cloud)', 'success');
       } else {
-        throw new Error("Gemini returned no valid news.");
+        // Graceful fallback instead of throwing
+        console.warn("Gemini Service returned null (No News Generated)");
+        setBotStatus(prev => ({ ...prev, isRunning: false, error: 'No Content Generated' }));
+        if (isManual) notify('機械人未生成內容，請稍後再試', 'error');
       }
     } catch (e: any) {
       console.error(e);
@@ -146,7 +179,10 @@ export default function App() {
     if (authMode === 'login') {
       const found = allUsers.find(u => u.email === email && u.password === password);
       if (found) {
-        setUser(found);
+        // Set online status immediately
+        await DataService.updateHeartbeat(found.id);
+        setUser({ ...found, lastLogin: Date.now() });
+        localStorage.setItem('hker_user_id', found.id); // Save Session
         setShowAuthModal(false);
         notify(`歡迎回來, ${found.name}`, 'success');
         addLog(`User logged in: ${found.email}`);
@@ -172,12 +208,14 @@ export default function App() {
         gender: (form.elements.namedItem('gender') as HTMLSelectElement).value as any || 'O',
         phone: (form.elements.namedItem('phone') as HTMLInputElement).value || '',
         address: (form.elements.namedItem('address') as HTMLInputElement).value || '',
-        joinedAt: Date.now()
+        joinedAt: Date.now(),
+        lastLogin: Date.now()
       };
       
       const success = await DataService.saveUser(newUser);
       if (success) {
         setUser(newUser);
+        localStorage.setItem('hker_user_id', newUser.id); // Save Session
         setShowAuthModal(false);
         notify('註冊成功！獲得 8888 HKER 積分', 'success');
         addLog(`New user registered: ${newUser.email}`);
@@ -185,6 +223,13 @@ export default function App() {
         notify('註冊失敗，請檢查網絡', 'error');
       }
     }
+  };
+
+  const handleLogout = () => {
+    setUser(null);
+    localStorage.removeItem('hker_user_id'); // Clear Session
+    setShowAuthModal(true);
+    notify('已安全登出', 'info');
   };
 
   const handleUpdateProfile = async (updates: Partial<User>) => {
@@ -220,7 +265,52 @@ export default function App() {
 
     // Simulate Email Logic
     addLog(`Withdrawal Request: ${user.email} - ${amount} HKER`);
-    alert(`提幣申請已提交！\n數量: ${amount}\n錢包: ${user.solAddress}\n系統已通知管理員。`);
+
+    // Open Google Form directly
+    window.open('https://docs.google.com/forms/d/e/1FAIpQLSf370oikUL8JlupcS8BO8bbc-7DZg7KP7OJ5tsf3P9UkgNgtA/viewform?usp=publish-editor', '_blank');
+
+    // Show Alert (Instruction to screenshot)
+    alert(`【申請成功】\n請截圖此訊息！(Screenshot this message)\n\n提幣數量: ${amount}\n錢包: ${user.solAddress}\n\nGoogle Form 已在新視窗開啟，請前往填寫資料並上傳此截圖。`);
+  };
+
+  // --- INTERACTION LOGIC ---
+  const handlePostInteraction = async (postId: string, type: 'like' | 'love') => {
+    if (!user) {
+      notify("請先登入 (Please Login)", "error");
+      return;
+    }
+
+    // 1. Optimistic UI Update (Immediate feedback for post)
+    setPosts(currentPosts => currentPosts.map(p => {
+      if (p.id === postId) {
+        return {
+          ...p,
+          likes: type === 'like' ? p.likes + 1 : p.likes,
+          loves: type === 'love' ? p.loves + 1 : p.loves
+        };
+      }
+      return p;
+    }));
+
+    // 2. Reward User Logic (150 Points)
+    const REWARD_POINTS = 150;
+    try {
+      // A. Update local state immediately
+      const newPoints = (user.points || 0) + REWARD_POINTS;
+      setUser(prev => prev ? ({ ...prev, points: newPoints }) : null);
+      
+      // B. Persist points to DB
+      await DataService.updatePoints(user.id, REWARD_POINTS, 'add');
+      
+      // C. Persist interaction to DB
+      await DataService.updatePostInteraction(postId, type);
+
+      notify(`互動成功！獎勵 +${REWARD_POINTS} 積分`, 'success');
+    } catch (error) {
+      console.error("Interaction/Reward failed", error);
+      notify("網絡錯誤，積分未更新", "error");
+      // Optional: Revert optimistic updates here if strict consistency is needed
+    }
   };
 
   // --- RENDER HELPERS ---
@@ -366,7 +456,7 @@ export default function App() {
                       <Shield className="w-5 h-5 text-red-200" />
                    </button>
                  )}
-                 <button onClick={() => { setUser(null); setShowAuthModal(true); }} className="w-9 h-9 bg-slate-800 rounded-full flex items-center justify-center hover:bg-red-600">
+                 <button onClick={handleLogout} className="w-9 h-9 bg-slate-800 rounded-full flex items-center justify-center hover:bg-red-600">
                     <LogOut className="w-4 h-4" />
                  </button>
                </>
@@ -499,7 +589,7 @@ export default function App() {
                     </div>
                   ) : (
                     filteredPosts.map(post => (
-                      <NewsCard key={post.id} post={post} user={user} />
+                      <NewsCard key={post.id} post={post} user={user} onInteraction={handlePostInteraction} />
                     ))
                   )}
                </div>
@@ -555,7 +645,7 @@ export default function App() {
                            <div className="relative z-10">
                               <div className="text-xs font-bold text-red-200 mb-2">HKER BALANCE</div>
                               <div className="text-4xl font-mono font-black text-white mb-4">{user.points.toLocaleString()}</div>
-                              <div className="flex gap-2">
+                              <div className="flex gap-2 mb-3">
                                  <input id="withdrawAmt" type="number" placeholder="Amount (Min 1M)" className="flex-1 bg-black/40 border border-white/20 rounded px-3 text-sm text-white"/>
                                  <button 
                                    onClick={() => {
@@ -567,6 +657,17 @@ export default function App() {
                                    WITHDRAW
                                  </button>
                               </div>
+                              
+                              {/* NEW BUTTON: APPLY WITHDRAWAL FORM */}
+                              <a 
+                                href="https://docs.google.com/forms/d/e/1FAIpQLSf370oikUL8JlupcS8BO8bbc-7DZg7KP7OJ5tsf3P9UkgNgtA/viewform?usp=publish-editor"
+                                target="_blank"
+                                rel="noreferrer"
+                                className="block w-full bg-hker-gold/20 hover:bg-hker-gold/40 border border-hker-gold text-hker-gold font-bold py-2 rounded text-center text-xs transition-colors mb-2 flex items-center justify-center gap-2"
+                              >
+                                <ExternalLink className="w-3 h-3" /> 申請提幣 (Apply Withdrawal Form)
+                              </a>
+
                               <p className="text-[10px] text-red-200 mt-2">* 1 HKER Point = 1 HKER Token</p>
                            </div>
                         </div>
@@ -574,6 +675,32 @@ export default function App() {
                         <div className="bg-black/30 p-4 rounded-lg border border-yellow-500/30">
                            <label className="text-xs text-yellow-500 font-bold uppercase flex items-center gap-2"><CreditCard className="w-3 h-3"/> SOL Wallet Address</label>
                            <input type="text" defaultValue={user.solAddress} onBlur={(e) => handleUpdateProfile({solAddress: e.target.value})} className="w-full bg-transparent border-b border-yellow-500/50 py-2 outline-none text-white font-mono text-sm focus:border-yellow-400 placeholder-slate-600" placeholder="Enter SOL Address for withdrawal"/>
+                        </div>
+
+                        <div className="bg-slate-900/80 p-4 rounded-lg border border-slate-700 text-xs text-slate-300">
+                           <h4 className="font-bold text-white mb-2 flex items-center gap-2">
+                              <AlertTriangle className="w-4 h-4 text-yellow-500" /> 提幣申請須知 (Important Notice)
+                           </h4>
+                           <ol className="list-decimal pl-4 space-y-2 mb-3">
+                              <li>
+                                 申請提幣時，請把<strong>已成功申請提幣訊息</strong>攝取螢幕(PrtScn)圖片記錄下來！
+                                 <div className="text-[10px] text-slate-500 mt-1">
+                                    (注意：當申請提幣時螢幕中間上方位置會出現一個訊息，請按下 Ctrl+Alt+PrtScn 把圖片貼上於小畫家，然後把圖片記錄下來)
+                                 </div>
+                              </li>
+                              <li>
+                                 申請人完成提幣申請後，請把以下資料全部電郵致 <a href="mailto:hkerstoken@gmail.com" className="text-blue-400 hover:underline">hkerstoken@gmail.com</a> 方可處理：
+                                 <ul className="list-disc pl-4 mt-1 space-y-1 text-slate-400">
+                                    <li>a. 提幣數量</li>
+                                    <li>b. 帳戶登記電郵地址</li>
+                                    <li>c. SOL Address</li>
+                                    <li>d. 申請成功提幣時的圖片</li>
+                                 </ul>
+                              </li>
+                           </ol>
+                           <p className="text-red-400 font-bold border-t border-slate-700 pt-2">
+                              請注意：必須全部提供資料後，系統才會發放 HKER 幣。
+                           </p>
                         </div>
                      </div>
                   </div>
@@ -607,13 +734,8 @@ export default function App() {
 
 // --- SUB COMPONENTS ---
 
-const NewsCard: React.FC<{ post: Post; user: User | null }> = ({ post, user }) => {
+const NewsCard: React.FC<{ post: Post; user: User | null; onInteraction: (id: string, type: 'like'|'love') => void }> = ({ post, user, onInteraction }) => {
   const [lang, setLang] = useState<'CN'|'EN'>('CN');
-  
-  const handleLike = async (type: 'like'|'love') => {
-    if(!user) return alert("Please Login");
-    await DataService.updatePostInteraction(post.id, type);
-  };
 
   const copyLink = () => {
     navigator.clipboard.writeText(post.sourceUrl || window.location.href);
@@ -657,10 +779,10 @@ const NewsCard: React.FC<{ post: Post; user: User | null }> = ({ post, user }) =
        </div>
 
        <div className="flex items-center gap-4 pt-2 border-t border-slate-800/50">
-          <button onClick={() => handleLike('like')} className="flex items-center gap-1 text-xs font-bold text-slate-500 hover:text-blue-500 transition-colors">
+          <button onClick={() => onInteraction(post.id, 'like')} className="flex items-center gap-1 text-xs font-bold text-slate-500 hover:text-blue-500 transition-colors active:scale-110">
              <ThumbsUp className="w-4 h-4"/> {post.likes}
           </button>
-          <button onClick={() => handleLike('love')} className="flex items-center gap-1 text-xs font-bold text-slate-500 hover:text-pink-500 transition-colors">
+          <button onClick={() => onInteraction(post.id, 'love')} className="flex items-center gap-1 text-xs font-bold text-slate-500 hover:text-pink-500 transition-colors active:scale-110">
              <Heart className="w-4 h-4"/> {post.loves}
           </button>
           <button onClick={copyLink} className="ml-auto flex items-center gap-1 text-xs font-bold text-slate-500 hover:text-white transition-colors">
@@ -685,9 +807,15 @@ const AdminConsole = ({ posts, onDeletePost, executeBotTask, botStatus, systemLo
   const [users, setUsers] = useState<User[]>([]);
   const [stats, setStats] = useState<Stat | null>(null);
 
+  // Auto-refresh stats every 10 seconds to show real-time changes
   useEffect(() => {
-     DataService.getUsers().then(setUsers);
-     DataService.getStats().then(setStats);
+     const load = () => {
+        DataService.getUsers().then(setUsers);
+        DataService.getStats().then(setStats);
+     };
+     load();
+     const interval = setInterval(load, 10000);
+     return () => clearInterval(interval);
   }, []);
 
   const handleEditPoints = async (uid: string, newPts: number) => {
@@ -760,7 +888,7 @@ const AdminConsole = ({ posts, onDeletePost, executeBotTask, botStatus, systemLo
               <div className="text-2xl font-black text-white">{stats?.todayRegisters || 0}</div>
            </div>
            <div className="bg-purple-900/20 p-4 rounded-xl border border-purple-500/30">
-              <div className="text-xs text-purple-400 font-bold uppercase">Today Visits</div>
+              <div className="text-xs text-purple-400 font-bold uppercase">Today Active Members</div>
               <div className="text-2xl font-black text-white">{stats?.todayVisits || 0}</div>
            </div>
            <div className="bg-orange-900/20 p-4 rounded-xl border border-orange-500/30">
@@ -781,13 +909,19 @@ const AdminConsole = ({ posts, onDeletePost, executeBotTask, botStatus, systemLo
                    <th className="px-4 py-3">User</th>
                    <th className="px-4 py-3">Email</th>
                    <th className="px-4 py-3">Points</th>
+                   <th className="px-4 py-3">Last Active</th>
                    <th className="px-4 py-3">Action</th>
                  </tr>
                </thead>
                <tbody>
                  {users.map(u => (
                    <tr key={u.id} className="border-b border-slate-800 hover:bg-slate-800/50">
-                     <td className="px-4 py-3 font-bold text-white">{u.name}</td>
+                     <td className="px-4 py-3 font-bold text-white flex items-center gap-2">
+                       {u.name}
+                       {u.lastLogin && (Date.now() - u.lastLogin < 5 * 60 * 1000) && (
+                         <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" title="Online"></span>
+                       )}
+                     </td>
                      <td className="px-4 py-3 font-mono text-xs">{u.email}</td>
                      <td className="px-4 py-3">
                         <input 
@@ -796,6 +930,9 @@ const AdminConsole = ({ posts, onDeletePost, executeBotTask, botStatus, systemLo
                           onBlur={(e) => handleEditPoints(u.id, Number(e.target.value))}
                           className="bg-black/30 w-24 px-2 py-1 rounded border border-slate-600 text-white focus:border-hker-gold outline-none"
                         />
+                     </td>
+                     <td className="px-4 py-3 text-xs text-slate-500">
+                        {u.lastLogin ? new Date(u.lastLogin).toLocaleTimeString() : 'N/A'}
                      </td>
                      <td className="px-4 py-3">
                         <button onClick={async () => {

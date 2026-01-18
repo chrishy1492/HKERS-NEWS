@@ -75,6 +75,66 @@ export const deleteUser = async (userId: string): Promise<void> => {
   localStorage.setItem('hker_users_cache', JSON.stringify(newUsers));
 };
 
+// --- HEARTBEAT & STATS (REAL-TIME) ---
+
+export const updateHeartbeat = async (userId: string): Promise<void> => {
+  const now = Date.now();
+  const isConnected = await checkSupabaseConnection();
+  
+  if (isConnected) {
+    // Efficiently update only the lastLogin field
+    await supabase.from('users').update({ lastLogin: now }).eq('id', userId);
+  }
+  
+  // Update local cache quietly to keep UI consistent
+  const cached = localStorage.getItem('hker_users_cache');
+  if (cached) {
+    const users = JSON.parse(cached) as User[];
+    const idx = users.findIndex(u => u.id === userId);
+    if (idx >= 0) {
+      users[idx].lastLogin = now;
+      localStorage.setItem('hker_users_cache', JSON.stringify(users));
+    }
+  }
+};
+
+export const getStats = async (): Promise<Stat> => {
+  // Always fetch fresh data for stats to ensure sync across devices
+  const users = await getUsers();
+  
+  const now = Date.now();
+  const todayStart = new Date();
+  todayStart.setHours(0,0,0,0);
+  const todayTs = todayStart.getTime();
+
+  // 1. Total Users
+  const totalUsers = users.length;
+  
+  // 2. Today Registers (Joined after 00:00 today)
+  const todayRegisters = users.filter(u => (u.joinedAt || 0) >= todayTs).length;
+
+  // 3. Today Visits (Active Members)
+  // Logic: User joined today OR User logged in today
+  const todayVisits = users.filter(u => {
+      const lastActive = u.lastLogin || u.joinedAt || 0;
+      return lastActive >= todayTs;
+  }).length;
+
+  // 4. Online Users (Heartbeat within last 5 minutes)
+  const onlineThreshold = 5 * 60 * 1000; 
+  const onlineUsers = users.filter(u => {
+      const lastActive = u.lastLogin || u.joinedAt || 0;
+      return (now - lastActive) < onlineThreshold;
+  }).length;
+
+  return {
+    onlineUsers: Math.max(onlineUsers, 1), // At least 1 (the admin themselves)
+    totalUsers,
+    todayRegisters,
+    todayVisits: Math.max(todayVisits, 1) // At least the current user
+  };
+};
+
 // --- POSTS ---
 
 export const getPosts = async (): Promise<Post[]> => {
@@ -167,8 +227,12 @@ export const savePost = async (post: Post): Promise<boolean> => {
     const { error } = await supabase.from('posts').upsert(dbPost);
     if (error) {
       // Fix 23505: Gracefully handle duplicate key (URL) errors
-      // Enhanced check for different error structures or messages
-      if (error.code === '23505' || error.message?.includes('duplicate key') || error.details?.includes('already exists')) {
+      // We check for the error code string "23505" and other markers
+      if (
+        error.code === '23505' || 
+        error.message?.includes('duplicate key') || 
+        error.details?.includes('already exists')
+      ) {
         console.warn("Post already exists (Duplicate URL). Skipping to prevent error.");
         return true; 
       }
@@ -232,23 +296,6 @@ export const updatePoints = async (userId: string, amount: number, mode: 'add' |
   await saveUser(currentUser);
   
   return newBalance;
-};
-
-// --- STATS ---
-
-export const getStats = async (): Promise<Stat> => {
-  const users = await getUsers();
-  
-  const today = new Date().setHours(0,0,0,0);
-  const todayRegisters = users.filter(u => u.joinedAt >= today).length;
-  const todayVisits = Math.floor(Math.random() * 50) + todayRegisters; 
-
-  return {
-    onlineUsers: Math.floor(Math.random() * 20) + 1,
-    totalUsers: users.length,
-    todayRegisters,
-    todayVisits
-  };
 };
 
 export const isAdmin = (email: string) => ADMIN_EMAILS.includes(email);
