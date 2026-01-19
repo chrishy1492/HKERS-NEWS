@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { User, Post, Stat, Topic, Region } from './types';
 import * as DataService from './services/dataService';
+import { supabase } from './services/supabaseClient'; // Import Supabase Client
 import * as GeminiService from './services/geminiService';
 import { CyberBlackjack, SlotMachine, LittleMary, HooHeyHow, Baccarat, QuantumRoulette } from './components/Games';
 import { FortuneTeller } from './components/Fortune';
@@ -94,12 +95,40 @@ export default function App() {
     }
   }, [user]);
 
+  // Initial Fetch & Polling
   useEffect(() => {
     refreshData();
-    // Auto-refresh every 30s to keep sync and send heartbeat
+    // Auto-refresh every 30s as fallback
     const interval = setInterval(refreshData, 30000);
     return () => clearInterval(interval);
   }, [refreshData]);
+
+  // --- REALTIME SUBSCRIPTION (NEW) ---
+  useEffect(() => {
+    const channel = supabase
+      .channel('realtime-posts')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'posts' }, (payload) => {
+         console.log('[Realtime] New Post received:', payload.new);
+         // Map Payload to Frontend Post Type
+         const newPost = DataService.mapDBPostToFrontend(payload.new);
+         
+         setPosts(prev => {
+             // Prevent duplicates if polling already caught it
+             if (prev.some(p => p.id === newPost.id)) return prev;
+             // Add new post to top
+             return [newPost, ...prev];
+         });
+
+         // Notify User
+         setNotification({ msg: `新消息: ${newPost.titleCN.substring(0,15)}...`, type: 'info' });
+         setTimeout(() => setNotification(null), 4000);
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
 
   // --- BOT AUTOMATION LOGIC ---
   const executeBotTask = useCallback(async (isManual = false) => {
@@ -130,8 +159,11 @@ export default function App() {
         // Save to DB
         await DataService.savePost(fullPost);
         
-        // Update Local State
-        setPosts(prev => [fullPost, ...prev]);
+        // Update Local State (Usually Realtime will catch it, but this is optimistic update for manual trigger)
+        setPosts(prev => {
+             if (prev.some(p => p.titleCN === fullPost.titleCN)) return prev;
+             return [fullPost, ...prev];
+        });
         
         const time = new Date().toLocaleTimeString();
         setBotStatus(prev => ({ ...prev, lastRun: time, isRunning: false }));

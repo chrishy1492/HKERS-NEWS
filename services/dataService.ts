@@ -137,46 +137,47 @@ export const getStats = async (): Promise<Stat> => {
 
 // --- POSTS ---
 
+// Helper: Map raw DB object to Frontend Post Type
+export const mapDBPostToFrontend = (p: any): Post => ({
+  // FIX 22P02: Convert BigInt ID to string for frontend compatibility
+  id: String(p.id),
+  // Titles
+  titleCN: p.title || p.titleCN,
+  titleEN: p.title_en || p.titleEN || p.title, // Fallback to title if EN missing
+  // Contents
+  contentCN: p.contentCN || p.content_cn || p.content, // Prioritize explicit CN column
+  contentEN: p.content_en || p.contentEN || p.content, // Fallback to content
+  // Meta
+  region: p.region,
+  topic: p.category || p.topic, 
+  sourceUrl: p.url || p.sourceUrl,
+  sourceName: p.source_name || p.sourceName,
+  // Author
+  authorId: p.author_id || p.authorId,
+  authorName: p.author || p.authorName || (p.is_bot || p.isBot ? 'HKER Bot 🤖' : 'HKER Member'),
+  authorAvatar: (p.is_bot || p.isBot ? '🤖' : '😀'), // Generated client-side
+  isBot: !!(p.is_bot || p.isBot),
+  // Stats
+  likes: p.likes || 0,
+  loves: p.loves || 0,
+  // Time
+  timestamp: p.timestamp 
+    || (p.created_at ? new Date(p.created_at).getTime() : 0)
+    || (p.inserted_at ? new Date(p.inserted_at).getTime() : Date.now()),
+});
+
 export const getPosts = async (): Promise<Post[]> => {
   const isConnected = await checkSupabaseConnection();
   if (isConnected) {
     const { data, error } = await supabase
       .from('posts')
       .select('*')
+      .order('created_at', { ascending: false }) // Added Sort: Newest first
       .limit(100); 
       
     if (!error && data) {
       // MAP DB -> FRONTEND (camelCase)
-      const hydratedPosts = data.map((p: any) => ({
-        // FIX 22P02: Convert BigInt ID to string for frontend compatibility
-        id: String(p.id),
-        // Titles
-        titleCN: p.title || p.titleCN,
-        titleEN: p.title_en || p.titleEN || p.title, // Fallback to title if EN missing
-        // Contents
-        contentCN: p.contentCN || p.content_cn || p.content, // Prioritize explicit CN column
-        contentEN: p.content_en || p.contentEN || p.content, // Fallback to content
-        // Meta
-        region: p.region,
-        topic: p.category || p.topic, 
-        sourceUrl: p.url || p.sourceUrl,
-        sourceName: p.source_name || p.sourceName,
-        // Author
-        authorId: p.author_id || p.authorId,
-        authorName: p.author || p.authorName || (p.is_bot || p.isBot ? 'HKER Bot 🤖' : 'HKER Member'),
-        authorAvatar: (p.is_bot || p.isBot ? '🤖' : '😀'), // Generated client-side
-        isBot: !!(p.is_bot || p.isBot),
-        // Stats
-        likes: p.likes || 0,
-        loves: p.loves || 0,
-        // Time
-        timestamp: p.timestamp 
-          || (p.created_at ? new Date(p.created_at).getTime() : 0)
-          || (p.inserted_at ? new Date(p.inserted_at).getTime() : Date.now()),
-      }));
-
-      // Sort client side
-      hydratedPosts.sort((a: Post, b: Post) => b.timestamp - a.timestamp);
+      const hydratedPosts = data.map(mapDBPostToFrontend);
 
       localStorage.setItem('hker_posts_cache', JSON.stringify(hydratedPosts));
       return hydratedPosts as Post[];
@@ -206,10 +207,6 @@ export const savePost = async (post: Post): Promise<boolean> => {
     };
 
     // FIX 23502 (Not Null ID) & 22P02 (BigInt):
-    // The DB 'id' column is BigInt Not Null and apparently not auto-incrementing.
-    // 1. If post.id is numeric, it's an update to an existing row.
-    // 2. If post.id is a UUID (client-generated), it's a new post. We must generate a numeric ID.
-    
     if (post.id && !post.id.includes('-') && !isNaN(Number(post.id))) {
       dbPost.id = parseInt(post.id);
     } else {
@@ -227,7 +224,6 @@ export const savePost = async (post: Post): Promise<boolean> => {
     const { error } = await supabase.from('posts').upsert(dbPost);
     if (error) {
       // Fix 23505: Gracefully handle duplicate key (URL) errors
-      // We check for the error code string "23505" and other markers
       if (
         error.code === '23505' || 
         error.message?.includes('duplicate key') || 
