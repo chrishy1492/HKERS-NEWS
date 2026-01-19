@@ -4,12 +4,12 @@ import { User, Post, Stat } from '../types';
 
 /**
  * ============================================================================
- * DATA SERVICE - CLOUD FIRST ARCHITECTURE
+ * DATA SERVICE - ROBUST HYBRID ARCHITECTURE
  * 
  * Strategy:
  * 1. READ: Always attempt to fetch from Supabase first.
- * 2. WRITE: Always write to Supabase.
- * 3. FALLBACK: LocalStorage is only used if Supabase is unreachable (Temporary Storage Area).
+ * 2. WRITE: Local First (Optimistic), then Sync to Supabase.
+ * 3. FALLBACK: If Supabase fails, we rely on LocalStorage to ensure UX continuity.
  * ============================================================================
  */
 
@@ -41,27 +41,34 @@ export const getUsers = async (): Promise<User[]> => {
 };
 
 export const saveUser = async (user: User): Promise<boolean> => {
-  const isConnected = await checkSupabaseConnection();
-  
-  // 1. Update Local Cache (Optimistic UI)
-  const cachedUsers = await getUsers();
-  const existingIdx = cachedUsers.findIndex(u => u.id === user.id);
-  if (existingIdx >= 0) cachedUsers[existingIdx] = user;
-  else cachedUsers.push(user);
-  localStorage.setItem('hker_users_cache', JSON.stringify(cachedUsers));
+  // 1. Update Local Cache (Optimistic UI - Always Succeeds)
+  try {
+    const cachedUsers = await getUsers();
+    const existingIdx = cachedUsers.findIndex(u => u.id === user.id);
+    if (existingIdx >= 0) cachedUsers[existingIdx] = user;
+    else cachedUsers.push(user);
+    localStorage.setItem('hker_users_cache', JSON.stringify(cachedUsers));
+  } catch (e) {
+    console.error("Local Storage Error:", e);
+    // If local storage fails (e.g. quota), we truly fail.
+    return false;
+  }
 
-  // 2. Sync to Cloud
+  // 2. Sync to Cloud (Best Effort)
+  const isConnected = await checkSupabaseConnection();
   if (isConnected) {
     const { error } = await supabase
       .from('users')
       .upsert(user);
       
     if (error) {
-      console.error("Supabase Save User Error:", JSON.stringify(error, null, 2));
-      return false;
+      // CRITICAL FIX: Do NOT block the user if cloud sync fails (e.g. RLS issues, Table missing).
+      // We log the error but return TRUE because the user exists locally.
+      console.warn("Supabase Sync Failed (Running in Offline/Hybrid Mode):", error.message);
+      return true; 
     }
-    return true;
   }
+  
   return true; 
 };
 

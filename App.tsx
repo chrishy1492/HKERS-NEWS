@@ -20,6 +20,15 @@ import { FortuneTeller } from './components/Fortune';
 const REGIONS: Region[] = ["全部", "中國香港", "台灣", "英國", "美國", "加拿大", "澳洲", "歐洲"];
 const TOPICS: Topic[] = ["全部", "地產", "時事", "財經", "娛樂", "旅遊", "數碼", "汽車", "宗教", "優惠", "校園", "天氣", "社區活動"];
 
+// Helper: Safe ID Generation
+// Fixes "No Reaction" bug caused by crypto.randomUUID failing in insecure contexts
+const generateId = () => {
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+        return crypto.randomUUID();
+    }
+    return 'user-' + Date.now() + '-' + Math.floor(Math.random() * 10000);
+};
+
 // --- MAIN APP ---
 export default function App() {
   // State: Auth
@@ -149,7 +158,7 @@ export default function App() {
       
       if (newPostData) {
         const fullPost: Post = {
-          id: crypto.randomUUID(),
+          id: generateId(), // Use safe generator
           region: r, // Explicitly set from target
           topic: t,  // Explicitly set from target
           authorId: 'bot-auto-gen', // Mandatory ID
@@ -202,9 +211,9 @@ export default function App() {
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
-    const form = e.target as HTMLFormElement;
-    const email = (form.elements.namedItem('email') as HTMLInputElement).value;
-    const password = (form.elements.namedItem('password') as HTMLInputElement).value;
+    const formData = new FormData(e.currentTarget as HTMLFormElement);
+    const email = formData.get('email') as string;
+    const password = formData.get('password') as string;
 
     const allUsers = await DataService.getUsers();
 
@@ -227,24 +236,27 @@ export default function App() {
         notify('此電郵已被註冊', 'error');
         return;
       }
+      
       const newUser: User = {
-        id: crypto.randomUUID(),
+        id: generateId(),
         email,
         password,
-        name: (form.elements.namedItem('name') as HTMLInputElement).value || 'HKER Member',
+        name: (formData.get('name') as string) || 'HKER Member',
         avatar: '😀',
         points: 8888, // Welcome bonus
         role: DataService.isAdmin(email) ? 'admin' : 'user',
         vipLevel: 1,
-        solAddress: (form.elements.namedItem('solAddress') as HTMLInputElement).value || '',
-        gender: (form.elements.namedItem('gender') as HTMLSelectElement).value as any || 'O',
-        phone: (form.elements.namedItem('phone') as HTMLInputElement).value || '',
-        address: (form.elements.namedItem('address') as HTMLInputElement).value || '',
+        solAddress: (formData.get('solAddress') as string) || '',
+        gender: (formData.get('gender') as any) || 'O',
+        phone: (formData.get('phone') as string) || '',
+        address: (formData.get('address') as string) || '',
         joinedAt: Date.now(),
         lastLogin: Date.now()
       };
       
+      // Save User (Now resilient to DB failures)
       const success = await DataService.saveUser(newUser);
+      
       if (success) {
         setUser(newUser);
         localStorage.setItem('hker_user_id', newUser.id); // Save Session
@@ -252,6 +264,7 @@ export default function App() {
         notify('註冊成功！獲得 8888 HKER 積分', 'success');
         addLog(`New user registered: ${newUser.email}`);
       } else {
+        // This generally won't happen now due to the DataService fix, but good to keep
         notify('註冊失敗，請檢查網絡', 'error');
       }
     }
