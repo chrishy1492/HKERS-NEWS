@@ -8,7 +8,7 @@ import { User, Post, Stat } from '../types';
  * 
  * Strategy:
  * 1. READ: Merge Local + Cloud (Prefer Cloud for updates, Prefer Local for recent creates)
- * 2. WRITE: Local First (Optimistic), then Sync to Supabase.
+ * 2. WRITE: Local First (Optimistic), then Sync to Supabase with proper Field Mapping.
  * ============================================================================
  */
 
@@ -17,6 +17,48 @@ const ADMIN_EMAILS = [
   'hkerstoken@gmail.com',
   'niceleung@gmail.com'
 ];
+
+// --- MAPPING HELPERS (Frontend CamelCase <-> DB SnakeCase) ---
+
+const mapDBUserToFrontend = (u: any): User => ({
+  id: u.id || '',
+  email: u.email || '',
+  password: u.password || '', // Note: In production, password shouldn't be returned plainly
+  name: u.name || 'Member',
+  avatar: u.avatar || '😀',
+  points: u.points || 0,
+  role: u.role || 'user',
+  // Map snake_case DB columns to camelCase Frontend props
+  vipLevel: u.vip_level || u.vipLevel || 1,
+  solAddress: u.sol_address || u.solAddress || '',
+  gender: u.gender || 'O',
+  phone: u.phone || '',
+  address: u.address || '',
+  // Handle Date conversion (Supabase returns ISO strings, Frontend wants Timestamp numbers)
+  joinedAt: u.joined_at ? new Date(u.joined_at).getTime() : (u.joinedAt || Date.now()),
+  lastLogin: u.last_login ? new Date(u.last_login).getTime() : (u.lastLogin || Date.now()),
+});
+
+const mapFrontendUserToDB = (user: User): any => {
+  return {
+    id: user.id,
+    email: user.email,
+    password: user.password,
+    name: user.name,
+    avatar: user.avatar,
+    points: user.points,
+    role: user.role,
+    // Convert to snake_case for DB
+    vip_level: user.vipLevel,
+    sol_address: user.solAddress,
+    gender: user.gender,
+    phone: user.phone,
+    address: user.address,
+    // Convert Timestamps to ISO Strings for DB
+    joined_at: new Date(user.joinedAt).toISOString(),
+    last_login: new Date(user.lastLogin || Date.now()).toISOString(),
+  };
+};
 
 // --- USERS ---
 
@@ -39,8 +81,11 @@ export const getUsers = async (): Promise<User[]> => {
       
       const userMap = new Map<string, User>();
       
-      // Load Cloud users first
-      data.forEach((u: any) => userMap.set(u.id, u));
+      // Load Cloud users first (Mapping DB -> Frontend)
+      data.forEach((u: any) => {
+          const frontendUser = mapDBUserToFrontend(u);
+          userMap.set(frontendUser.id, frontendUser);
+      });
       
       // Merge Local users if they are missing from Cloud
       localUsers.forEach(u => {
@@ -75,15 +120,20 @@ export const saveUser = async (user: User): Promise<boolean> => {
     return false;
   }
 
-  // 2. Sync to Cloud (Best Effort)
+  // 2. Sync to Cloud (Best Effort) with MAPPING
   const isConnected = await checkSupabaseConnection();
   if (isConnected) {
+    // Prepare DB-ready object (snake_case)
+    const dbPayload = mapFrontendUserToDB(user);
+    
+    // Attempt Upsert
     const { error } = await supabase
       .from('users')
-      .upsert(user);
+      .upsert(dbPayload);
       
     if (error) {
-      console.warn("Supabase Sync Failed (Running in Offline/Hybrid Mode):", error.message);
+      console.warn("Supabase Sync Failed (Fields mismatch or RLS):", error.message, error.details);
+      // We return true because local save succeeded, so user experience is not blocked.
       return true; 
     }
   }
@@ -108,7 +158,8 @@ export const updateHeartbeat = async (userId: string): Promise<void> => {
   const isConnected = await checkSupabaseConnection();
   
   if (isConnected) {
-    await supabase.from('users').update({ lastLogin: now }).eq('id', userId);
+    // Map 'lastLogin' to 'last_login' for DB
+    await supabase.from('users').update({ last_login: new Date(now).toISOString() }).eq('id', userId);
   }
   
   const cached = localStorage.getItem('hker_users_cache');
@@ -261,10 +312,15 @@ export const updatePoints = async (userId: string, amount: number, mode: 'add' |
   const isConnected = await checkSupabaseConnection();
   let newBalance = 0;
 
-  let currentUser: User | null = null;
-  // Try local find first for speed and consistency
+  // Prefer local state to ensure we have the latest user data before calculating
   const users = await getUsers();
-  currentUser = users.find(u => u.id === userId) || null;
+  let currentUser = users.find(u => u.id === userId) || null;
+
+  if (!currentUser && isConnected) {
+     // If not in local/cache, try fetching directly
+     const { data } = await supabase.from('users').select('*').eq('id', userId).single();
+     if(data) currentUser = mapDBUserToFrontend(data);
+  }
 
   if (!currentUser) return 0;
 
