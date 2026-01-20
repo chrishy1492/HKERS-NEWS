@@ -4,12 +4,12 @@ import { User, Post, Stat } from '../types';
 
 /**
  * ============================================================================
- * DATA SERVICE - ROBUST HYBRID ARCHITECTURE
+ * DATA SERVICE - ROBUST HYBRID ARCHITECTURE (V2)
  * 
  * Strategy:
- * 1. READ: Always attempt to fetch from Supabase first.
- * 2. WRITE: Local First (Optimistic), then Sync to Supabase.
- * 3. FALLBACK: If Supabase fails, we rely on LocalStorage to ensure UX continuity.
+ * 1. READ: Try Cloud with Timeout -> Fallback to Local.
+ * 2. WRITE: Local First (Sync) -> Cloud (Async Fire-and-Forget).
+ * 3. FALLBACK: Always rely on LocalStorage for critical UI paths.
  * ============================================================================
  */
 
@@ -62,61 +62,74 @@ const mapFrontendUserToDB = (u: User): any => {
 // --- USERS ---
 
 export const getUsers = async (): Promise<User[]> => {
-  const isConnected = await checkSupabaseConnection();
-  if (isConnected) {
-    const { data, error } = await supabase
-      .from('users')
-      .select('*');
-      
-    if (!error && data) {
-      const sorted = (data as User[]).map(mapDBUserToFrontend).sort((a, b) => (b.joinedAt || 0) - (a.joinedAt || 0));
+  // Try cloud fetch with a 2-second timeout
+  try {
+    const fetchPromise = checkSupabaseConnection().then(async (isConnected) => {
+        if (isConnected) {
+            const { data } = await supabase.from('users').select('*');
+            return data;
+        }
+        return null;
+    });
+    
+    // Timeout promise
+    const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve(null), 2000));
+
+    const cloudData = await Promise.race([fetchPromise, timeoutPromise]);
+
+    if (cloudData) {
+      const sorted = (cloudData as any[]).map(mapDBUserToFrontend).sort((a, b) => (b.joinedAt || 0) - (a.joinedAt || 0));
       localStorage.setItem('hker_users_cache', JSON.stringify(sorted));
       return sorted;
     }
+  } catch (e) {
+    console.warn("Cloud fetch failed/timed out, using local cache:", e);
   }
-  // Fallback
+
+  // Fallback to local cache immediately if cloud fails or times out
   const cached = localStorage.getItem('hker_users_cache');
   return cached ? JSON.parse(cached) : [];
 };
 
 export const saveUser = async (user: User): Promise<boolean> => {
-  // 1. Update Local Cache (Optimistic UI - Always Succeeds)
+  // 1. Update Local Cache IMMEDIATELY (Direct LS access, no async dependency)
   try {
-    const cachedUsers = await getUsers();
+    const raw = localStorage.getItem('hker_users_cache');
+    let cachedUsers: User[] = raw ? JSON.parse(raw) : [];
+    
     const existingIdx = cachedUsers.findIndex(u => u.id === user.id);
     if (existingIdx >= 0) cachedUsers[existingIdx] = user;
     else cachedUsers.push(user);
+    
     localStorage.setItem('hker_users_cache', JSON.stringify(cachedUsers));
   } catch (e) {
-    console.error("Local Storage Error:", e);
-    return false; // Only fail if local storage fails
+    console.error("Local Storage Write Error:", e);
   }
 
-  // 2. Sync to Cloud (Best Effort)
-  const isConnected = await checkSupabaseConnection();
-  if (isConnected) {
-    const dbUser = mapFrontendUserToDB(user);
-    const { error } = await supabase
-      .from('users')
-      .upsert(dbUser);
-      
-    if (error) {
-      // Log error but DO NOT block the user.
-      console.error("Supabase Sync Failed (Check RLS/Table):", error.message);
-    } else {
-      console.log("Supabase Sync Success:", user.email);
-    }
-  }
-  
-  return true; // Always return true to allow user into the app
+  // 2. Sync to Cloud (Async Fire-and-Forget - Do NOT await this to block UI)
+  checkSupabaseConnection().then(async (isConnected) => {
+      if(isConnected) {
+          const dbUser = mapFrontendUserToDB(user);
+          const { error } = await supabase.from('users').upsert(dbUser);
+          if (error) {
+             console.error("Supabase Background Sync Failed (Check RLS):", error.message);
+          } else {
+             console.log("Supabase Background Sync Success:", user.email);
+          }
+      }
+  }).catch(err => console.error("Supabase Connection Check Failed:", err));
+
+  return true; // Always return true to unblock UI
 };
 
 export const deleteUser = async (userId: string): Promise<void> => {
-  const isConnected = await checkSupabaseConnection();
-  if (isConnected) {
-    await supabase.from('users').delete().eq('id', userId);
-  }
-  const users = await getUsers();
+  // Async delete from cloud
+  checkSupabaseConnection().then(async (isConnected) => {
+      if(isConnected) await supabase.from('users').delete().eq('id', userId);
+  });
+  
+  // Local delete
+  const users = await getUsers(); // This might hit cache which is fine
   const newUsers = users.filter(u => u.id !== userId);
   localStorage.setItem('hker_users_cache', JSON.stringify(newUsers));
 };
@@ -192,61 +205,64 @@ export const mapDBPostToFrontend = (p: any): Post => ({
 });
 
 export const getPosts = async (): Promise<Post[]> => {
-  const isConnected = await checkSupabaseConnection();
-  if (isConnected) {
-    const { data, error } = await supabase
-      .from('posts')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .limit(100); 
+  try {
+      const fetchPromise = checkSupabaseConnection().then(async (isConnected) => {
+        if (isConnected) {
+            const { data } = await supabase
+            .from('posts')
+            .select('*')
+            .order('created_at', { ascending: false })
+            .limit(100);
+            return data;
+        }
+        return null;
+      });
       
-    if (!error && data) {
-      const hydratedPosts = data.map(mapDBPostToFrontend);
-      localStorage.setItem('hker_posts_cache', JSON.stringify(hydratedPosts));
-      return hydratedPosts as Post[];
-    }
+      const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve(null), 3000));
+      const data = await Promise.race([fetchPromise, timeoutPromise]);
+
+      if (data) {
+        const hydratedPosts = (data as any[]).map(mapDBPostToFrontend);
+        localStorage.setItem('hker_posts_cache', JSON.stringify(hydratedPosts));
+        return hydratedPosts as Post[];
+      }
+  } catch (e) {
+      console.warn("Post fetch failed, using cache");
   }
+  
   const cached = localStorage.getItem('hker_posts_cache');
   return cached ? JSON.parse(cached) : [];
 };
 
 export const savePost = async (post: Post): Promise<boolean> => {
-  const isConnected = await checkSupabaseConnection();
-  if (isConnected) {
-    const dbPost: any = {
-      title: post.titleCN,
-      content: post.contentEN,
-      contentCN: post.contentCN,
-      region: post.region,
-      category: post.topic,
-      url: post.sourceUrl,
-      author: post.authorName,
-      author_id: post.authorId,
-      source_name: post.sourceName
-    };
+  checkSupabaseConnection().then(async (isConnected) => {
+      if (isConnected) {
+        const dbPost: any = {
+          title: post.titleCN,
+          content: post.contentEN,
+          contentCN: post.contentCN,
+          region: post.region,
+          category: post.topic,
+          url: post.sourceUrl,
+          author: post.authorName,
+          author_id: post.authorId,
+          source_name: post.sourceName
+        };
 
-    if (post.id && !post.id.includes('-') && !isNaN(Number(post.id))) {
-      dbPost.id = parseInt(post.id);
-    } else {
-      dbPost.id = Date.now() + Math.floor(Math.random() * 100000);
-    }
+        if (post.id && !post.id.includes('-') && !isNaN(Number(post.id))) {
+          dbPost.id = parseInt(post.id);
+        } else {
+          dbPost.id = Date.now() + Math.floor(Math.random() * 100000);
+        }
 
-    Object.keys(dbPost).forEach(key => {
-        if (dbPost[key] === undefined) delete dbPost[key];
-    });
+        Object.keys(dbPost).forEach(key => {
+            if (dbPost[key] === undefined) delete dbPost[key];
+        });
 
-    const { error } = await supabase.from('posts').upsert(dbPost);
-    if (error) {
-      if (error.code === '23505' || error.message?.includes('duplicate')) {
-        console.warn("Post duplicate skipped.");
-        return true; 
+        await supabase.from('posts').upsert(dbPost);
       }
-      console.error("Supabase Save Post Error:", JSON.stringify(error, null, 2));
-      return false;
-    }
-    return true;
-  }
-  return false;
+  });
+  return true;
 };
 
 export const deletePost = async (postId: string): Promise<void> => {
@@ -254,7 +270,7 @@ export const deletePost = async (postId: string): Promise<void> => {
   if (isConnected && !postId.includes('-')) {
     await supabase.from('posts').delete().eq('id', postId);
   }
-  const posts = await getPosts();
+  // No local cache update for posts delete here, requires refresh
 };
 
 export const updatePostInteraction = async (postId: string, type: 'like' | 'love'): Promise<void> => {
@@ -272,10 +288,10 @@ export const updatePostInteraction = async (postId: string, type: 'like' | 'love
 };
 
 export const updatePoints = async (userId: string, amount: number, mode: 'add' | 'subtract' | 'set'): Promise<number> => {
-  // Local First Logic for Points
-  let currentUser: User | null = null;
-  const users = await getUsers();
-  currentUser = users.find(u => u.id === userId) || null;
+  // Local First Logic for Points - Critical for Games
+  const raw = localStorage.getItem('hker_users_cache');
+  let users: User[] = raw ? JSON.parse(raw) : [];
+  let currentUser = users.find(u => u.id === userId);
 
   if (!currentUser) return 0;
 
@@ -285,7 +301,12 @@ export const updatePoints = async (userId: string, amount: number, mode: 'add' |
   else if (mode === 'subtract') newBalance = Math.max(0, (currentUser.points || 0) - amount);
 
   currentUser.points = newBalance;
-  await saveUser(currentUser); // Uses the new robust saveUser
+  
+  // Save locally first
+  localStorage.setItem('hker_users_cache', JSON.stringify(users));
+  
+  // Sync background
+  saveUser(currentUser); 
   
   return newBalance;
 };

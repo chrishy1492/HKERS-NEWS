@@ -20,9 +20,13 @@ import { FortuneTeller } from './components/Fortune';
 const REGIONS: Region[] = ["全部", "中國香港", "台灣", "英國", "美國", "加拿大", "澳洲", "歐洲"];
 const TOPICS: Topic[] = ["全部", "地產", "時事", "財經", "娛樂", "旅遊", "數碼", "汽車", "宗教", "優惠", "校園", "天氣", "社區活動"];
 
-// Helper: Safe ID Generation (No Crypto)
+// Helper: Safe ID Generation (UUID v4 format for Database Compatibility)
+// Generates xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx
 const generateId = () => {
-    return 'u_' + Date.now() + '_' + Math.floor(Math.random() * 1000000).toString(36);
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+        var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+        return v.toString(16);
+    });
 };
 
 // --- MAIN APP ---
@@ -218,6 +222,7 @@ export default function App() {
         return;
       }
 
+      // 1. Fetch users (with timeout protection)
       const allUsers = await DataService.getUsers();
 
       if (authMode === 'login') {
@@ -240,7 +245,7 @@ export default function App() {
         }
         
         const newUser: User = {
-          id: generateId(), // Safe ID
+          id: generateId(), // Uses UUID format now
           email,
           password,
           name: (formData.get('name') as string) || 'HKER Member',
@@ -256,18 +261,15 @@ export default function App() {
           lastLogin: Date.now()
         };
         
-        // Save User (Resilient)
-        const success = await DataService.saveUser(newUser);
+        // Save User (Resilient - won't block UI)
+        await DataService.saveUser(newUser);
         
-        if (success) {
-          setUser(newUser);
-          localStorage.setItem('hker_user_id', newUser.id);
-          setShowAuthModal(false);
-          notify('註冊成功！獲得 8888 HKER 積分', 'success');
-          addLog(`New user registered: ${newUser.email}`);
-        } else {
-          notify('註冊失敗，請檢查網絡', 'error');
-        }
+        // Immediate Success Feedback
+        setUser(newUser);
+        localStorage.setItem('hker_user_id', newUser.id);
+        setShowAuthModal(false);
+        notify('註冊成功！獲得 8888 HKER 積分', 'success');
+        addLog(`New user registered: ${newUser.email}`);
       }
     } catch (err: any) {
       console.error("Auth Error:", err);
