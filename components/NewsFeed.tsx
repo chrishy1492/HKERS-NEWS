@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../services/supabase';
 import { runNewsBotBatch } from '../services/newsBot';
 import { Post, UserProfile } from '../types';
-import { ThumbsUp, Heart, Share2, Globe, Trash2, Bot, Clock, ExternalLink, Zap, Languages, MessageSquareOff } from 'lucide-react';
+import { ThumbsUp, Heart, Share2, Globe, Trash2, Bot, Clock, ExternalLink, Zap, Languages, MessageSquareOff, Search } from 'lucide-react';
 import { REGIONS, TOPICS } from '../constants';
 
 interface NewsFeedProps {
@@ -15,6 +15,7 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ userProfile, updatePoints }) => {
   const [loading, setLoading] = useState(false);
   const [regionFilter, setRegionFilter] = useState('all');
   const [topicFilter, setTopicFilter] = useState('all');
+  const [searchText, setSearchText] = useState('');
   const [activeLang, setActiveLang] = useState<Record<number, 'en' | 'cn'>>({});
   const [generating, setGenerating] = useState(false);
   
@@ -51,7 +52,7 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ userProfile, updatePoints }) => {
       clearInterval(botInterval);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [regionFilter, topicFilter]);
+  }, [regionFilter, topicFilter, searchText]); // Add searchText dependency
 
   const fetchPosts = async () => {
     setLoading(true);
@@ -59,6 +60,10 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ userProfile, updatePoints }) => {
     
     if (regionFilter !== 'all') query = query.eq('region', regionFilter);
     if (topicFilter !== 'all') query = query.eq('category', topicFilter);
+    if (searchText) {
+       // Simple text search on title
+       query = query.or(`title_en.ilike.%${searchText}%,title_cn.ilike.%${searchText}%`);
+    }
 
     const { data, error } = await query;
     if (data) setPosts(data as Post[]);
@@ -79,8 +84,8 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ userProfile, updatePoints }) => {
     const lastTime = lastPost ? new Date(lastPost.created_at) : new Date(0);
     const diffMinutes = (now.getTime() - lastTime.getTime()) / 1000 / 60;
 
-    // 2. If > 30 minutes since last post, OR no posts exist, trigger batch
-    if (diffMinutes >= 30) {
+    // 2. If > 3 hours (180 mins) since last post, OR no posts exist, trigger batch
+    if (diffMinutes >= 180) {
       if (!generating) {
         setGenerating(true);
         await runNewsBotBatch();
@@ -113,20 +118,19 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ userProfile, updatePoints }) => {
     if (post) {
        const updateData = type === 'like' ? { likes: (post.likes || 0) + 1 } : { loves: (post.loves || 0) + 1 };
        await supabase.from('posts').update(updateData).eq('id', postId);
-       updatePoints(10); // Reward for interaction
+       // Reward points instantly
+       updatePoints(150); 
     }
   };
 
   const handleDelete = async (postId: number) => {
-    if (!confirm('Are you sure you want to delete this post?')) return;
+    if (!confirm('Admin Action: Permanently delete this post?')) return;
     await supabase.from('posts').delete().eq('id', postId);
   };
 
   const toggleLanguage = (postId: number, defaultRegion: string) => {
-    // Determine default: HK/TW/China = Chinese, others = English
     const isChineseRegion = ['Hong Kong', 'Taiwan', 'China'].includes(defaultRegion);
     const defaultLang = isChineseRegion ? 'cn' : 'en';
-    
     const current = activeLang[postId] || defaultLang;
     setActiveLang(prev => ({ ...prev, [postId]: current === 'en' ? 'cn' : 'en' }));
   };
@@ -135,8 +139,8 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ userProfile, updatePoints }) => {
     if (navigator.share) {
       navigator.share({ title: "HKER News", text: title, url: url || window.location.href });
     } else {
-      navigator.clipboard.writeText(`${title} - Read more on HKER News`);
-      alert('Link copied to clipboard');
+      navigator.clipboard.writeText(`${title} - ${url}`);
+      alert('Link copied to clipboard (已複製網址)');
     }
   };
 
@@ -153,47 +157,63 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ userProfile, updatePoints }) => {
     <div className="min-h-screen bg-[#f8fafc] pb-24 md:pb-0">
       {/* Header & Controls */}
       <div className="sticky top-0 z-30 bg-white/90 backdrop-blur-xl border-b border-slate-200 px-4 py-3 shadow-sm">
-        <div className="max-w-5xl mx-auto flex items-center justify-between">
-          <div>
-            <h1 className="text-xl font-black tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-indigo-600">
-              HKER NEWS
-            </h1>
-            <div className="flex items-center gap-1 text-[10px] text-green-600 font-bold uppercase">
-              <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></span>
-              Live Feed
+        <div className="max-w-5xl mx-auto">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <h1 className="text-xl font-black tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-indigo-600">
+                HKER NEWS
+              </h1>
+              <div className="flex items-center gap-1 text-[10px] text-green-600 font-bold uppercase">
+                <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></span>
+                Live Feed
+              </div>
+            </div>
+            
+            {/* Bot Status */}
+            <div className="flex gap-2">
+               {generating && (
+                 <div className="flex items-center gap-2 px-3 py-1 bg-indigo-50 text-indigo-600 rounded-full text-xs font-bold border border-indigo-100">
+                   <Bot size={12} className="animate-bounce" /> Bot Working...
+                 </div>
+               )}
             </div>
           </div>
-          <div className="flex gap-2">
-             {generating && (
-               <div className="flex items-center gap-2 px-3 py-1 bg-indigo-50 text-indigo-600 rounded-full text-xs font-bold border border-indigo-100">
-                 <Bot size={12} className="animate-bounce" /> Bot Working...
-               </div>
-             )}
+
+          {/* Search Bar */}
+          <div className="mb-3 relative">
+             <Search className="absolute left-3 top-2.5 text-slate-400 w-4 h-4" />
+             <input 
+               type="text" 
+               placeholder="Search news title..." 
+               value={searchText}
+               onChange={(e) => setSearchText(e.target.value)}
+               className="w-full pl-10 pr-4 py-2 bg-slate-100 border-none rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+             />
           </div>
-        </div>
-        
-        {/* Region Filter */}
-        <div className="max-w-5xl mx-auto mt-3 flex items-center gap-2 overflow-x-auto no-scrollbar pb-1">
-          <button 
-             onClick={() => setRegionFilter('all')}
-             className={`px-4 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${regionFilter === 'all' ? 'bg-blue-600 text-white shadow-md' : 'bg-white text-slate-500 border border-slate-200'}`}
-          >
-            全球 (All)
-          </button>
-          {REGIONS.map(r => (
-            <button
-              key={r}
-              onClick={() => setRegionFilter(r)}
-              className={`px-4 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${regionFilter === r ? 'bg-blue-600 text-white shadow-md' : 'bg-white text-slate-500 border border-slate-200'}`}
+          
+          {/* Region Filter */}
+          <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-1">
+            <button 
+               onClick={() => setRegionFilter('all')}
+               className={`px-4 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${regionFilter === 'all' ? 'bg-blue-600 text-white shadow-md' : 'bg-white text-slate-500 border border-slate-200'}`}
             >
-              {r}
+              全球 (All)
             </button>
-          ))}
+            {REGIONS.map(r => (
+              <button
+                key={r}
+                onClick={() => setRegionFilter(r)}
+                className={`px-4 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${regionFilter === r ? 'bg-blue-600 text-white shadow-md' : 'bg-white text-slate-500 border border-slate-200'}`}
+              >
+                {r}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
       {/* Feed */}
-      <div className="max-w-5xl mx-auto px-4 py-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-6">
+      <div className="max-w-5xl mx-auto px-4 py-6 grid grid-cols-1 md:grid-cols-2 gap-6">
         {loading ? (
            <div className="col-span-full flex justify-center py-20"><div className="animate-spin rounded-full h-10 w-10 border-4 border-blue-500 border-t-transparent"></div></div>
         ) : (
@@ -226,8 +246,9 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ userProfile, updatePoints }) => {
                       </span>
                    </div>
                    <div className="flex gap-2">
-                     {(userProfile.role === 'admin' || userProfile.id === post.author_id) && (
-                        <button onClick={() => handleDelete(post.id)} className="text-slate-300 hover:text-red-500 transition-colors">
+                     {/* Only Admin can delete */}
+                     {userProfile.role === 'admin' && (
+                        <button onClick={() => handleDelete(post.id)} className="p-1 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded transition-colors" title="Admin Remove">
                            <Trash2 size={16} />
                         </button>
                      )}
@@ -270,14 +291,14 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ userProfile, updatePoints }) => {
                 <div className="px-5 py-3 bg-slate-50/80 border-t border-slate-100 flex items-center justify-between">
                    <div className="flex items-center gap-4">
                       <div className="flex items-center gap-1">
-                        <button onClick={() => handleInteract(post.id, 'like')} className="p-2 rounded-full hover:bg-blue-100 text-slate-400 hover:text-blue-600 transition">
+                        <button onClick={() => handleInteract(post.id, 'like')} className="p-2 rounded-full hover:bg-blue-100 text-slate-400 hover:text-blue-600 transition transform active:scale-90">
                           <ThumbsUp size={18} className={interactions[post.id]?.likes > 0 ? 'fill-blue-600 text-blue-600' : ''} />
                         </button>
                         <span className="text-xs font-bold text-slate-500">{post.likes || 0}</span>
                       </div>
 
                       <div className="flex items-center gap-1">
-                        <button onClick={() => handleInteract(post.id, 'love')} className="p-2 rounded-full hover:bg-pink-100 text-slate-400 hover:text-pink-600 transition">
+                        <button onClick={() => handleInteract(post.id, 'love')} className="p-2 rounded-full hover:bg-pink-100 text-slate-400 hover:text-pink-600 transition transform active:scale-90">
                           <Heart size={18} className={interactions[post.id]?.loves > 0 ? 'fill-pink-600 text-pink-600' : ''} />
                         </button>
                         <span className="text-xs font-bold text-slate-500">{post.loves || 0}</span>

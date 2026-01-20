@@ -8,6 +8,7 @@ import Fortune from './components/Fortune';
 import Profile from './components/Profile';
 import AdminDashboard from './components/AdminDashboard';
 import DisclaimerModal from './components/DisclaimerModal';
+import HKERInfoModal from './components/HKERInfoModal';
 import { UserProfile, ViewState } from './types';
 import { Menu, Newspaper, Gamepad2, Sparkles, UserCog } from 'lucide-react';
 
@@ -18,6 +19,7 @@ function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [showDisclaimer, setShowDisclaimer] = useState(false);
+  const [showHKERInfo, setShowHKERInfo] = useState(false);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -55,8 +57,7 @@ function App() {
   const handleUpdatePoints = async (amount: number) => {
     if (!userProfile) return;
     const newTotal = userProfile.hker_token + amount;
-    // Optimistic UI update handled by realtime subscription or manual refetch
-    // but for instant feedback we can call a simplified local update logic here
+    // Direct DB update ensures synchronization across mobile/web immediately
     const { error } = await supabase.from('profiles').update({ hker_token: newTotal }).eq('id', userProfile.id);
     if (error) console.error("Point sync failed", error);
   };
@@ -80,6 +81,7 @@ function App() {
         isOpen={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
         onOpenDisclaimer={() => setShowDisclaimer(true)}
+        onOpenInfo={() => setShowHKERInfo(true)}
       />
 
       <div className="flex-1 flex flex-col h-full overflow-hidden w-full relative">
@@ -118,6 +120,7 @@ function App() {
       </div>
 
       {showDisclaimer && <DisclaimerModal onClose={() => setShowDisclaimer(false)} />}
+      {showHKERInfo && <HKERInfoModal onClose={() => setShowHKERInfo(false)} />}
     </div>
   );
 }

@@ -2,12 +2,12 @@ import { generateFromSource } from './geminiService';
 import { supabase } from './supabase';
 import { NEWS_API_KEY, REGIONS, TOPICS } from '../constants';
 
-// RSS Feeds for fallback
+// Fallback RSS
 const RSS_SOURCES = [
-  'https://rthk.hk/rthk/news/rss/c/expressnews.xml', // RTHK Chinese
-  'https://feeds.bbci.co.uk/zhongwen/trad/rss.xml',  // BBC Chinese
-  'https://news.google.com/rss?hl=zh-TW&gl=TW&ceid=TW:zh-Hant', // Google News TW
-  'http://feeds.bbci.co.uk/news/world/rss.xml' // BBC World
+  'https://rthk.hk/rthk/news/rss/c/expressnews.xml',
+  'https://feeds.bbci.co.uk/zhongwen/trad/rss.xml',
+  'https://news.google.com/rss?hl=zh-TW&gl=TW&ceid=TW:zh-Hant',
+  'http://feeds.bbci.co.uk/news/world/rss.xml'
 ];
 
 interface RawNewsItem {
@@ -20,23 +20,26 @@ interface RawNewsItem {
 export const runNewsBotBatch = async () => {
   console.log('🤖 Bot Worker: Starting batch job...');
   
-  // 1. Pick a random target to diversify news
   const region = REGIONS[Math.floor(Math.random() * REGIONS.length)];
   const topic = TOPICS[Math.floor(Math.random() * TOPICS.length)];
   
   console.log(`🤖 Bot Worker: Targeting ${region} - ${topic}`);
 
   try {
-    // 2. Fetch Raw News (Hybrid Strategy)
     let articles: RawNewsItem[] = [];
     
-    // Strategy A: NewsAPI (Primary for English/Global)
+    // Strategy A: NewsAPI (Priority)
+    // Using the specific key provided in specs
+    const apiKey = NEWS_API_KEY; 
+    
     try {
-      const q = `${region} ${topic}`;
-      const url = `https://newsapi.org/v2/everything?q=${encodeURIComponent(q)}&sortBy=publishedAt&pageSize=5&language=en&apiKey=${NEWS_API_KEY}`;
+      // "everything" endpoint with sort by publishedAt to get recent news
+      const q = `"${region}" AND "${topic}"`;
+      const url = `https://newsapi.org/v2/everything?q=${encodeURIComponent(q)}&sortBy=publishedAt&pageSize=5&apiKey=${apiKey}`;
       const res = await fetch(url);
       const data = await res.json();
-      if (data.articles) {
+      
+      if (data.status === 'ok' && data.articles && data.articles.length > 0) {
         articles = data.articles.map((a: any) => ({
           title: a.title,
           url: a.url,
@@ -45,32 +48,30 @@ export const runNewsBotBatch = async () => {
         }));
       }
     } catch (e) {
-      console.warn('NewsAPI failed, trying RSS', e);
+      console.warn('NewsAPI Fetch failed', e);
     }
 
-    // Strategy B: RSS (Fallback/Supplement for HK/TW)
-    if (articles.length === 0 || region === 'Hong Kong' || region === 'Taiwan') {
+    // Strategy B: RSS (Fallback if API quota exceeded or empty)
+    if (articles.length === 0) {
       try {
         const rssUrl = RSS_SOURCES[Math.floor(Math.random() * RSS_SOURCES.length)];
-        // Use rss2json to bypass CORS
         const res = await fetch(`https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(rssUrl)}`);
         const data = await res.json();
         if (data.items) {
-          const mapped = data.items.map((item: any) => ({
+          articles = data.items.map((item: any) => ({
             title: item.title,
             url: item.link,
             publishedAt: item.pubDate,
             sourceName: 'RSS Feed'
           }));
-          articles = [...articles, ...mapped];
         }
       } catch (e) {
         console.warn('RSS Fetch failed', e);
       }
     }
 
-    // 3. Filter Recent (36 Hours)
-    const cutoff = new Date(Date.now() - 36 * 60 * 60 * 1000);
+    // Filter recent (24h strict)
+    const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
     articles = articles.filter(a => new Date(a.publishedAt) > cutoff);
 
     if (articles.length === 0) {
@@ -78,23 +79,20 @@ export const runNewsBotBatch = async () => {
       return;
     }
 
-    // 4. Process One Article (To avoid spamming, we process 1 per trigger, but frequent triggers)
-    // Pick a random one from the fresh batch
+    // Pick one article
     const target = articles[Math.floor(Math.random() * articles.length)];
 
-    // 5. Deduplication Check
+    // Check DB for duplicates
     const { data: existing } = await supabase.from('posts').select('id').eq('title_en', target.title).maybeSingle();
     if (existing) {
       console.log('🤖 Bot Worker: Duplicate found, skipping.');
       return;
     }
 
-    // 6. AI Processing (Summarize & Translate)
     console.log(`🤖 Bot Worker: Processing with Gemini - ${target.title}`);
     const processedContent = await generateFromSource(target.title, target.url, region);
 
     if (processedContent) {
-      // 7. Insert to DB
       const { error } = await supabase.from('posts').insert([{
         title_en: processedContent.title_en,
         title_cn: processedContent.title_cn,
@@ -103,7 +101,7 @@ export const runNewsBotBatch = async () => {
         category: topic,
         region: region,
         author_name: `HKER Bot 🤖 (${target.sourceName})`,
-        author_id: 'bot-admin', // Placeholder ID
+        author_id: 'bot-admin',
         is_bot: true,
         likes: 0,
         loves: 0
