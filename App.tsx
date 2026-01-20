@@ -63,8 +63,18 @@ export default function App() {
     const checkSession = async () => {
       const storedUserId = localStorage.getItem('hker_user_id');
       if (storedUserId) {
+        // Try to retrieve user from local cache first for speed
         const users = await DataService.getUsers();
-        const found = users.find(u => u.id === storedUserId);
+        let found = users.find(u => u.id === storedUserId);
+        
+        // If not in local cache, try to fetch from DB specifically
+        if (!found) {
+           const { data } = await supabase.from('users').select('*').eq('id', storedUserId).single();
+           if (data) {
+             found = DataService.mapDBUserToFrontend(data);
+           }
+        }
+
         if (found) {
           // Send Heartbeat immediately on restore
           await DataService.updateHeartbeat(found.id);
@@ -89,13 +99,13 @@ export default function App() {
       // HEARTBEAT: Keep user "Online"
       DataService.updateHeartbeat(user.id).catch(err => console.error("Heartbeat failed", err));
 
-      const users = await DataService.getUsers();
-      const updatedUser = users.find(u => u.id === user.id);
-      if (updatedUser) {
-        // Only update if points or vital info changed to avoid re-renders
-        if(updatedUser.points !== user.points || updatedUser.vipLevel !== user.vipLevel) {
-           setUser(updatedUser);
-        }
+      // Refresh User Points/Data in background
+      const { data } = await supabase.from('users').select('*').eq('id', user.id).single();
+      if (data) {
+         const freshUser = DataService.mapDBUserToFrontend(data);
+         if (freshUser.points !== user.points) {
+            setUser(freshUser);
+         }
       }
     }
   }, [user]);
@@ -218,10 +228,10 @@ export default function App() {
         return;
       }
 
-      const allUsers = await DataService.getUsers();
-
       if (authMode === 'login') {
-        const found = allUsers.find(u => u.email === email && u.password === password);
+        // FIXED: Use authenticateUser to query Supabase correctly
+        const found = await DataService.authenticateUser(email, password);
+        
         if (found) {
           await DataService.updateHeartbeat(found.id);
           setUser({ ...found, lastLogin: Date.now() });
@@ -230,12 +240,15 @@ export default function App() {
           notify(`歡迎回來, ${found.name}`, 'success');
           addLog(`User logged in: ${found.email}`);
         } else {
-          notify('帳號或密碼錯誤', 'error');
+          notify('帳號或密碼錯誤 (或網絡問題)', 'error');
         }
       } else {
-        // Register
-        if (allUsers.find(u => u.email === email)) {
-          notify('此電郵已被註冊', 'error');
+        // Register Check
+        // We first try to see if user exists
+        const existing = await DataService.authenticateUser(email, password);
+        if (existing) {
+          notify('此電郵已被註冊，請直接登入', 'error');
+          setAuthMode('login');
           return;
         }
         
@@ -259,15 +272,12 @@ export default function App() {
         // Save User (Resilient)
         const success = await DataService.saveUser(newUser);
         
-        if (success) {
-          setUser(newUser);
-          localStorage.setItem('hker_user_id', newUser.id);
-          setShowAuthModal(false);
-          notify('註冊成功！獲得 8888 HKER 積分', 'success');
-          addLog(`New user registered: ${newUser.email}`);
-        } else {
-          notify('註冊失敗，請檢查網絡', 'error');
-        }
+        // Even if success is "local only" (true), we let them in
+        setUser(newUser);
+        localStorage.setItem('hker_user_id', newUser.id);
+        setShowAuthModal(false);
+        notify('註冊成功！獲得 8888 HKER 積分', 'success');
+        addLog(`New user registered: ${newUser.email}`);
       }
     } catch (err: any) {
       console.error("Auth Error:", err);
