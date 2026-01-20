@@ -18,6 +18,48 @@ const ADMIN_EMAILS = [
   'niceleung@gmail.com'
 ];
 
+// --- MAPPING HELPERS (Fix for 'Column not found' errors) ---
+
+// Map DB (snake_case) -> Frontend (camelCase)
+const mapDBUserToFrontend = (u: any): User => ({
+  id: u.id,
+  email: u.email,
+  name: u.name,
+  password: u.password, // Note: In prod, do not fetch passwords
+  avatar: u.avatar || '😀',
+  points: u.points || 0,
+  role: u.role || 'user',
+  vipLevel: u.vip_level || 1,
+  solAddress: u.sol_address || '',
+  gender: u.gender || 'O',
+  phone: u.phone || '',
+  address: u.address || '',
+  // Convert ISO string back to timestamp number
+  joinedAt: u.joined_at ? new Date(u.joined_at).getTime() : Date.now(),
+  lastLogin: u.last_login ? new Date(u.last_login).getTime() : Date.now(),
+});
+
+// Map Frontend (camelCase) -> DB (snake_case)
+const mapFrontendUserToDB = (u: User): any => {
+  return {
+    id: u.id,
+    email: u.email,
+    name: u.name,
+    password: u.password,
+    avatar: u.avatar,
+    points: u.points,
+    role: u.role,
+    vip_level: u.vipLevel,
+    sol_address: u.solAddress,
+    gender: u.gender,
+    phone: u.phone,
+    address: u.address,
+    // Convert timestamp number to ISO string for Postgres
+    joined_at: u.joinedAt ? new Date(u.joinedAt).toISOString() : new Date().toISOString(),
+    last_login: u.lastLogin ? new Date(u.lastLogin).toISOString() : new Date().toISOString(),
+  };
+};
+
 // --- USERS ---
 
 export const getUsers = async (): Promise<User[]> => {
@@ -25,8 +67,12 @@ export const getUsers = async (): Promise<User[]> => {
   const { data, error } = await supabase.from('users').select('*');
       
   if (!error && data) {
+    // Map DB rows to Frontend User objects
+    const mappedUsers = data.map(mapDBUserToFrontend);
+    
     // Sort in memory
-    const sorted = (data as User[]).sort((a, b) => (b.joinedAt || 0) - (a.joinedAt || 0));
+    const sorted = mappedUsers.sort((a, b) => (b.joinedAt || 0) - (a.joinedAt || 0));
+    
     // Cache for offline fallback only
     localStorage.setItem('hker_users_cache', JSON.stringify(sorted));
     return sorted;
@@ -40,15 +86,19 @@ export const getUsers = async (): Promise<User[]> => {
 };
 
 export const saveUser = async (user: User): Promise<boolean> => {
-  // 1. Critical: Write to Cloud
-  // We do NOT check isConnected here strictly, we attempt the write.
+  // 1. Critical: Write to Cloud with correct mapping
+  const dbUser = mapFrontendUserToDB(user);
+  
   const { error } = await supabase
     .from('users')
-    .upsert(user);
+    .upsert(dbUser);
     
   if (error) {
     console.error("❌ CRITICAL: Supabase Save User Failed:", JSON.stringify(error, null, 2));
-    alert(`註冊/更新失敗 (Database Error): ${error.message}`);
+    // Do not alert in loop/background tasks, but helpful for debugging
+    if (!error.message.includes('duplicate')) {
+       console.warn(`User Save Failed: ${error.message}`);
+    }
     return false;
   }
 
@@ -82,10 +132,10 @@ export const deleteUser = async (userId: string): Promise<void> => {
 // --- HEARTBEAT & STATS (REAL-TIME) ---
 
 export const updateHeartbeat = async (userId: string): Promise<void> => {
-  const now = Date.now();
-  // Fire and forget - don't await strictly
-  supabase.from('users').update({ lastLogin: now }).eq('id', userId).then(({ error }) => {
-     if (error) console.error("Heartbeat error:", error);
+  const now = new Date().toISOString();
+  // Fire and forget - use mapped column name
+  supabase.from('users').update({ last_login: now }).eq('id', userId).then(({ error }) => {
+     if (error) console.error("Heartbeat error:", error.message);
   });
 };
 
@@ -223,20 +273,22 @@ export const updatePostInteraction = async (postId: string, type: 'like' | 'love
 // --- POINTS SYSTEM ---
 
 export const updatePoints = async (userId: string, amount: number, mode: 'add' | 'subtract' | 'set'): Promise<number> => {
-  // 1. Fetch latest user state from DB to avoid race conditions
-  const { data: currentUser, error } = await supabase.from('users').select('*').eq('id', userId).single();
+  // 1. Fetch latest user state from DB
+  const { data: dbRows, error } = await supabase.from('users').select('*').eq('id', userId);
 
-  if (error || !currentUser) {
-    console.error("Cannot update points, user not found in DB.");
+  if (error || !dbRows || dbRows.length === 0) {
+    console.error("Cannot update points, user not found in DB or Network error.");
     return 0;
   }
+  
+  const currentUser = mapDBUserToFrontend(dbRows[0]);
 
   let newBalance = 0;
   if (mode === 'set') newBalance = amount;
   else if (mode === 'add') newBalance = (currentUser.points || 0) + amount;
   else if (mode === 'subtract') newBalance = Math.max(0, (currentUser.points || 0) - amount);
 
-  // 2. Write back to DB
+  // 2. Write back to DB (Using mapped function)
   currentUser.points = newBalance;
   await saveUser(currentUser);
   
