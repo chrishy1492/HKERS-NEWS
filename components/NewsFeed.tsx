@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../services/supabase';
 import { runNewsBotBatch } from '../services/newsBot';
 import { Post, UserProfile } from '../types';
-import { ThumbsUp, Heart, Share2, Globe, Trash2, Bot, Clock, ExternalLink, Zap, Languages, MessageSquareOff, Search } from 'lucide-react';
+import { ThumbsUp, Heart, Share2, Globe, Trash2, Bot, Clock, ExternalLink, Zap, Languages, MessageSquareOff, Search, Play } from 'lucide-react';
 import { REGIONS, TOPICS } from '../constants';
 
 interface NewsFeedProps {
@@ -19,7 +19,7 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ userProfile, updatePoints }) => {
   const [activeLang, setActiveLang] = useState<Record<number, 'en' | 'cn'>>({});
   const [generating, setGenerating] = useState(false);
   
-  // Local state to track interactions for the current session (limiting spam)
+  // Local state to track interactions
   const [interactions, setInteractions] = useState<Record<number, { likes: number, loves: number }>>({});
 
   useEffect(() => {
@@ -31,7 +31,7 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ userProfile, updatePoints }) => {
        checkBotTrigger();
     }, 60000); // Check every 60s
     
-    // Also run once on mount
+    // Run once on mount
     checkBotTrigger();
 
     // Realtime subscription
@@ -52,7 +52,7 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ userProfile, updatePoints }) => {
       clearInterval(botInterval);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [regionFilter, topicFilter, searchText]); // Add searchText dependency
+  }, [regionFilter, topicFilter, searchText]);
 
   const fetchPosts = async () => {
     setLoading(true);
@@ -61,7 +61,6 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ userProfile, updatePoints }) => {
     if (regionFilter !== 'all') query = query.eq('region', regionFilter);
     if (topicFilter !== 'all') query = query.eq('category', topicFilter);
     if (searchText) {
-       // Simple text search on title
        query = query.or(`title_en.ilike.%${searchText}%,title_cn.ilike.%${searchText}%`);
     }
 
@@ -84,8 +83,8 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ userProfile, updatePoints }) => {
     const lastTime = lastPost ? new Date(lastPost.created_at) : new Date(0);
     const diffMinutes = (now.getTime() - lastTime.getTime()) / 1000 / 60;
 
-    // 2. If > 3 hours (180 mins) since last post, OR no posts exist, trigger batch
-    if (diffMinutes >= 180) {
+    // 2. Reduced threshold to 60 mins for better activity
+    if (diffMinutes >= 60) {
       if (!generating) {
         setGenerating(true);
         await runNewsBotBatch();
@@ -94,8 +93,17 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ userProfile, updatePoints }) => {
     }
   };
 
+  // Manual Trigger for Admins
+  const forceRunBot = async () => {
+    if (generating) return;
+    if (!confirm("Force run bot now? This will fetch news immediately.")) return;
+    setGenerating(true);
+    await runNewsBotBatch();
+    setGenerating(false);
+    fetchPosts();
+  };
+
   const handleInteract = async (postId: number, type: 'like' | 'love') => {
-    // Local limit check (Max 3 per type per post)
     const current = interactions[postId] || { likes: 0, loves: 0 };
     const limit = 3;
     
@@ -113,12 +121,10 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ userProfile, updatePoints }) => {
       }
     }));
 
-    // Optimistic UI update handled by realtime, but we trigger the DB update here
     const post = posts.find(p => p.id === postId);
     if (post) {
        const updateData = type === 'like' ? { likes: (post.likes || 0) + 1 } : { loves: (post.loves || 0) + 1 };
        await supabase.from('posts').update(updateData).eq('id', postId);
-       // Reward points instantly
        updatePoints(150); 
     }
   };
@@ -154,7 +160,7 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ userProfile, updatePoints }) => {
   };
 
   return (
-    <div className="min-h-screen bg-[#f8fafc] pb-24 md:pb-0">
+    <div className="min-h-screen bg-[#f8fafc]">
       {/* Header & Controls */}
       <div className="sticky top-0 z-30 bg-white/90 backdrop-blur-xl border-b border-slate-200 px-4 py-3 shadow-sm">
         <div className="max-w-5xl mx-auto">
@@ -169,17 +175,20 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ userProfile, updatePoints }) => {
               </div>
             </div>
             
-            {/* Bot Status */}
-            <div className="flex gap-2">
+            <div className="flex gap-2 items-center">
                {generating && (
                  <div className="flex items-center gap-2 px-3 py-1 bg-indigo-50 text-indigo-600 rounded-full text-xs font-bold border border-indigo-100">
-                   <Bot size={12} className="animate-bounce" /> Bot Working...
+                   <Bot size={12} className="animate-bounce" /> Working...
                  </div>
+               )}
+               {userProfile.role === 'admin' && (
+                 <button onClick={forceRunBot} className="p-2 bg-slate-800 text-white rounded-full hover:bg-slate-700 shadow-lg" title="Force Run Bot">
+                    <Play size={12} fill="currentColor" />
+                 </button>
                )}
             </div>
           </div>
 
-          {/* Search Bar */}
           <div className="mb-3 relative">
              <Search className="absolute left-3 top-2.5 text-slate-400 w-4 h-4" />
              <input 
@@ -191,7 +200,6 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ userProfile, updatePoints }) => {
              />
           </div>
           
-          {/* Region Filter */}
           <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-1">
             <button 
                onClick={() => setRegionFilter('all')}
@@ -212,13 +220,11 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ userProfile, updatePoints }) => {
         </div>
       </div>
 
-      {/* Feed */}
       <div className="max-w-5xl mx-auto px-4 py-6 grid grid-cols-1 md:grid-cols-2 gap-6">
         {loading ? (
            <div className="col-span-full flex justify-center py-20"><div className="animate-spin rounded-full h-10 w-10 border-4 border-blue-500 border-t-transparent"></div></div>
         ) : (
           posts.map(post => {
-            // Language Logic
             const isChineseRegion = ['Hong Kong', 'Taiwan', 'China'].includes(post.region);
             const defaultLang = isChineseRegion ? 'cn' : 'en';
             const currentLang = activeLang[post.id] || defaultLang;
@@ -230,54 +236,31 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ userProfile, updatePoints }) => {
 
             return (
               <div key={post.id} className="bg-white rounded-3xl border border-slate-200 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300 flex flex-col overflow-hidden group">
-                {/* Post Header */}
                 <div className="p-5 pb-3 flex justify-between items-start">
                    <div className="flex items-center gap-2">
-                      <span className="px-2 py-0.5 bg-blue-50 text-blue-600 text-[10px] font-black rounded uppercase border border-blue-100">
-                        {post.category}
-                      </span>
-                      {post.is_bot && (
-                        <span className="px-2 py-0.5 bg-indigo-50 text-indigo-600 text-[10px] font-black rounded flex items-center gap-1 border border-indigo-100">
-                          <Bot size={12} /> HKER BOT
-                        </span>
-                      )}
-                      <span className="px-2 py-0.5 bg-slate-50 text-slate-500 text-[10px] font-bold rounded uppercase border border-slate-100">
-                        {post.region}
-                      </span>
+                      <span className="px-2 py-0.5 bg-blue-50 text-blue-600 text-[10px] font-black rounded uppercase border border-blue-100">{post.category}</span>
+                      {post.is_bot && <span className="px-2 py-0.5 bg-indigo-50 text-indigo-600 text-[10px] font-black rounded flex items-center gap-1 border border-indigo-100"><Bot size={12} /> HKER BOT</span>}
+                      <span className="px-2 py-0.5 bg-slate-50 text-slate-500 text-[10px] font-bold rounded uppercase border border-slate-100">{post.region}</span>
                    </div>
-                   <div className="flex gap-2">
-                     {/* Only Admin can delete */}
-                     {userProfile.role === 'admin' && (
-                        <button onClick={() => handleDelete(post.id)} className="p-1 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded transition-colors" title="Admin Remove">
-                           <Trash2 size={16} />
-                        </button>
-                     )}
-                   </div>
+                   {userProfile.role === 'admin' && (
+                      <button onClick={() => handleDelete(post.id)} className="p-1 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded transition-colors" title="Delete">
+                         <Trash2 size={16} />
+                      </button>
+                   )}
                 </div>
 
-                {/* Post Content */}
                 <div className="px-5 flex-grow">
-                   <h2 className="text-lg font-extrabold text-slate-900 mb-3 leading-snug group-hover:text-blue-600 transition-colors">
-                     {title}
-                   </h2>
-                   
-                   <p className="text-slate-600 text-sm leading-relaxed mb-4 whitespace-pre-wrap">
-                     {cleanBody}
-                   </p>
+                   <h2 className="text-lg font-extrabold text-slate-900 mb-3 leading-snug group-hover:text-blue-600 transition-colors">{title}</h2>
+                   <p className="text-slate-600 text-sm leading-relaxed mb-4 whitespace-pre-wrap">{cleanBody}</p>
                    
                    <div className="flex items-center justify-between mb-4 pt-2 border-t border-slate-100">
                       <div className="flex items-center gap-2 text-[10px] text-slate-400 font-medium">
                           <Clock size={12} />
                           {new Date(post.created_at).toLocaleString()}
-                          {sourceUrl && (
-                            <a href={sourceUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 hover:text-blue-500 ml-2 bg-slate-50 px-2 py-0.5 rounded-full border border-slate-200">
-                              <ExternalLink size={10} /> Source
-                            </a>
-                          )}
+                          {sourceUrl && <a href={sourceUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 hover:text-blue-500 ml-2 bg-slate-50 px-2 py-0.5 rounded-full border border-slate-200"><ExternalLink size={10} /> Source</a>}
                       </div>
                    </div>
 
-                   {/* Translate Button */}
                    <button 
                       onClick={() => toggleLanguage(post.id, post.region)}
                       className="w-full py-2 mb-4 bg-gradient-to-r from-slate-50 to-slate-100 hover:from-blue-50 hover:to-indigo-50 text-slate-600 hover:text-blue-700 rounded-lg text-xs font-bold flex items-center justify-center gap-2 transition-all border border-slate-200 shadow-sm"
@@ -287,34 +270,23 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ userProfile, updatePoints }) => {
                     </button>
                 </div>
 
-                {/* Interaction Bar */}
                 <div className="px-5 py-3 bg-slate-50/80 border-t border-slate-100 flex items-center justify-between">
                    <div className="flex items-center gap-4">
                       <div className="flex items-center gap-1">
-                        <button onClick={() => handleInteract(post.id, 'like')} className="p-2 rounded-full hover:bg-blue-100 text-slate-400 hover:text-blue-600 transition transform active:scale-90">
-                          <ThumbsUp size={18} className={interactions[post.id]?.likes > 0 ? 'fill-blue-600 text-blue-600' : ''} />
-                        </button>
+                        <button onClick={() => handleInteract(post.id, 'like')} className="p-2 rounded-full hover:bg-blue-100 text-slate-400 hover:text-blue-600 transition transform active:scale-90"><ThumbsUp size={18} className={interactions[post.id]?.likes > 0 ? 'fill-blue-600 text-blue-600' : ''} /></button>
                         <span className="text-xs font-bold text-slate-500">{post.likes || 0}</span>
                       </div>
-
                       <div className="flex items-center gap-1">
-                        <button onClick={() => handleInteract(post.id, 'love')} className="p-2 rounded-full hover:bg-pink-100 text-slate-400 hover:text-pink-600 transition transform active:scale-90">
-                          <Heart size={18} className={interactions[post.id]?.loves > 0 ? 'fill-pink-600 text-pink-600' : ''} />
-                        </button>
+                        <button onClick={() => handleInteract(post.id, 'love')} className="p-2 rounded-full hover:bg-pink-100 text-slate-400 hover:text-pink-600 transition transform active:scale-90"><Heart size={18} className={interactions[post.id]?.loves > 0 ? 'fill-pink-600 text-pink-600' : ''} /></button>
                         <span className="text-xs font-bold text-slate-500">{post.loves || 0}</span>
                       </div>
-
-                      <button onClick={() => handleShare(title, sourceUrl)} className="p-2 rounded-full hover:bg-green-100 text-slate-400 hover:text-green-600 transition">
-                        <Share2 size={18} />
-                      </button>
+                      <button onClick={() => handleShare(title, sourceUrl)} className="p-2 rounded-full hover:bg-green-100 text-slate-400 hover:text-green-600 transition"><Share2 size={18} /></button>
                    </div>
                 </div>
                 
-                {/* Bot Footer */}
                 {post.is_bot && (
                    <div className="bg-amber-50/50 text-[10px] text-amber-700/70 text-center py-1 font-bold flex items-center justify-center gap-2 border-t border-amber-100/50">
-                     <MessageSquareOff size={10} />
-                     Bot Post - Comments Disabled
+                     <MessageSquareOff size={10} /> Bot Post
                    </div>
                 )}
               </div>
