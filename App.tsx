@@ -202,58 +202,76 @@ export default function App() {
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
-    const form = e.target as HTMLFormElement;
-    const email = (form.elements.namedItem('email') as HTMLInputElement).value;
-    const password = (form.elements.namedItem('password') as HTMLInputElement).value;
+    console.log("Auth Triggered: ", authMode);
 
-    const allUsers = await DataService.getUsers();
+    try {
+      const form = e.target as HTMLFormElement;
+      const email = (form.elements.namedItem('email') as HTMLInputElement).value;
+      const password = (form.elements.namedItem('password') as HTMLInputElement).value;
 
-    if (authMode === 'login') {
-      const found = allUsers.find(u => u.email === email && u.password === password);
-      if (found) {
-        // Set online status immediately
-        await DataService.updateHeartbeat(found.id);
-        setUser({ ...found, lastLogin: Date.now() });
-        localStorage.setItem('hker_user_id', found.id); // Save Session
-        setShowAuthModal(false);
-        notify(`歡迎回來, ${found.name}`, 'success');
-        addLog(`User logged in: ${found.email}`);
-      } else {
-        notify('帳號或密碼錯誤', 'error');
-      }
-    } else {
-      // Register
-      if (allUsers.find(u => u.email === email)) {
-        notify('此電郵已被註冊', 'error');
+      if (!email || !password) {
+        notify('請輸入電郵與密碼', 'error');
         return;
       }
-      const newUser: User = {
-        id: crypto.randomUUID(),
-        email,
-        password,
-        name: (form.elements.namedItem('name') as HTMLInputElement).value || 'HKER Member',
-        avatar: '😀',
-        points: 8888, // Welcome bonus
-        role: DataService.isAdmin(email) ? 'admin' : 'user',
-        vipLevel: 1,
-        solAddress: (form.elements.namedItem('solAddress') as HTMLInputElement).value || '',
-        gender: (form.elements.namedItem('gender') as HTMLSelectElement).value as any || 'O',
-        phone: (form.elements.namedItem('phone') as HTMLInputElement).value || '',
-        address: (form.elements.namedItem('address') as HTMLInputElement).value || '',
-        joinedAt: Date.now(),
-        lastLogin: Date.now()
-      };
-      
-      const success = await DataService.saveUser(newUser);
-      if (success) {
-        setUser(newUser);
-        localStorage.setItem('hker_user_id', newUser.id); // Save Session
-        setShowAuthModal(false);
-        notify('註冊成功！獲得 8888 HKER 積分', 'success');
-        addLog(`New user registered: ${newUser.email}`);
+
+      if (authMode === 'login') {
+        const allUsers = await DataService.getUsers();
+        const found = allUsers.find(u => u.email === email && u.password === password);
+        if (found) {
+          // Set online status immediately
+          await DataService.updateHeartbeat(found.id);
+          setUser({ ...found, lastLogin: Date.now() });
+          localStorage.setItem('hker_user_id', found.id); // Save Session
+          setShowAuthModal(false);
+          notify(`歡迎回來, ${found.name}`, 'success');
+          addLog(`User logged in: ${found.email}`);
+        } else {
+          notify('帳號或密碼錯誤', 'error');
+        }
       } else {
-        notify('註冊失敗，請檢查網絡', 'error');
+        // Register Logic
+        const allUsers = await DataService.getUsers();
+        if (allUsers.find(u => u.email === email)) {
+          notify('此電郵已被註冊', 'error');
+          return;
+        }
+
+        // Use safe ID generation (Timestamp + Random) to avoid crypto.randomUUID crash in some envs
+        const safeId = `u_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
+
+        const newUser: User = {
+          id: safeId,
+          email,
+          password,
+          name: (form.elements.namedItem('name') as HTMLInputElement)?.value || 'HKER Member',
+          avatar: '😀',
+          points: 8888, // Welcome bonus
+          role: DataService.isAdmin(email) ? 'admin' : 'user',
+          vipLevel: 1,
+          solAddress: (form.elements.namedItem('solAddress') as HTMLInputElement)?.value || '',
+          gender: (form.elements.namedItem('gender') as HTMLSelectElement)?.value as any || 'O',
+          phone: (form.elements.namedItem('phone') as HTMLInputElement)?.value || '',
+          address: (form.elements.namedItem('address') as HTMLInputElement)?.value || '',
+          joinedAt: Date.now(),
+          lastLogin: Date.now()
+        };
+        
+        console.log("Attempting to save user:", newUser);
+        const success = await DataService.saveUser(newUser);
+        
+        if (success) {
+          setUser(newUser);
+          localStorage.setItem('hker_user_id', newUser.id); // Save Session
+          setShowAuthModal(false);
+          notify('註冊成功！獲得 8888 HKER 積分', 'success');
+          addLog(`New user registered: ${newUser.email}`);
+        } else {
+          notify('註冊失敗，請檢查網絡或瀏覽器控制台', 'error');
+        }
       }
+    } catch (err: any) {
+      console.error("Auth Process Failed:", err);
+      notify(`系統錯誤: ${err.message || 'Unknown Error'}`, 'error');
     }
   };
 

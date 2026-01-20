@@ -18,25 +18,24 @@ const ADMIN_EMAILS = [
   'niceleung@gmail.com'
 ];
 
-// --- MAPPING HELPERS (Fix for 'Column not found' errors) ---
+// --- MAPPING HELPERS (Critical for Supabase Compatibility) ---
 
 // Map DB (snake_case) -> Frontend (camelCase)
 const mapDBUserToFrontend = (u: any): User => ({
   id: u.id,
   email: u.email,
   name: u.name,
-  password: u.password, // Note: In prod, do not fetch passwords
+  password: u.password,
   avatar: u.avatar || '😀',
   points: u.points || 0,
   role: u.role || 'user',
-  vipLevel: u.vip_level || 1,
-  solAddress: u.sol_address || '',
+  vipLevel: u.vip_level || 1, // Fixed: snake_case to camelCase
+  solAddress: u.sol_address || '', // Fixed: snake_case to camelCase
   gender: u.gender || 'O',
   phone: u.phone || '',
   address: u.address || '',
-  // Convert ISO string back to timestamp number
-  joinedAt: u.joined_at ? new Date(u.joined_at).getTime() : Date.now(),
-  lastLogin: u.last_login ? new Date(u.last_login).getTime() : Date.now(),
+  joinedAt: u.joined_at ? new Date(u.joined_at).getTime() : Date.now(), // Timestamp conversion
+  lastLogin: u.last_login ? new Date(u.last_login).getTime() : Date.now(), // Timestamp conversion
 });
 
 // Map Frontend (camelCase) -> DB (snake_case)
@@ -49,14 +48,13 @@ const mapFrontendUserToDB = (u: User): any => {
     avatar: u.avatar,
     points: u.points,
     role: u.role,
-    vip_level: u.vipLevel,
-    sol_address: u.solAddress,
+    vip_level: u.vipLevel,     // Critical: camelCase to snake_case
+    sol_address: u.solAddress, // Critical: camelCase to snake_case
     gender: u.gender,
     phone: u.phone,
     address: u.address,
-    // Convert timestamp number to ISO string for Postgres
-    joined_at: u.joinedAt ? new Date(u.joinedAt).toISOString() : new Date().toISOString(),
-    last_login: u.lastLogin ? new Date(u.lastLogin).toISOString() : new Date().toISOString(),
+    joined_at: new Date(u.joinedAt).toISOString(),     // ISO String for Postgres
+    last_login: new Date(u.lastLogin || Date.now()).toISOString() // ISO String for Postgres
   };
 };
 
@@ -89,6 +87,8 @@ export const saveUser = async (user: User): Promise<boolean> => {
   // 1. Critical: Write to Cloud with correct mapping
   const dbUser = mapFrontendUserToDB(user);
   
+  console.log("Saving user to Supabase:", dbUser); // Debug log
+
   const { error } = await supabase
     .from('users')
     .upsert(dbUser);
