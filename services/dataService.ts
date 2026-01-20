@@ -4,12 +4,12 @@ import { User, Post, Stat } from '../types';
 
 /**
  * ============================================================================
- * DATA SERVICE - ROBUST HYBRID ARCHITECTURE (V2)
+ * DATA SERVICE - LOCAL FIRST + CLOUD SYNC (HYBRID ARCHITECTURE)
  * 
  * Strategy:
- * 1. READ: Try Cloud with Timeout -> Fallback to Local.
- * 2. WRITE: Local First (Sync) -> Cloud (Async Fire-and-Forget).
- * 3. FALLBACK: Always rely on LocalStorage for critical UI paths.
+ * 1. WRITE: Local Storage (Sync/Instant) -> Supabase (Async/Background)
+ * 2. READ: Local Storage (Priority) -> Supabase (Fallback/Login)
+ * 3. AUTH: Allow offline/local session persistence to prevent auto-logout.
  * ============================================================================
  */
 
@@ -61,38 +61,61 @@ const mapFrontendUserToDB = (u: User): any => {
 
 // --- USERS ---
 
-export const getUsers = async (): Promise<User[]> => {
-  // Try cloud fetch with a 2-second timeout
+// Get specific user from local cache (fastest)
+export const getUserByIdLocal = async (userId: string): Promise<User | null> => {
   try {
+    const raw = localStorage.getItem('hker_users_cache');
+    if (!raw) return null;
+    const users: User[] = JSON.parse(raw);
+    return users.find(u => u.id === userId) || null;
+  } catch(e) {
+    return null;
+  }
+};
+
+export const getUsers = async (forceCloud = false): Promise<User[]> => {
+  // 1. Return Local Cache immediately if not forced
+  if (!forceCloud) {
+    try {
+      const cached = localStorage.getItem('hker_users_cache');
+      if (cached) return JSON.parse(cached);
+    } catch (e) {
+      console.warn("Local cache read error", e);
+    }
+  }
+
+  // 2. Fetch from Cloud (Supabase)
+  try {
+    // Timeout to prevent hanging if Supabase is blocked
+    const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve(null), 3000));
     const fetchPromise = checkSupabaseConnection().then(async (isConnected) => {
         if (isConnected) {
-            const { data } = await supabase.from('users').select('*');
+            const { data, error } = await supabase.from('users').select('*');
+            if (error) throw error;
             return data;
         }
         return null;
     });
-    
-    // Timeout promise
-    const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve(null), 2000));
 
     const cloudData = await Promise.race([fetchPromise, timeoutPromise]);
 
     if (cloudData) {
       const sorted = (cloudData as any[]).map(mapDBUserToFrontend).sort((a, b) => (b.joinedAt || 0) - (a.joinedAt || 0));
+      // Update cache
       localStorage.setItem('hker_users_cache', JSON.stringify(sorted));
       return sorted;
     }
   } catch (e) {
-    console.warn("Cloud fetch failed/timed out, using local cache:", e);
+    console.warn("Cloud fetch failed, fallback to local cache:", e);
   }
 
-  // Fallback to local cache immediately if cloud fails or times out
+  // 3. Fallback to cache if cloud failed
   const cached = localStorage.getItem('hker_users_cache');
   return cached ? JSON.parse(cached) : [];
 };
 
 export const saveUser = async (user: User): Promise<boolean> => {
-  // 1. Update Local Cache IMMEDIATELY (Direct LS access, no async dependency)
+  // 1. Optimistic Update (Local Storage) - INSTANT
   try {
     const raw = localStorage.getItem('hker_users_cache');
     let cachedUsers: User[] = raw ? JSON.parse(raw) : [];
@@ -106,20 +129,21 @@ export const saveUser = async (user: User): Promise<boolean> => {
     console.error("Local Storage Write Error:", e);
   }
 
-  // 2. Sync to Cloud (Async Fire-and-Forget - Do NOT await this to block UI)
+  // 2. Background Sync (Supabase) - FIRE AND FORGET
+  // Do NOT await this, let it run in background to prevent UI blocking
   checkSupabaseConnection().then(async (isConnected) => {
       if(isConnected) {
           const dbUser = mapFrontendUserToDB(user);
           const { error } = await supabase.from('users').upsert(dbUser);
           if (error) {
-             console.error("Supabase Background Sync Failed (Check RLS):", error.message);
+             console.error("Supabase Background Sync Failed:", error.message);
           } else {
              console.log("Supabase Background Sync Success:", user.email);
           }
       }
   }).catch(err => console.error("Supabase Connection Check Failed:", err));
 
-  return true; // Always return true to unblock UI
+  return true; // Always return true immediately to unblock UI
 };
 
 export const deleteUser = async (userId: string): Promise<void> => {
@@ -129,22 +153,24 @@ export const deleteUser = async (userId: string): Promise<void> => {
   });
   
   // Local delete
-  const users = await getUsers(); // This might hit cache which is fine
-  const newUsers = users.filter(u => u.id !== userId);
-  localStorage.setItem('hker_users_cache', JSON.stringify(newUsers));
+  const raw = localStorage.getItem('hker_users_cache');
+  if (raw) {
+    let users: User[] = JSON.parse(raw);
+    const newUsers = users.filter(u => u.id !== userId);
+    localStorage.setItem('hker_users_cache', JSON.stringify(newUsers));
+  }
 };
 
 // --- HEARTBEAT & STATS (REAL-TIME) ---
 
 export const updateHeartbeat = async (userId: string): Promise<void> => {
-  const now = new Date().toISOString();
-  // Fire and forget
-  supabase.from('users').update({ last_login: now }).eq('id', userId).then(() => {});
+  // Fire and forget cloud update
+  supabase.from('users').update({ last_login: new Date().toISOString() }).eq('id', userId).then(() => {});
   
   // Update local cache quietly
-  const cached = localStorage.getItem('hker_users_cache');
-  if (cached) {
-    const users = JSON.parse(cached) as User[];
+  const raw = localStorage.getItem('hker_users_cache');
+  if (raw) {
+    const users: User[] = JSON.parse(raw);
     const idx = users.findIndex(u => u.id === userId);
     if (idx >= 0) {
       users[idx].lastLogin = Date.now();
@@ -154,7 +180,7 @@ export const updateHeartbeat = async (userId: string): Promise<void> => {
 };
 
 export const getStats = async (): Promise<Stat> => {
-  const users = await getUsers();
+  const users = await getUsers(); // Priorities cache
   const now = Date.now();
   const todayStart = new Date();
   todayStart.setHours(0,0,0,0);
@@ -167,7 +193,7 @@ export const getStats = async (): Promise<Stat> => {
       return lastActive >= todayTs;
   }).length;
   
-  const onlineThreshold = 5 * 60 * 1000; 
+  const onlineThreshold = 15 * 60 * 1000; // 15 mins
   const onlineUsers = users.filter(u => {
       const lastActive = u.lastLogin || u.joinedAt || 0;
       return (now - lastActive) < onlineThreshold;
@@ -270,7 +296,6 @@ export const deletePost = async (postId: string): Promise<void> => {
   if (isConnected && !postId.includes('-')) {
     await supabase.from('posts').delete().eq('id', postId);
   }
-  // No local cache update for posts delete here, requires refresh
 };
 
 export const updatePostInteraction = async (postId: string, type: 'like' | 'love'): Promise<void> => {
@@ -302,7 +327,7 @@ export const updatePoints = async (userId: string, amount: number, mode: 'add' |
 
   currentUser.points = newBalance;
   
-  // Save locally first
+  // Save locally first (Sync)
   localStorage.setItem('hker_users_cache', JSON.stringify(users));
   
   // Sync background

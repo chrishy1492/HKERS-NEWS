@@ -20,8 +20,9 @@ import { FortuneTeller } from './components/Fortune';
 const REGIONS: Region[] = ["全部", "中國香港", "台灣", "英國", "美國", "加拿大", "澳洲", "歐洲"];
 const TOPICS: Topic[] = ["全部", "地產", "時事", "財經", "娛樂", "旅遊", "數碼", "汽車", "宗教", "優惠", "校園", "天氣", "社區活動"];
 
-// Helper: Safe ID Generation (UUID v4 format for Database Compatibility)
-// Generates xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx
+// --- CRITICAL FIX: Safe ID Generation ---
+// Replaces crypto.randomUUID() which fails in insecure contexts (causing the button to do nothing).
+// Generates a valid UUID v4 string compatible with Supabase.
 const generateId = () => {
     return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
         var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
@@ -35,6 +36,7 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [showAuthModal, setShowAuthModal] = useState(true);
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
+  const [authLoading, setAuthLoading] = useState(false); // UI Feedback state
   
   // State: Navigation & Views
   const [currentView, setCurrentView] = useState<'feed' | 'games' | 'fortune' | 'profile' | 'admin'>('feed');
@@ -60,27 +62,47 @@ export default function App() {
     setSystemLogs(prev => [`[${timestamp}] ${msg}`, ...prev].slice(0, 50));
   }, []);
 
-  // --- INIT & SYNC ---
+  // --- INIT & SYNC (PERSISTENT SESSION FIX) ---
 
-  // 1. Session Persistence Check (Run once on mount)
+  // 1. Session Restoration (Run once on mount)
   useEffect(() => {
-    const checkSession = async () => {
+    const restoreSession = async () => {
       const storedUserId = localStorage.getItem('hker_user_id');
+      
       if (storedUserId) {
-        const users = await DataService.getUsers();
-        const found = users.find(u => u.id === storedUserId);
-        if (found) {
-          // Send Heartbeat immediately on restore
-          await DataService.updateHeartbeat(found.id);
-          setUser({ ...found, lastLogin: Date.now() });
-          setShowAuthModal(false); // Skip login screen if session valid
-          addLog(`Session restored for: ${found.email}`);
-        } else {
-          localStorage.removeItem('hker_user_id'); // Clean invalid session
+        // A. Immediate Local Restore (Fast, prevents logout flicker)
+        const localUser = await DataService.getUserByIdLocal(storedUserId);
+        if (localUser) {
+          console.log("Session Restored from Local Cache:", localUser.name);
+          setUser({ ...localUser, lastLogin: Date.now() });
+          setShowAuthModal(false);
+        }
+
+        // B. Background Cloud Sync (Check if blocked or data updated)
+        try {
+          // Send Heartbeat
+          DataService.updateHeartbeat(storedUserId);
+          
+          // Fetch fresh data
+          const cloudUsers = await DataService.getUsers(true); // Force cloud fetch
+          const freshUser = cloudUsers.find(u => u.id === storedUserId);
+          
+          if (freshUser) {
+             // Update state with fresh data seamlessly
+             setUser(prev => ({ ...freshUser, lastLogin: Date.now() }));
+          } else if (!localUser) {
+             // Only logout if NOT found in either local OR cloud
+             console.warn("Session invalid: User not found in Cloud or Local");
+             localStorage.removeItem('hker_user_id');
+             setShowAuthModal(true);
+          }
+        } catch (e) {
+          console.error("Background session sync error:", e);
+          // Do NOT logout on error, stay logged in with local data
         }
       }
     };
-    checkSession();
+    restoreSession();
   }, [addLog]);
 
   const refreshData = useCallback(async () => {
@@ -93,13 +115,10 @@ export default function App() {
       // HEARTBEAT: Keep user "Online"
       DataService.updateHeartbeat(user.id).catch(err => console.error("Heartbeat failed", err));
 
-      const users = await DataService.getUsers();
-      const updatedUser = users.find(u => u.id === user.id);
-      if (updatedUser) {
-        // Only update if points or vital info changed to avoid re-renders
-        if(updatedUser.points !== user.points || updatedUser.vipLevel !== user.vipLevel) {
-           setUser(updatedUser);
-        }
+      // Quietly update user data if points changed
+      const latestUser = await DataService.getUserByIdLocal(user.id);
+      if (latestUser && latestUser.points !== user.points) {
+         setUser(latestUser);
       }
     }
   }, [user]);
@@ -211,41 +230,49 @@ export default function App() {
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
+    setAuthLoading(true);
+    
     try {
       const form = e.target as HTMLFormElement;
       const formData = new FormData(form);
-      const email = formData.get('email') as string;
-      const password = formData.get('password') as string;
+      const email = (formData.get('email') as string).trim();
+      const password = (formData.get('password') as string).trim();
 
       if (!email || !password) {
-        notify('請輸入電郵與密碼', 'error');
+        notify('請輸入電郵與密碼 (Email & Password required)', 'error');
+        setAuthLoading(false);
         return;
       }
 
-      // 1. Fetch users (with timeout protection)
-      const allUsers = await DataService.getUsers();
-
       if (authMode === 'login') {
-        const found = allUsers.find(u => u.email === email && u.password === password);
+        // LOGIN LOGIC: Try Cloud First to get existing users
+        const allUsers = await DataService.getUsers(true); // Force cloud fetch for login
+        const found = allUsers.find(u => u.email.toLowerCase() === email.toLowerCase() && u.password === password);
+        
         if (found) {
           await DataService.updateHeartbeat(found.id);
           setUser({ ...found, lastLogin: Date.now() });
-          localStorage.setItem('hker_user_id', found.id);
+          localStorage.setItem('hker_user_id', found.id); // Persist Session
           setShowAuthModal(false);
           notify(`歡迎回來, ${found.name}`, 'success');
           addLog(`User logged in: ${found.email}`);
         } else {
-          notify('帳號或密碼錯誤', 'error');
+          notify('帳號或密碼錯誤 (Invalid Credentials)', 'error');
         }
       } else {
-        // Register
-        if (allUsers.find(u => u.email === email)) {
-          notify('此電郵已被註冊', 'error');
+        // REGISTER LOGIC
+        
+        // 1. Check existing (locally first for speed)
+        const localUsers = await DataService.getUsers(false);
+        if (localUsers.find(u => u.email.toLowerCase() === email.toLowerCase())) {
+          notify('此電郵已被註冊 (Email already exists)', 'error');
+          setAuthLoading(false);
           return;
         }
-        
+
+        // 2. Create User Object
         const newUser: User = {
-          id: generateId(), // Uses UUID format now
+          id: generateId(), // Safe ID Generation
           email,
           password,
           name: (formData.get('name') as string) || 'HKER Member',
@@ -261,12 +288,14 @@ export default function App() {
           lastLogin: Date.now()
         };
         
-        // Save User (Resilient - won't block UI)
+        // 3. Save User (Non-blocking / Optimistic)
+        // This function now returns immediately after saving to local cache
+        // Cloud sync happens in background
         await DataService.saveUser(newUser);
         
-        // Immediate Success Feedback
+        // 4. Immediate Entry
         setUser(newUser);
-        localStorage.setItem('hker_user_id', newUser.id);
+        localStorage.setItem('hker_user_id', newUser.id); // Persist Session
         setShowAuthModal(false);
         notify('註冊成功！獲得 8888 HKER 積分', 'success');
         addLog(`New user registered: ${newUser.email}`);
@@ -274,14 +303,18 @@ export default function App() {
     } catch (err: any) {
       console.error("Auth Error:", err);
       notify(`系統錯誤: ${err.message}`, 'error');
+    } finally {
+      setAuthLoading(false);
     }
   };
 
   const handleLogout = () => {
-    setUser(null);
-    localStorage.removeItem('hker_user_id'); // Clear Session
-    setShowAuthModal(true);
-    notify('已安全登出', 'info');
+    if(confirm("確定要登出嗎? Are you sure?")) {
+      setUser(null);
+      localStorage.removeItem('hker_user_id'); // Clear Session
+      setShowAuthModal(true);
+      notify('已安全登出', 'info');
+    }
   };
 
   const handleUpdateProfile = async (updates: Partial<User>) => {
@@ -412,8 +445,12 @@ export default function App() {
               </>
             )}
 
-            <button type="submit" className="w-full bg-gradient-to-r from-hker-red to-red-800 text-white font-black py-4 rounded-xl shadow-lg hover:scale-[1.02] transition-transform">
-              {authMode === 'login' ? 'ENTER PLATFORM' : 'JOIN HKER'}
+            <button 
+              type="submit" 
+              disabled={authLoading}
+              className={`w-full bg-gradient-to-r from-hker-red to-red-800 text-white font-black py-4 rounded-xl shadow-lg hover:scale-[1.02] transition-transform flex items-center justify-center gap-2 ${authLoading ? 'opacity-70 cursor-not-allowed' : ''}`}
+            >
+              {authLoading ? <RefreshCw className="animate-spin w-5 h-5"/> : (authMode === 'login' ? 'ENTER PLATFORM' : 'JOIN HKER')}
             </button>
           </form>
           {authMode === 'login' && (
@@ -508,7 +545,7 @@ export default function App() {
                       <Shield className="w-5 h-5 text-red-200" />
                    </button>
                  )}
-                 <button onClick={handleLogout} className="w-9 h-9 bg-slate-800 rounded-full flex items-center justify-center hover:bg-red-600">
+                 <button onClick={handleLogout} className="w-9 h-9 bg-slate-800 rounded-full flex items-center justify-center hover:bg-red-600" title="Logout">
                     <LogOut className="w-4 h-4" />
                  </button>
                </>
