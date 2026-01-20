@@ -1,40 +1,52 @@
-export interface UserProfile {
-    id: string;
-    email: string;
-    full_name: string;
-    role: 'user' | 'admin';
-    hker_token: number;
-    phone?: string;
-    gender?: string;
-    address?: string;
-    sol_address?: string;
-    avatar_url?: string;
+
+export type Region = "全部" | "中國香港" | "台灣" | "英國" | "美國" | "加拿大" | "澳洲" | "歐洲";
+export type Topic = "全部" | "地產" | "時事" | "財經" | "娛樂" | "旅遊" | "數碼" | "汽車" | "宗教" | "優惠" | "校園" | "天氣" | "社區活動";
+export type UserRole = "admin" | "user";
+
+export interface InteractionRecord {
+  like: number;
+  love: number;
+}
+
+export interface User {
+  id: string; // UUID from Supabase or generated
+  email: string;
+  password?: string; // Stored for simulation, in prod use Supabase Auth
+  name: string;
+  avatar: string; // Emoji or URL
+  points: number;
+  role: UserRole;
+  vipLevel: number;
+  solAddress: string;
+  gender: 'M' | 'F' | 'O';
+  phone?: string;
+  address?: string;
+  joinedAt: number;
+  lastLogin?: number;
 }
 
 export interface Post {
-    id: number;
-    created_at: string;
-    title_en: string;
-    title_cn: string;
-    content_en: string;
-    content_cn: string;
-    category: string;
-    region: string;
-    author_name: string;
-    author_id?: string;
-    likes: number;
-    loves: number;
-    is_bot: boolean;
-    language?: string; // 'en' | 'zh'
+  id: string; // UUID
+  titleCN: string;
+  titleEN: string;
+  contentCN: string;
+  contentEN: string;
+  authorId: string;
+  authorName: string; // Usually "HKER Bot 🤖"
+  authorAvatar: string;
+  timestamp: number;
+  region: string;
+  topic: string;
+  likes: number;
+  loves: number;
+  isBot: boolean;
+  sourceUrl?: string;
+  sourceName?: string;
 }
 
-export interface NewsGenerationResult {
-    title_en: string;
-    title_cn: string;
-    content_en: string;
-    content_cn: string;
-    source_url: string;
-    language: string;
+export interface Stat {
+  onlineUsers: number; // Simulated realtime
+  totalUsers: number;
+  todayRegisters: number;
+  todayVisits: number;
 }
-
-export type ViewState = 'news' | 'games' | 'fortune' | 'profile' | 'admin';
