@@ -4,11 +4,12 @@ import { User, Post, Stat } from '../types';
 
 /**
  * ============================================================================
- * DATA SERVICE - ROBUST HYBRID ARCHITECTURE
+ * DATA SERVICE - CLOUD FIRST ARCHITECTURE
  * 
  * Strategy:
- * 1. READ: Merge Local + Cloud (Prefer Cloud for updates, Prefer Local for recent creates)
- * 2. WRITE: Local First (Optimistic), then Sync to Supabase with proper Field Mapping.
+ * 1. READ: Always attempt to fetch from Supabase first.
+ * 2. WRITE: Always write to Supabase.
+ * 3. FALLBACK: LocalStorage is only used if Supabase is unreachable (Temporary Storage Area).
  * ============================================================================
  */
 
@@ -18,55 +19,9 @@ const ADMIN_EMAILS = [
   'niceleung@gmail.com'
 ];
 
-// --- MAPPING HELPERS (Frontend CamelCase <-> DB SnakeCase) ---
-
-const mapDBUserToFrontend = (u: any): User => ({
-  id: u.id || '',
-  email: u.email || '',
-  password: u.password || '', // Note: In production, password shouldn't be returned plainly
-  name: u.name || 'Member',
-  avatar: u.avatar || '😀',
-  points: u.points || 0,
-  role: u.role || 'user',
-  // Map snake_case DB columns to camelCase Frontend props
-  vipLevel: u.vip_level || u.vipLevel || 1,
-  solAddress: u.sol_address || u.solAddress || '',
-  gender: u.gender || 'O',
-  phone: u.phone || '',
-  address: u.address || '',
-  // Handle Date conversion (Supabase returns ISO strings, Frontend wants Timestamp numbers)
-  joinedAt: u.joined_at ? new Date(u.joined_at).getTime() : (u.joinedAt || Date.now()),
-  lastLogin: u.last_login ? new Date(u.last_login).getTime() : (u.lastLogin || Date.now()),
-});
-
-const mapFrontendUserToDB = (user: User): any => {
-  return {
-    id: user.id,
-    email: user.email,
-    password: user.password,
-    name: user.name,
-    avatar: user.avatar,
-    points: user.points,
-    role: user.role,
-    // Convert to snake_case for DB
-    vip_level: user.vipLevel,
-    sol_address: user.solAddress,
-    gender: user.gender,
-    phone: user.phone,
-    address: user.address,
-    // Convert Timestamps to ISO Strings for DB
-    joined_at: new Date(user.joinedAt).toISOString(),
-    last_login: new Date(user.lastLogin || Date.now()).toISOString(),
-  };
-};
-
 // --- USERS ---
 
 export const getUsers = async (): Promise<User[]> => {
-  // 1. Get Local Data First (The immediate source of truth for new registers)
-  const cachedStr = localStorage.getItem('hker_users_cache');
-  let localUsers: User[] = cachedStr ? JSON.parse(cachedStr) : [];
-
   const isConnected = await checkSupabaseConnection();
   if (isConnected) {
     const { data, error } = await supabase
@@ -74,70 +29,39 @@ export const getUsers = async (): Promise<User[]> => {
       .select('*');
       
     if (!error && data) {
-      // SMART MERGE STRATEGY:
-      // Combine Cloud data with Local data. 
-      // If a user exists in both, use Cloud (it might have updates).
-      // If a user exists ONLY in Local (newly registered), KEEP IT.
-      
-      const userMap = new Map<string, User>();
-      
-      // Load Cloud users first (Mapping DB -> Frontend)
-      data.forEach((u: any) => {
-          const frontendUser = mapDBUserToFrontend(u);
-          userMap.set(frontendUser.id, frontendUser);
-      });
-      
-      // Merge Local users if they are missing from Cloud
-      localUsers.forEach(u => {
-          if (!userMap.has(u.id)) {
-              userMap.set(u.id, u);
-          }
-      });
-
-      const mergedUsers = Array.from(userMap.values());
-      const sorted = mergedUsers.sort((a, b) => (b.joinedAt || 0) - (a.joinedAt || 0));
-      
-      // Update Cache with the merged list
+      // Sort in memory
+      const sorted = (data as User[]).sort((a, b) => (b.joinedAt || 0) - (a.joinedAt || 0));
       localStorage.setItem('hker_users_cache', JSON.stringify(sorted));
       return sorted;
     }
   }
-  
-  // Fallback: If cloud fails or returns error, return what we have locally
-  return localUsers;
+  // Fallback
+  const cached = localStorage.getItem('hker_users_cache');
+  return cached ? JSON.parse(cached) : [];
 };
 
 export const saveUser = async (user: User): Promise<boolean> => {
-  // 1. Update Local Cache (Optimistic UI - Always Succeeds)
-  try {
-    const cachedUsers = await getUsers();
-    const existingIdx = cachedUsers.findIndex(u => u.id === user.id);
-    if (existingIdx >= 0) cachedUsers[existingIdx] = user;
-    else cachedUsers.push(user);
-    localStorage.setItem('hker_users_cache', JSON.stringify(cachedUsers));
-  } catch (e) {
-    console.error("Local Storage Error:", e);
-    return false;
-  }
-
-  // 2. Sync to Cloud (Best Effort) with MAPPING
   const isConnected = await checkSupabaseConnection();
+  
+  // 1. Update Local Cache (Optimistic UI)
+  const cachedUsers = await getUsers();
+  const existingIdx = cachedUsers.findIndex(u => u.id === user.id);
+  if (existingIdx >= 0) cachedUsers[existingIdx] = user;
+  else cachedUsers.push(user);
+  localStorage.setItem('hker_users_cache', JSON.stringify(cachedUsers));
+
+  // 2. Sync to Cloud
   if (isConnected) {
-    // Prepare DB-ready object (snake_case)
-    const dbPayload = mapFrontendUserToDB(user);
-    
-    // Attempt Upsert
     const { error } = await supabase
       .from('users')
-      .upsert(dbPayload);
+      .upsert(user);
       
     if (error) {
-      console.warn("Supabase Sync Failed (Fields mismatch or RLS):", error.message, error.details);
-      // We return true because local save succeeded, so user experience is not blocked.
-      return true; 
+      console.error("Supabase Save User Error:", JSON.stringify(error, null, 2));
+      return false;
     }
+    return true;
   }
-  
   return true; 
 };
 
@@ -158,10 +82,11 @@ export const updateHeartbeat = async (userId: string): Promise<void> => {
   const isConnected = await checkSupabaseConnection();
   
   if (isConnected) {
-    // Map 'lastLogin' to 'last_login' for DB
-    await supabase.from('users').update({ last_login: new Date(now).toISOString() }).eq('id', userId);
+    // Efficiently update only the lastLogin field
+    await supabase.from('users').update({ lastLogin: now }).eq('id', userId);
   }
   
+  // Update local cache quietly to keep UI consistent
   const cached = localStorage.getItem('hker_users_cache');
   if (cached) {
     const users = JSON.parse(cached) as User[];
@@ -174,6 +99,7 @@ export const updateHeartbeat = async (userId: string): Promise<void> => {
 };
 
 export const getStats = async (): Promise<Stat> => {
+  // Always fetch fresh data for stats to ensure sync across devices
   const users = await getUsers();
   
   const now = Date.now();
@@ -181,12 +107,20 @@ export const getStats = async (): Promise<Stat> => {
   todayStart.setHours(0,0,0,0);
   const todayTs = todayStart.getTime();
 
+  // 1. Total Users
   const totalUsers = users.length;
+  
+  // 2. Today Registers (Joined after 00:00 today)
   const todayRegisters = users.filter(u => (u.joinedAt || 0) >= todayTs).length;
+
+  // 3. Today Visits (Active Members)
+  // Logic: User joined today OR User logged in today
   const todayVisits = users.filter(u => {
       const lastActive = u.lastLogin || u.joinedAt || 0;
       return lastActive >= todayTs;
   }).length;
+
+  // 4. Online Users (Heartbeat within last 5 minutes)
   const onlineThreshold = 5 * 60 * 1000; 
   const onlineUsers = users.filter(u => {
       const lastActive = u.lastLogin || u.joinedAt || 0;
@@ -194,31 +128,39 @@ export const getStats = async (): Promise<Stat> => {
   }).length;
 
   return {
-    onlineUsers: Math.max(onlineUsers, 1),
+    onlineUsers: Math.max(onlineUsers, 1), // At least 1 (the admin themselves)
     totalUsers,
     todayRegisters,
-    todayVisits: Math.max(todayVisits, 1)
+    todayVisits: Math.max(todayVisits, 1) // At least the current user
   };
 };
 
 // --- POSTS ---
 
+// Helper: Map raw DB object to Frontend Post Type
 export const mapDBPostToFrontend = (p: any): Post => ({
+  // FIX 22P02: Convert BigInt ID to string for frontend compatibility
   id: String(p.id),
+  // Titles
   titleCN: p.title || p.titleCN,
-  titleEN: p.title_en || p.titleEN || p.title,
-  contentCN: p.contentCN || p.content_cn || p.content,
-  contentEN: p.content_en || p.contentEN || p.content,
+  titleEN: p.title_en || p.titleEN || p.title, // Fallback to title if EN missing
+  // Contents
+  contentCN: p.contentCN || p.content_cn || p.content, // Prioritize explicit CN column
+  contentEN: p.content_en || p.contentEN || p.content, // Fallback to content
+  // Meta
   region: p.region,
   topic: p.category || p.topic, 
   sourceUrl: p.url || p.sourceUrl,
   sourceName: p.source_name || p.sourceName,
+  // Author
   authorId: p.author_id || p.authorId,
   authorName: p.author || p.authorName || (p.is_bot || p.isBot ? 'HKER Bot 🤖' : 'HKER Member'),
-  authorAvatar: (p.is_bot || p.isBot ? '🤖' : '😀'),
+  authorAvatar: (p.is_bot || p.isBot ? '🤖' : '😀'), // Generated client-side
   isBot: !!(p.is_bot || p.isBot),
+  // Stats
   likes: p.likes || 0,
   loves: p.loves || 0,
+  // Time
   timestamp: p.timestamp 
     || (p.created_at ? new Date(p.created_at).getTime() : 0)
     || (p.inserted_at ? new Date(p.inserted_at).getTime() : Date.now()),
@@ -230,11 +172,13 @@ export const getPosts = async (): Promise<Post[]> => {
     const { data, error } = await supabase
       .from('posts')
       .select('*')
-      .order('created_at', { ascending: false })
+      .order('created_at', { ascending: false }) // Added Sort: Newest first
       .limit(100); 
       
     if (!error && data) {
+      // MAP DB -> FRONTEND (camelCase)
       const hydratedPosts = data.map(mapDBPostToFrontend);
+
       localStorage.setItem('hker_posts_cache', JSON.stringify(hydratedPosts));
       return hydratedPosts as Post[];
     }
@@ -246,34 +190,46 @@ export const getPosts = async (): Promise<Post[]> => {
 export const savePost = async (post: Post): Promise<boolean> => {
   const isConnected = await checkSupabaseConnection();
   if (isConnected) {
+    // MAP FRONTEND (camelCase) -> DB (Correct Schema Columns)
     const dbPost: any = {
-      title: post.titleCN,
-      content: post.contentEN,
-      contentCN: post.contentCN,
+      title: post.titleCN,        // DB 'title'
+      // title_en: post.titleEN,
+      content: post.contentEN,    // DB 'content'
+      contentCN: post.contentCN,  // DB 'contentCN'
       region: post.region,
       category: post.topic,
       url: post.sourceUrl,
-      author: post.authorName,
-      author_id: post.authorId,
+      author: post.authorName,    // DB 'author'
+      author_id: post.authorId,   // DB 'author_id'
+      // is_bot: post.isBot,
+      // likes: post.likes,
+      // loves: post.loves
     };
 
+    // FIX 23502 (Not Null ID) & 22P02 (BigInt):
     if (post.id && !post.id.includes('-') && !isNaN(Number(post.id))) {
       dbPost.id = parseInt(post.id);
     } else {
+      // Generate numeric ID for new post using timestamp + random to fit in BigInt
       dbPost.id = Date.now() + Math.floor(Math.random() * 100000);
     }
 
+    // Remove undefined keys
     Object.keys(dbPost).forEach(key => {
-        if (dbPost[key] === undefined) delete dbPost[key];
+        if (dbPost[key] === undefined) {
+            delete dbPost[key];
+        }
     });
 
     const { error } = await supabase.from('posts').upsert(dbPost);
     if (error) {
+      // Fix 23505: Gracefully handle duplicate key (URL) errors
       if (
         error.code === '23505' || 
         error.message?.includes('duplicate key') || 
         error.details?.includes('already exists')
       ) {
+        console.warn("Post already exists (Duplicate URL). Skipping to prevent error.");
         return true; 
       }
       console.error("Supabase Save Post Error:", JSON.stringify(error, null, 2));
@@ -286,8 +242,11 @@ export const savePost = async (post: Post): Promise<boolean> => {
 
 export const deletePost = async (postId: string): Promise<void> => {
   const isConnected = await checkSupabaseConnection();
-  if (isConnected && !postId.includes('-')) {
-    await supabase.from('posts').delete().eq('id', postId);
+  if (isConnected) {
+    // Only attempt delete if ID is valid (not a temp UUID)
+    if (!postId.includes('-')) {
+        await supabase.from('posts').delete().eq('id', postId);
+    }
   }
   const posts = await getPosts();
   const newPosts = posts.filter(p => p.id !== postId);
@@ -308,18 +267,19 @@ export const updatePostInteraction = async (postId: string, type: 'like' | 'love
   }
 };
 
+// --- POINTS SYSTEM ---
+
 export const updatePoints = async (userId: string, amount: number, mode: 'add' | 'subtract' | 'set'): Promise<number> => {
   const isConnected = await checkSupabaseConnection();
   let newBalance = 0;
 
-  // Prefer local state to ensure we have the latest user data before calculating
-  const users = await getUsers();
-  let currentUser = users.find(u => u.id === userId) || null;
-
-  if (!currentUser && isConnected) {
-     // If not in local/cache, try fetching directly
-     const { data } = await supabase.from('users').select('*').eq('id', userId).single();
-     if(data) currentUser = mapDBUserToFrontend(data);
+  let currentUser: User | null = null;
+  if (isConnected) {
+    const { data } = await supabase.from('users').select('*').eq('id', userId).single();
+    currentUser = data;
+  } else {
+    const users = await getUsers();
+    currentUser = users.find(u => u.id === userId) || null;
   }
 
   if (!currentUser) return 0;
