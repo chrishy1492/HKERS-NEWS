@@ -1,19 +1,17 @@
 import { createClient } from '@supabase/supabase-js';
 
-// Provided credentials
-const SUPABASE_URL = 'https://wgkcwnyxjhnlkrdjvzyj.supabase.co';
-const SUPABASE_KEY = 'sb_publishable_O_E1KKVTudZg2Ipob5E14g_eExGWDBG';
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
-export const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-// Helper to check if we can actually connect (simple ping)
-export const checkSupabaseConnection = async () => {
+// 檢查連線狀態的函式
+export const checkSupabaseConnection = async (): Promise<boolean> => {
   try {
-    const { count, error } = await supabase.from('users').select('*', { count: 'exact', head: true });
-    if (error) throw error;
-    return true;
-  } catch (e) {
-    console.warn("Supabase connection check failed (Tables might not exist yet), falling back to LocalStorage mode.", e);
+    const { data, error } = await supabase.from('users').select('count', { count: 'exact', head: true });
+    return !error;
+  } catch (err) {
+    console.error("Supabase 連線失敗:", err);
     return false;
   }
 };
