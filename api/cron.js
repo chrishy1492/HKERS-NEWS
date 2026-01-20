@@ -49,7 +49,7 @@ export default async function handler(req, res) {
         const fetchNewsAPI = async () => {
             if (!KEYS.NEWS_API) return [];
             try {
-                // 擴大關鍵字: 香港 OR 國際 OR 科技
+                // 擴大關鍵字: 香港 OR 國際 OR 科技 OR 經濟
                 const q = encodeURIComponent('香港 OR 國際 OR 科技 OR 經濟');
                 // sortBy=publishedAt (最新), pageSize=50 (抓更多)
                 const url = `https://newsapi.org/v2/everything?q=${q}&language=zh&sortBy=publishedAt&pageSize=50&apiKey=${KEYS.NEWS_API}`;
