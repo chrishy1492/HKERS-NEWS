@@ -296,6 +296,7 @@ export default function App() {
     }
   };
 
+  // --- FIXED: WITHDRAW LOGIC ---
   const handleWithdraw = async (amount: number) => {
     if (!user) return;
     if (amount < 1000000) {
@@ -311,18 +312,22 @@ export default function App() {
       return;
     }
 
-    // Deduct points
-    const newPoints = await DataService.updatePoints(user.id, amount, 'subtract');
-    setUser(prev => prev ? ({ ...prev, points: newPoints }) : null);
-
-    // Simulate Email Logic
-    addLog(`Withdrawal Request: ${user.email} - ${amount} HKER`);
-
-    // Open Google Form directly
-    window.open('https://docs.google.com/forms/d/e/1FAIpQLSf370oikUL8JlupcS8BO8bbc-7DZg7KP7OJ5tsf3P9UkgNgtA/viewform?usp=publish-editor', '_blank');
-
-    // Show Alert (Instruction to screenshot)
-    alert(`【申請成功】\n請截圖此訊息！(Screenshot this message)\n\n提幣數量: ${amount}\n錢包: ${user.solAddress}\n\nGoogle Form 已在新視窗開啟，請前往填寫資料並上傳此截圖。`);
+    // 1. DEDUCT POINTS FIRST (Await it!)
+    try {
+      const newPoints = await DataService.updatePoints(user.id, amount, 'subtract');
+      
+      // 2. Update UI Immediately
+      setUser(prev => prev ? ({ ...prev, points: newPoints }) : null);
+      
+      // 3. Log & Open Form only AFTER deduction
+      addLog(`Withdrawal Request: ${user.email} - ${amount} HKER`);
+      window.open('https://docs.google.com/forms/d/e/1FAIpQLSf370oikUL8JlupcS8BO8bbc-7DZg7KP7OJ5tsf3P9UkgNgtA/viewform?usp=publish-editor', '_blank');
+      
+      alert(`【申請成功】\n已扣除 ${amount} 積分。\n剩餘積分: ${newPoints}\n\n請截圖此訊息！(Screenshot this message)\nGoogle Form 已在新視窗開啟，請前往填寫資料並上傳此截圖。`);
+    } catch (e) {
+      console.error("Withdrawal error:", e);
+      alert("系統錯誤，扣分失敗，請稍後再試。");
+    }
   };
 
   // --- INTERACTION LOGIC ---
@@ -433,8 +438,20 @@ export default function App() {
     const handleGameBack = () => setSelectedGame(null);
     const handlePoints = async (amt: number) => {
        if (!user) return;
-       const newPts = await DataService.updatePoints(user.id, amt, 'add');
-       setUser({ ...user, points: newPts });
+       // 1. Optimistic Update UI state immediately
+       const expectedPoints = user.points + amt;
+       setUser({ ...user, points: expectedPoints });
+
+       // 2. Persist to DB/Local
+       try {
+           const newPts = await DataService.updatePoints(user.id, amt, 'add');
+           // Sync final state (in case of drift)
+           setUser(prev => prev ? ({ ...prev, points: newPts }) : null);
+       } catch (e) {
+           console.error("Points update failed", e);
+           // Optional: Rollback on critical error, though unlikely due to local fallback
+       }
+       
        notify(amt > 0 ? `贏得 ${amt} 分!` : `扣除 ${Math.abs(amt)} 分`, amt > 0 ? 'success' : 'info');
     };
 

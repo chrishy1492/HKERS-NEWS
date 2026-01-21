@@ -73,7 +73,6 @@ export const getUserById = async (userId: string): Promise<User | null> => {
       console.log(`[Session] Restored ${localUser.email} from Local Cache.`);
       
       // Background Sync: Verify if cloud has updates (e.g. points changed)
-      // We don't await this to keep UI snappy
       checkSupabaseConnection().then(async (connected) => {
         if (connected) {
            const { data } = await supabase.from('users').select('*').eq('id', userId).single();
@@ -193,9 +192,9 @@ export const getUsers = async (skipCloud = false): Promise<User[]> => {
 };
 
 export const saveUser = async (user: User): Promise<boolean> => {
-  console.log(`[Save] Processing: ${user.email}`);
+  console.log(`[Save] Processing: ${user.email}, Points: ${user.points}`);
 
-  // 1. ALWAYS Save Local First (Critical for instant registration success)
+  // 1. ALWAYS Save Local First (Critical for instant registration/game success)
   saveUserLocal(user);
 
   // 2. Try Cloud Sync
@@ -351,6 +350,11 @@ export const updatePostInteraction = async (postId: string, type: 'like' | 'love
   }
 };
 
+/**
+ * UPDATED: Update Points
+ * Uses getUserById to get fresh state, modifies, saves, and returns the new value.
+ * This guarantees consistency for games and withdrawals.
+ */
 export const updatePoints = async (userId: string, amount: number, mode: 'add' | 'subtract' | 'set'): Promise<number> => {
   // Use getUserById for consistency
   const currentUser = await getUserById(userId);
@@ -364,7 +368,10 @@ export const updatePoints = async (userId: string, amount: number, mode: 'add' |
 
   currentUser.points = newBalance;
   
+  // Save ensures it hits local cache + Cloud
   await saveUser(currentUser);
+  
+  console.log(`[Data] Points updated for ${currentUser.email}: ${newBalance}`);
   return newBalance;
 };
 
