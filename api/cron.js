@@ -1,6 +1,5 @@
 
-// api/cron.js - 真實自動化新聞發佈系統 (Vercel Serverless Function)
-// v5.1 Multi-Source Hybrid Edition
+// api/cron.js - 真實自動化新聞發佈系統 (Hybrid V5)
 // Features: NewsAPI 'Everything' + RSS Fallback + Deduplication + Error Handling
 
 import { createClient } from '@supabase/supabase-js';
@@ -9,7 +8,7 @@ import { GoogleGenAI } from "@google/genai";
 // --- 設定檔 ---
 const FETCH_LIMIT_PER_RUN = 6; // 每小時目標 6 則
 
-// RSS 來源清單 (無需 Key，穩定備援)
+// RSS 來源清單
 const RSS_SOURCES = [
     { url: 'https://news.google.com/rss?hl=zh-TW&gl=TW&ceid=TW:zh-Hant', name: 'Google News TW' },
     { url: 'https://feeds.bbci.co.uk/zhongwen/trad/rss.xml', name: 'BBC 中文' },
@@ -17,7 +16,7 @@ const RSS_SOURCES = [
     { url: 'https://www.hk01.com/rss/channel/2', name: 'HK01' }
 ];
 
-// Fallback Keys (若 process.env 未設定)
+// Keys (Fallback)
 const KEYS = {
     SB_URL: process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://wgkcwnyxjhnlkrdjvzyj.supabase.co',
     SB_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY || 'sb_secret_ePjPbrB6vdlbMuQmOr5-6A_bn3l297A',
@@ -33,23 +32,23 @@ export default async function handler(req, res) {
     const supabase = createClient(KEYS.SB_URL, KEYS.SB_KEY, { auth: { persistSession: false } });
     const ai = new GoogleGenAI({ apiKey: KEYS.GEMINI });
 
-    console.log(`[CRON] 🚀 Job v5.1 Started.`);
+    console.log(`[CRON] 🚀 Job Hybrid V5 Started.`);
 
     let stats = { found: 0, published: 0, duplicates: 0, errors: 0 };
     
     // 時間過濾: 只抓最近 1 小時 (3600000ms)
-    // 但為了保底，若 NewsAPI 資料較舊，RSS 通常是即時的
-    const oneHourAgo = Date.now() - 3600000;
+    // RSS 比較即時，NewsAPI 有時會有延遲，放寬到 2 小時以確保有內容
+    const timeFilter = Date.now() - (2 * 60 * 60 * 1000); 
 
     try {
         // --- 2. 抓取資料 (Fetch Data) ---
         let allArticles = [];
 
-        // A. NewsAPI (Everything Endpoint - 抓取量大)
+        // A. NewsAPI (Everything Endpoint)
         const fetchNewsAPI = async () => {
             if (!KEYS.NEWS_API) return [];
             try {
-                // 擴大關鍵字: 香港 OR 國際 OR 科技 OR 經濟
+                // 擴大關鍵字
                 const q = encodeURIComponent('香港 OR 國際 OR 科技 OR 經濟');
                 // sortBy=publishedAt (最新), pageSize=50 (抓更多)
                 const url = `https://newsapi.org/v2/everything?q=${q}&language=zh&sortBy=publishedAt&pageSize=50&apiKey=${KEYS.NEWS_API}`;
@@ -59,8 +58,7 @@ export default async function handler(req, res) {
                 const data = await resp.json();
                 
                 if (data.articles) {
-                    // 簡單過濾一下時間，避免太舊的
-                    return data.articles.filter(a => new Date(a.publishedAt).getTime() > oneHourAgo);
+                    return data.articles.filter(a => new Date(a.publishedAt).getTime() > timeFilter);
                 }
                 return [];
             } catch (e) {
@@ -69,7 +67,7 @@ export default async function handler(req, res) {
             }
         };
 
-        // B. RSS Sources (穩定備援)
+        // B. RSS Sources
         const fetchRSS = async (source) => {
             try {
                 console.log(`[CRON] 📡 Fetching RSS: ${source.name}`);
@@ -93,10 +91,9 @@ export default async function handler(req, res) {
                     const pubDateStr = getTag('pubDate') || getTag('dc:date');
                     
                     if (title && link) {
-                        // 時間檢查
                         if (pubDateStr) {
                            const t = new Date(pubDateStr).getTime();
-                           if (!isNaN(t) && t < oneHourAgo) continue; 
+                           if (!isNaN(t) && t < timeFilter) continue; 
                         }
                         
                         items.push({
@@ -132,7 +129,7 @@ export default async function handler(req, res) {
 
         // --- 3. 處理與發佈 (Process & Publish) ---
         for (const news of allArticles) {
-            // 達到數量限制即停止 (5-6 則)
+            // 達到數量限制即停止
             if (stats.published >= FETCH_LIMIT_PER_RUN) break;
 
             if (!news.title || news.title.length < 5) continue;

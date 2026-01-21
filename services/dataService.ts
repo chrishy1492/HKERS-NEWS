@@ -192,8 +192,6 @@ export const getUsers = async (skipCloud = false): Promise<User[]> => {
 };
 
 export const saveUser = async (user: User): Promise<boolean> => {
-  console.log(`[Save] Processing: ${user.email}, Points: ${user.points}`);
-
   // 1. ALWAYS Save Local First (Critical for instant registration/game success)
   saveUserLocal(user);
 
@@ -351,27 +349,35 @@ export const updatePostInteraction = async (postId: string, type: 'like' | 'love
 };
 
 /**
- * UPDATED: Update Points
- * Uses getUserById to get fresh state, modifies, saves, and returns the new value.
- * This guarantees consistency for games and withdrawals.
+ * FIXED: Update Points with strict state management.
+ * Fetches fresh user, modifies points, saves to both local & cloud, and RETURNS the new balance.
  */
 export const updatePoints = async (userId: string, amount: number, mode: 'add' | 'subtract' | 'set'): Promise<number> => {
-  // Use getUserById for consistency
-  const currentUser = await getUserById(userId);
+  // 1. Get FRESH state (Critical: do not rely on stale UI state)
+  // Force local read first to ensure we have the base object
+  const users = await getUsers(true); 
+  const currentUser = users.find(u => u.id === userId);
 
-  if (!currentUser) return 0;
+  if (!currentUser) {
+    console.error("[Data] updatePoints failed: User not found locally");
+    return 0;
+  }
 
-  let newBalance = 0;
+  // 2. Calculate New Balance
+  let newBalance = currentUser.points;
   if (mode === 'set') newBalance = amount;
   else if (mode === 'add') newBalance = (currentUser.points || 0) + amount;
   else if (mode === 'subtract') newBalance = Math.max(0, (currentUser.points || 0) - amount);
 
+  // 3. Mutate Object
   currentUser.points = newBalance;
   
-  // Save ensures it hits local cache + Cloud
+  // 4. Save (This functions writes to LocalStorage immediately + async Cloud sync)
   await saveUser(currentUser);
   
-  console.log(`[Data] Points updated for ${currentUser.email}: ${newBalance}`);
+  console.log(`[Data] Points updated for ${currentUser.email}: ${newBalance} (Mode: ${mode} ${amount})`);
+  
+  // 5. Return confirmed balance
   return newBalance;
 };
 
