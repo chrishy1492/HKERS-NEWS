@@ -63,17 +63,9 @@ export default function App() {
     const checkSession = async () => {
       const storedUserId = localStorage.getItem('hker_user_id');
       if (storedUserId) {
-        // Try to retrieve user from local cache first for speed
-        const users = await DataService.getUsers();
-        let found = users.find(u => u.id === storedUserId);
-        
-        // If not in local cache, try to fetch from DB specifically
-        if (!found) {
-           const { data } = await supabase.from('users').select('*').eq('id', storedUserId).single();
-           if (data) {
-             found = DataService.mapDBUserToFrontend(data);
-           }
-        }
+        // Fix: Use getUserById for specific retrieval instead of fetching full list
+        // This ensures local cache is prioritized, preventing auto-logout on refresh
+        const found = await DataService.getUserById(storedUserId);
 
         if (found) {
           // Send Heartbeat immediately on restore
@@ -82,7 +74,8 @@ export default function App() {
           setShowAuthModal(false); // Skip login screen if session valid
           addLog(`Session restored for: ${found.email}`);
         } else {
-          localStorage.removeItem('hker_user_id'); // Clean invalid session
+          // Only clear if we explicitly checked and found nothing in Local OR Cloud
+          localStorage.removeItem('hker_user_id'); 
         }
       }
     };
@@ -99,10 +92,9 @@ export default function App() {
       // HEARTBEAT: Keep user "Online"
       DataService.updateHeartbeat(user.id).catch(err => console.error("Heartbeat failed", err));
 
-      // Refresh User Points/Data in background
-      const { data } = await supabase.from('users').select('*').eq('id', user.id).single();
-      if (data) {
-         const freshUser = DataService.mapDBUserToFrontend(data);
+      // Refresh User Points/Data in background using specific query
+      const freshUser = await DataService.getUserById(user.id);
+      if (freshUser) {
          if (freshUser.points !== user.points) {
             setUser(freshUser);
          }
