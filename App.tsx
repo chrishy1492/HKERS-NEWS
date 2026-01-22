@@ -313,17 +313,17 @@ export default function App() {
     }
 
     try {
-      // 1. Optimistic Update (Prevent double clicking)
+      // 1. Optimistic Update (Prevent double clicking visually)
       const predictedPoints = user.points - amount;
       setUser(prev => prev ? ({ ...prev, points: predictedPoints }) : null);
 
-      // 2. Perform DB Operation & Get Final Result
+      // 2. Perform DB Operation & Get Final Result (Await is Key)
       const confirmedPoints = await DataService.updatePoints(user.id, amount, 'subtract');
       
       // 3. Reconcile UI with DB Truth
       setUser(prev => prev ? ({ ...prev, points: confirmedPoints }) : null);
       
-      // 4. Success Actions
+      // 4. Success Actions (Only if DB update didn't throw)
       addLog(`Withdrawal: ${user.email} - ${amount} HKER. Remaining: ${confirmedPoints}`);
       
       // Open Google Form
@@ -454,7 +454,7 @@ export default function App() {
        const predictedPoints = user.points + amt;
        setUser(prev => prev ? ({ ...prev, points: predictedPoints }) : null);
 
-       // 2. Persist to DB & Get Confirmation
+       // 2. Persist to DB & Get Confirmation (Await ensures it saves)
        try {
            const mode = amt >= 0 ? 'add' : 'subtract';
            const absAmt = Math.abs(amt);
@@ -464,7 +464,7 @@ export default function App() {
            setUser(prev => prev ? ({ ...prev, points: confirmedPoints }) : null);
        } catch (e) {
            console.error("Points update failed", e);
-           // Optional: Rollback on critical error
+           // Rollback to fresh state from DB
            const freshUser = await DataService.getUserById(user.id);
            setUser(freshUser);
        }

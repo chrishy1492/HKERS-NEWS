@@ -1,6 +1,6 @@
 
-// api/cron.js - 真實自動化新聞發佈系統 (Hybrid V5)
-// Features: NewsAPI 'Everything' + RSS Fallback + Deduplication + Error Handling
+// api/cron.js - 真實自動化新聞發佈系統 (Hybrid V5.2)
+// Features: NewsAPI 'Everything' + RSS Fallback + Deduplication + Error Handling + Strict 1hr Filter
 
 import { createClient } from '@supabase/supabase-js';
 import { GoogleGenAI } from "@google/genai";
@@ -12,7 +12,7 @@ const FETCH_LIMIT_PER_RUN = 6; // 每小時目標 6 則
 const RSS_SOURCES = [
     { url: 'https://news.google.com/rss?hl=zh-TW&gl=TW&ceid=TW:zh-Hant', name: 'Google News TW' },
     { url: 'https://feeds.bbci.co.uk/zhongwen/trad/rss.xml', name: 'BBC 中文' },
-    { url: 'https://rthk.hk/rthk/news/rss/c/expressnews.xml', name: 'RTHK' },
+    { url: 'https://news.rthk.hk/rthk/ch/news/rss/c/expressnews.xml', name: 'RTHK' },
     { url: 'https://www.hk01.com/rss/channel/2', name: 'HK01' }
 ];
 
@@ -24,6 +24,31 @@ const KEYS = {
     NEWS_API: process.env.NEWS_API_KEY || '64da19cb45c646c6bf0f73925c5bd611'
 };
 
+// RSS Helper (Zero dependency)
+function parseRSS(xml, sourceName) {
+  const items = [];
+  const itemRegex = /<item>([\s\S]*?)<\/item>/g;
+  let match;
+  while ((match = itemRegex.exec(xml)) !== null) {
+    const itemStr = match[1];
+    const titleMatch = itemStr.match(/<title><!\[CDATA\[(.*?)\]\]><\/title>/) || itemStr.match(/<title>(.*?)<\/title>/);
+    const linkMatch = itemStr.match(/<link>(.*?)<\/link>/);
+    const descMatch = itemStr.match(/<description><!\[CDATA\[(.*?)\]\]><\/description>/) || itemStr.match(/<description>(.*?)<\/description>/);
+    const dateMatch = itemStr.match(/<pubDate>(.*?)<\/pubDate>/) || itemStr.match(/<dc:date>(.*?)<\/dc:date>/);
+
+    if (titleMatch && linkMatch) {
+      items.push({
+        title: titleMatch[1].trim(),
+        url: linkMatch[1].trim(),
+        description: descMatch ? descMatch[1].replace(/<[^>]+>/g, '').substring(0, 500) : '',
+        publishedAt: dateMatch ? new Date(dateMatch[1]).toISOString() : new Date().toISOString(),
+        source: { name: sourceName }
+      });
+    }
+  }
+  return items;
+}
+
 export default async function handler(req, res) {
     res.setHeader('Cache-Control', 'no-store, max-age=0');
     const startTime = Date.now();
@@ -32,13 +57,12 @@ export default async function handler(req, res) {
     const supabase = createClient(KEYS.SB_URL, KEYS.SB_KEY, { auth: { persistSession: false } });
     const ai = new GoogleGenAI({ apiKey: KEYS.GEMINI });
 
-    console.log(`[CRON] 🚀 Job Hybrid V5 Started.`);
+    console.log(`[CRON] 🚀 Job Hybrid V5.2 Started.`);
 
     let stats = { found: 0, published: 0, duplicates: 0, errors: 0 };
     
     // 時間過濾: 只抓最近 1 小時 (3600000ms)
-    // RSS 比較即時，NewsAPI 有時會有延遲，放寬到 2 小時以確保有內容
-    const timeFilter = Date.now() - (2 * 60 * 60 * 1000); 
+    const timeFilter = Date.now() - 3600000; 
 
     try {
         // --- 2. 抓取資料 (Fetch Data) ---
@@ -51,14 +75,17 @@ export default async function handler(req, res) {
                 // 擴大關鍵字
                 const q = encodeURIComponent('香港 OR 國際 OR 科技 OR 經濟');
                 // sortBy=publishedAt (最新), pageSize=50 (抓更多)
-                const url = `https://newsapi.org/v2/everything?q=${q}&language=zh&sortBy=publishedAt&pageSize=50&apiKey=${KEYS.NEWS_API}`;
+                // from=1 hour ago
+                const fromDate = new Date(timeFilter).toISOString();
+                
+                const url = `https://newsapi.org/v2/everything?q=${q}&language=zh&sortBy=publishedAt&pageSize=50&from=${fromDate}&apiKey=${KEYS.NEWS_API}`;
                 
                 console.log('[CRON] 📡 Fetching NewsAPI (Everything)...');
                 const resp = await fetch(url);
                 const data = await resp.json();
                 
                 if (data.articles) {
-                    return data.articles.filter(a => new Date(a.publishedAt).getTime() > timeFilter);
+                    return data.articles;
                 }
                 return [];
             } catch (e) {
@@ -73,40 +100,12 @@ export default async function handler(req, res) {
                 console.log(`[CRON] 📡 Fetching RSS: ${source.name}`);
                 const resp = await fetch(source.url);
                 const xml = await resp.text();
+                const items = parseRSS(xml, source.name);
                 
-                const items = [];
-                // 簡單 Regex 解析 RSS
-                const itemRegex = /<item>([\s\S]*?)<\/item>/g;
-                let match;
-                while ((match = itemRegex.exec(xml)) !== null) {
-                    const inner = match[1];
-                    const getTag = (tag) => {
-                        const m = new RegExp(`<${tag}[^>]*>(.*?)<\/${tag}>`, 's').exec(inner);
-                        return m ? m[1].replace(/<!\[CDATA\[|\]\]>/g, '').trim() : null;
-                    };
-                    
-                    const title = getTag('title');
-                    const link = getTag('link');
-                    const desc = (getTag('description') || '').replace(/<[^>]+>/g, '').substring(0, 300);
-                    const pubDateStr = getTag('pubDate') || getTag('dc:date');
-                    
-                    if (title && link) {
-                        if (pubDateStr) {
-                           const t = new Date(pubDateStr).getTime();
-                           if (!isNaN(t) && t < timeFilter) continue; 
-                        }
-                        
-                        items.push({
-                            title,
-                            description: desc || title,
-                            url: link,
-                            source: { name: source.name },
-                            publishedAt: new Date().toISOString()
-                        });
-                    }
-                }
-                return items;
+                // Filter by time immediately
+                return items.filter(i => new Date(i.publishedAt).getTime() > timeFilter);
             } catch (e) {
+                console.error(`[CRON] RSS Error (${source.name}):`, e.message);
                 return [];
             }
         };
@@ -121,7 +120,7 @@ export default async function handler(req, res) {
         allArticles = [...newsApiItems];
         rssResults.forEach(list => allArticles = [...allArticles, ...list]);
 
-        console.log(`[CRON] Total Fresh Articles Found: ${allArticles.length}`);
+        console.log(`[CRON] Total Fresh Articles Found (Past 1h): ${allArticles.length}`);
         stats.found = allArticles.length;
 
         // 隨機打亂

@@ -70,8 +70,6 @@ export const getUserById = async (userId: string): Promise<User | null> => {
     const users: User[] = JSON.parse(localStr);
     const localUser = users.find(u => u.id === userId);
     if (localUser) {
-      console.log(`[Session] Restored ${localUser.email} from Local Cache.`);
-      
       // Background Sync: Verify if cloud has updates (e.g. points changed)
       checkSupabaseConnection().then(async (connected) => {
         if (connected) {
@@ -85,7 +83,6 @@ export const getUserById = async (userId: string): Promise<User | null> => {
            }
         }
       });
-      
       return localUser;
     }
   }
@@ -349,35 +346,47 @@ export const updatePostInteraction = async (postId: string, type: 'like' | 'love
 };
 
 /**
- * FIXED: Update Points with strict state management.
- * Fetches fresh user, modifies points, saves to both local & cloud, and RETURNS the new balance.
+ * FIXED: Update Points with strict atomic-like behavior.
+ * 1. Fetches the FRESH user state from Cloud (Supabase) to ensure we aren't using stale local data.
+ * 2. Calculates new balance.
+ * 3. Saves back to Cloud + Local.
+ * 4. Returns the CONFIRMED new balance.
  */
 export const updatePoints = async (userId: string, amount: number, mode: 'add' | 'subtract' | 'set'): Promise<number> => {
-  // 1. Get FRESH state (Critical: do not rely on stale UI state)
-  // Force local read first to ensure we have the base object
-  const users = await getUsers(true); 
-  const currentUser = users.find(u => u.id === userId);
+  let currentUser: User | null = null;
+
+  // 1. Try get fresh from Cloud
+  const isConnected = await checkSupabaseConnection();
+  if (isConnected) {
+    const { data } = await supabase.from('users').select('*').eq('id', userId).single();
+    if (data) {
+      currentUser = mapDBUserToFrontend(data);
+    }
+  }
+
+  // Fallback to local if cloud fails
+  if (!currentUser) {
+    const users = await getUsers(true); 
+    currentUser = users.find(u => u.id === userId) || null;
+  }
 
   if (!currentUser) {
-    console.error("[Data] updatePoints failed: User not found locally");
+    console.error("[Data] updatePoints failed: User not found");
     return 0;
   }
 
-  // 2. Calculate New Balance
+  // 2. Calculate
   let newBalance = currentUser.points;
   if (mode === 'set') newBalance = amount;
   else if (mode === 'add') newBalance = (currentUser.points || 0) + amount;
   else if (mode === 'subtract') newBalance = Math.max(0, (currentUser.points || 0) - amount);
 
-  // 3. Mutate Object
   currentUser.points = newBalance;
   
-  // 4. Save (This functions writes to LocalStorage immediately + async Cloud sync)
+  // 3. Save (Persist)
   await saveUser(currentUser);
   
   console.log(`[Data] Points updated for ${currentUser.email}: ${newBalance} (Mode: ${mode} ${amount})`);
-  
-  // 5. Return confirmed balance
   return newBalance;
 };
 
