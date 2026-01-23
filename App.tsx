@@ -63,18 +63,15 @@ export default function App() {
     const checkSession = async () => {
       const storedUserId = localStorage.getItem('hker_user_id');
       if (storedUserId) {
-        // Fix: Use getUserById for specific retrieval instead of fetching full list
-        // This ensures local cache is prioritized, preventing auto-logout on refresh
+        // Use getUserById which now respects write locks
         const found = await DataService.getUserById(storedUserId);
 
         if (found) {
-          // Send Heartbeat immediately on restore
           await DataService.updateHeartbeat(found.id);
           setUser({ ...found, lastLogin: Date.now() });
-          setShowAuthModal(false); // Skip login screen if session valid
+          setShowAuthModal(false); 
           addLog(`Session restored for: ${found.email}`);
         } else {
-          // Only clear if we explicitly checked and found nothing in Local OR Cloud
           localStorage.removeItem('hker_user_id'); 
         }
       }
@@ -83,18 +80,16 @@ export default function App() {
   }, [addLog]);
 
   const refreshData = useCallback(async () => {
-    // 1. Fetch Posts (Cloud First)
     const fetchedPosts = await DataService.getPosts();
     setPosts(fetchedPosts);
     
-    // 2. Sync User Data if logged in (Update points/level in background)
     if (user) {
-      // HEARTBEAT: Keep user "Online"
       DataService.updateHeartbeat(user.id).catch(err => console.error("Heartbeat failed", err));
 
-      // Refresh User Points/Data in background using specific query
+      // Refresh User Points (now safe from reverting recent writes)
       const freshUser = await DataService.getUserById(user.id);
       if (freshUser) {
+         // Only update if points differ and we are not 'rolling back' due to lag
          if (freshUser.points !== user.points) {
             setUser(freshUser);
          }
@@ -105,28 +100,22 @@ export default function App() {
   // Initial Fetch & Polling
   useEffect(() => {
     refreshData();
-    // Auto-refresh every 30s as fallback
+    // Auto-refresh every 30s
     const interval = setInterval(refreshData, 30000);
     return () => clearInterval(interval);
   }, [refreshData]);
 
-  // --- REALTIME SUBSCRIPTION (NEW) ---
+  // --- REALTIME SUBSCRIPTION ---
   useEffect(() => {
     const channel = supabase
       .channel('realtime-posts')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'posts' }, (payload) => {
          console.log('[Realtime] New Post received:', payload.new);
-         // Map Payload to Frontend Post Type
          const newPost = DataService.mapDBPostToFrontend(payload.new);
-         
          setPosts(prev => {
-             // Prevent duplicates if polling already caught it
              if (prev.some(p => p.id === newPost.id)) return prev;
-             // Add new post to top
              return [newPost, ...prev];
          });
-
-         // Notify User
          setNotification({ msg: `新消息: ${newPost.titleCN.substring(0,15)}...`, type: 'info' });
          setTimeout(() => setNotification(null), 4000);
       })
@@ -146,10 +135,8 @@ export default function App() {
     addLog(isManual ? 'Manual Bot Trigger initiated.' : 'Auto Bot Trigger initiated.');
 
     try {
-      // Pick random parameters
       const r = REGIONS[Math.floor(Math.random() * (REGIONS.length - 1)) + 1];
       const t = TOPICS[Math.floor(Math.random() * (TOPICS.length - 1)) + 1];
-      
       addLog(`Bot Target: Region=${r}, Topic=${t}`);
 
       const newPostData = await GeminiService.generateNewsPost(r, t);
@@ -157,16 +144,13 @@ export default function App() {
       if (newPostData) {
         const fullPost: Post = {
           id: generateId(),
-          region: r, // Explicitly set from target
-          topic: t,  // Explicitly set from target
-          authorId: 'bot-auto-gen', // Mandatory ID
+          region: r, 
+          topic: t, 
+          authorId: 'bot-auto-gen', 
           ...newPostData as any
         };
-        
-        // Save to DB
         await DataService.savePost(fullPost);
         
-        // Update Local State (Usually Realtime will catch it, but this is optimistic update for manual trigger)
         setPosts(prev => {
              if (prev.some(p => p.titleCN === fullPost.titleCN)) return prev;
              return [fullPost, ...prev];
@@ -178,8 +162,7 @@ export default function App() {
         
         if (isManual) notify('機械人發貼成功 (Synced to Cloud)', 'success');
       } else {
-        // Graceful fallback instead of throwing
-        console.warn("Gemini Service returned null (No News Generated)");
+        console.warn("Gemini Service returned null");
         setBotStatus(prev => ({ ...prev, isRunning: false, error: 'No Content Generated' }));
         if (isManual) notify('機械人未生成內容，請稍後再試', 'error');
       }
@@ -191,12 +174,8 @@ export default function App() {
     }
   }, [botStatus.isRunning, addLog]);
 
-  // Client-Side Cron: Run bot every 5 minutes (300,000 ms)
   useEffect(() => {
-    const timer = setInterval(() => {
-      // Only auto-run if we aren't already running
-      executeBotTask(false);
-    }, 300000); 
+    const timer = setInterval(() => executeBotTask(false), 300000); 
     return () => clearInterval(timer);
   }, [executeBotTask]);
 
@@ -221,9 +200,7 @@ export default function App() {
       }
 
       if (authMode === 'login') {
-        // FIXED: Use authenticateUser to query Supabase correctly
         const found = await DataService.authenticateUser(email, password);
-        
         if (found) {
           await DataService.updateHeartbeat(found.id);
           setUser({ ...found, lastLogin: Date.now() });
@@ -235,8 +212,6 @@ export default function App() {
           notify('帳號或密碼錯誤 (或網絡問題)', 'error');
         }
       } else {
-        // Register Check
-        // We first try to see if user exists
         const existing = await DataService.authenticateUser(email, password);
         if (existing) {
           notify('此電郵已被註冊，請直接登入', 'error');
@@ -245,12 +220,12 @@ export default function App() {
         }
         
         const newUser: User = {
-          id: generateId(), // Safe ID
+          id: generateId(),
           email,
           password,
           name: (formData.get('name') as string) || 'HKER Member',
           avatar: '😀',
-          points: 8888, // Welcome bonus
+          points: 8888, 
           role: DataService.isAdmin(email) ? 'admin' : 'user',
           vipLevel: 1,
           solAddress: (formData.get('solAddress') as string) || '',
@@ -261,10 +236,7 @@ export default function App() {
           lastLogin: Date.now()
         };
         
-        // Save User (Resilient)
-        const success = await DataService.saveUser(newUser);
-        
-        // Even if success is "local only" (true), we let them in
+        await DataService.saveUser(newUser);
         setUser(newUser);
         localStorage.setItem('hker_user_id', newUser.id);
         setShowAuthModal(false);
@@ -279,7 +251,7 @@ export default function App() {
 
   const handleLogout = () => {
     setUser(null);
-    localStorage.removeItem('hker_user_id'); // Clear Session
+    localStorage.removeItem('hker_user_id'); 
     setShowAuthModal(true);
     notify('已安全登出', 'info');
   };
@@ -296,7 +268,7 @@ export default function App() {
     }
   };
 
-  // --- FIXED: ATOMIC WITHDRAW LOGIC ---
+  // --- FIXED: WITHDRAW LOGIC (Revert Fix) ---
   const handleWithdraw = async (amount: number) => {
     if (!user) return;
     if (amount < 1000000) {
@@ -313,27 +285,21 @@ export default function App() {
     }
 
     try {
-      // 1. Optimistic Update (Prevent double clicking visually)
-      const predictedPoints = user.points - amount;
-      setUser(prev => prev ? ({ ...prev, points: predictedPoints }) : null);
-
-      // 2. Perform DB Operation & Get Final Result (Await is Key)
+      // 1. Calculate & Persist
       const confirmedPoints = await DataService.updatePoints(user.id, amount, 'subtract');
       
-      // 3. Reconcile UI with DB Truth
+      // 2. Update UI with CONFIRMED points (not simple state subtraction)
       setUser(prev => prev ? ({ ...prev, points: confirmedPoints }) : null);
       
-      // 4. Success Actions (Only if DB update didn't throw)
       addLog(`Withdrawal: ${user.email} - ${amount} HKER. Remaining: ${confirmedPoints}`);
       
-      // Open Google Form
       window.open('https://docs.google.com/forms/d/e/1FAIpQLSf370oikUL8JlupcS8BO8bbc-7DZg7KP7OJ5tsf3P9UkgNgtA/viewform?usp=publish-editor', '_blank');
       
       alert(`【申請成功 Success】\n已成功扣除 ${amount} 積分。\n剩餘積分: ${confirmedPoints}\n\n請截圖此訊息！\nGoogle Form 已在新視窗開啟，請前往填寫資料並上傳此截圖。`);
     
     } catch (e) {
       console.error("Withdrawal error:", e);
-      // Rollback on error
+      // Try to restore state
       const freshUser = await DataService.getUserById(user.id);
       setUser(freshUser); 
       alert("系統錯誤，扣分失敗，已還原積分。Please try again.");
@@ -360,22 +326,12 @@ export default function App() {
 
     const REWARD_POINTS = 150;
     try {
-      // Optimistic
-      setUser(prev => prev ? ({ ...prev, points: prev.points + REWARD_POINTS }) : null);
-      
-      // Persist
       const confirmedPoints = await DataService.updatePoints(user.id, REWARD_POINTS, 'add');
       await DataService.updatePostInteraction(postId, type);
-      
-      // Reconcile
       setUser(prev => prev ? ({ ...prev, points: confirmedPoints }) : null);
-
       notify(`互動成功！獎勵 +${REWARD_POINTS} 積分`, 'success');
     } catch (error) {
       console.error("Interaction failed", error);
-      // Rollback
-      const freshUser = await DataService.getUserById(user.id);
-      setUser(freshUser);
     }
   };
 
@@ -446,25 +402,26 @@ export default function App() {
   if (selectedGame) {
     const handleGameBack = () => setSelectedGame(null);
     
-    // FIXED: Centralized Game Point Logic with persistence
+    // FIXED: Centralized Game Point Logic (Sync Fix)
     const handlePoints = async (amt: number) => {
        if (!user) return;
        
-       // 1. Optimistic Update (For fast game feel)
+       // Optimistic update for speed
        const predictedPoints = user.points + amt;
        setUser(prev => prev ? ({ ...prev, points: predictedPoints }) : null);
 
-       // 2. Persist to DB & Get Confirmation (Await ensures it saves)
        try {
            const mode = amt >= 0 ? 'add' : 'subtract';
            const absAmt = Math.abs(amt);
            const confirmedPoints = await DataService.updatePoints(user.id, absAmt, mode);
            
-           // 3. Reconcile UI with DB Truth
-           setUser(prev => prev ? ({ ...prev, points: confirmedPoints }) : null);
+           // Ensure state syncs with the confirmed result from DataService
+           if (typeof confirmedPoints === 'number') {
+               setUser(prev => prev ? ({ ...prev, points: confirmedPoints }) : null);
+           }
        } catch (e) {
            console.error("Points update failed", e);
-           // Rollback to fresh state from DB
+           // Force refresh on error
            const freshUser = await DataService.getUserById(user.id);
            setUser(freshUser);
        }
@@ -512,7 +469,6 @@ export default function App() {
                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
              </div>
              
-             {/* DESKTOP NAV BUTTONS (ADDED FOR VISIBILITY) */}
              <button 
                 onClick={() => setCurrentView('games')} 
                 className={`flex items-center gap-2 px-4 py-2 rounded-full text-xs font-bold transition-all ${currentView === 'games' ? 'bg-hker-gold text-black' : 'bg-slate-800 hover:bg-slate-700 text-white'}`}
@@ -577,7 +533,7 @@ export default function App() {
          {/* LEFT SIDEBAR (Topics) */}
          <aside className="lg:w-64 space-y-4">
            
-           {/* SHORTCUTS (Newly added for visibility) */}
+           {/* SHORTCUTS */}
            <div className="bg-[#1E293B] rounded-xl p-4 border border-slate-800 shadow-xl">
               <h3 className="font-bold text-white mb-3 flex items-center gap-2">
                   <Sparkles className="w-4 h-4 text-hker-gold"/> 娛樂與服務 (Services)
