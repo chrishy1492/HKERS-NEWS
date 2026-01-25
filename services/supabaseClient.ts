@@ -1,30 +1,18 @@
 
 import { createClient } from '@supabase/supabase-js';
 
-// Credentials provided by the user
+// Credentials provided for the HKER Platform
+// NOTE: We use the Publishable (Anon) Key for frontend security. 
+// The Secret Key should NEVER be exposed in client-side code.
 const SUPABASE_URL = 'https://wgkcwnyxjhnlkrdjvzyj.supabase.co';
-const SUPABASE_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'sb_publishable_O_E1KKVTudZg2Ipob5E14g_eExGWDBG';
+const SUPABASE_ANON_KEY = 'sb_publishable_O_E1KKVTudZg2Ipob5E14g_eExGWDBG';
 
-export const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
+export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: {
     persistSession: true,
     autoRefreshToken: true,
+  },
+  db: {
+    schema: 'public',
   }
 });
-
-// Helper to check if we can actually connect (simple ping)
-export const checkSupabaseConnection = async () => {
-  try {
-    // Attempt a lightweight fetch
-    const { count, error } = await supabase.from('users').select('id', { count: 'exact', head: true });
-    
-    if (error) {
-      console.error("Supabase Connection Error:", error.message);
-      return false;
-    }
-    return true;
-  } catch (e) {
-    console.warn("Supabase connection check failed (Network issue?)", e);
-    return false;
-  }
-};
