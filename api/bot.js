@@ -3,204 +3,234 @@ import { createClient } from '@supabase/supabase-js';
 import { GoogleGenAI } from "@google/genai";
 
 /**
- * 專業新聞機器人 (v2.2)
- * 功能：自動抓取全球新聞、AI 摘要避版權、自動分類、24小時工作
- * 優化：大幅強化抓取成功率，確保保底機制在 0 結果時強制運作，並封裝請求邏輯
+ * 專業新聞機器人 (Hybrid V7.1 - Quick Fix / Fail-Safe Edition)
+ * 
+ * 修改重點：
+ * 1. 降低發佈量：限制每次 2 則，避免 Gemini 429 Rate Limit。
+ * 2. 強制故障轉移：AI 失敗時，保證使用 Raw Content 發佈 (解決 Published=0)。
+ * 3. 錯誤追蹤：增加詳細 Error Logs。
  */
 
-// 1. 初始化 Supabase 與 Gemini AI
+// 1. 初始化 (使用最高權限 Key 繞過 RLS)
 const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL,
-    process.env.SUPABASE_SERVICE_ROLE_KEY
+    process.env.SUPABASE_SERVICE_ROLE_KEY, // CRITICAL: Service Role required for cron jobs
+    { auth: { autoRefreshToken: false, persistSession: false } }
 );
-// 使用新版 SDK
+
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || process.env.API_KEY });
 
-// 2. 專業新聞來源白名單
-const TRUSTED_DOMAINS = 'bbc.com,cnn.com,reuters.com,bloomberg.com,scmp.com,theguardian.com,apnews.com,wsj.com,nytimes.com';
+// 設定檔
+const FETCH_LIMIT_PER_RUN = 2; // [FIX] 降至 2 則以避免 Rate Limit
+const SEARCH_WINDOW_HOURS = 4; // 廣泛搜索 4 小時
+
+// RSS 來源清單
+const RSS_SOURCES = [
+    { url: 'https://news.google.com/rss?hl=zh-TW&gl=TW&ceid=TW:zh-Hant', name: 'Google News TW' },
+    { url: 'https://news.google.com/rss/search?q=香港&hl=zh-HK&gl=HK&ceid=HK:zh-Hant', name: 'Google News HK' },
+    { url: 'https://feeds.bbci.co.uk/zhongwen/trad/rss.xml', name: 'BBC 中文' },
+    { url: 'https://news.rthk.hk/rthk/ch/news/rss/c/expressnews.xml', name: 'RTHK' }
+];
+
+// RSS 解析器
+function parseRSS(xml, sourceName) {
+  const items = [];
+  const itemRegex = /<item>([\s\S]*?)<\/item>/g;
+  let match;
+  while ((match = itemRegex.exec(xml)) !== null) {
+    const itemStr = match[1];
+    const titleMatch = itemStr.match(/<title><!\[CDATA\[(.*?)\]\]><\/title>/) || itemStr.match(/<title>(.*?)<\/title>/);
+    const linkMatch = itemStr.match(/<link>(.*?)<\/link>/);
+    const descMatch = itemStr.match(/<description><!\[CDATA\[(.*?)\]\]><\/description>/) || 
+                      itemStr.match(/<description>(.*?)<\/description>/);
+    const dateMatch = itemStr.match(/<pubDate>(.*?)<\/pubDate>/) || itemStr.match(/<dc:date>(.*?)<\/dc:date>/);
+
+    if (titleMatch && linkMatch) {
+      let cleanDesc = descMatch ? descMatch[1].replace(/<[^>]+>/g, '').trim() : '';
+      if (cleanDesc.length > 300) cleanDesc = cleanDesc.substring(0, 300) + "...";
+      
+      items.push({
+        title: titleMatch[1].trim(),
+        url: linkMatch[1].trim(),
+        description: cleanDesc || titleMatch[1].trim(),
+        publishedAt: dateMatch ? new Date(dateMatch[1]).toISOString() : new Date().toISOString(),
+        source: { name: sourceName }
+      });
+    }
+  }
+  return items;
+}
 
 export default async function handler(req, res) {
-    // 防止 Vercel 緩存 response
     res.setHeader('Cache-Control', 'no-store, max-age=0');
+    const startTime = Date.now();
 
     let stats = {
-        stage: "初始化",
         found: 0,
         duplicates: 0,
         published: 0,
-        errors: 0
+        aiFailures: 0,
+        dbErrors: 0,
+        errorLogs: [] // [FIX] 詳細錯誤記錄
     };
 
     try {
-        console.log("機器人啟動：執行專業深度搜尋邏輯 (v2.2)...");
+        console.log("=== Bot V7.1 Quick Fix Started ===");
 
-        // 3. 時間過濾：36 小時內
-        const timeLimit = new Date(Date.now() - 36 * 60 * 60 * 1000).toISOString();
+        // 2. 廣泛搜索資料
+        const timeLimit = new Date(Date.now() - SEARCH_WINDOW_HOURS * 60 * 60 * 1000).toISOString();
+        let allArticles = [];
 
-        // 4. 定義搜尋函數以重複利用 (含錯誤處理)
-        const fetchNews = async (url) => {
+        // Fetch NewsAPI
+        const fetchNewsAPI = async () => {
+            if (!process.env.NEWS_API_KEY) return [];
             try {
-                console.log(`Fetching: ${url.substring(0, 60)}...`); // Log URL for debug (partial)
+                const q = encodeURIComponent('香港 OR 國際 OR 科技 OR 經濟');
+                const url = `https://newsapi.org/v2/everything?q=${q}&language=zh&sortBy=publishedAt&pageSize=30&from=${timeLimit}&apiKey=${process.env.NEWS_API_KEY}`;
                 const resp = await fetch(url);
-                if (!resp.ok) {
-                    console.warn(`NewsAPI HTTP Error: ${resp.status}`);
-                    return [];
-                }
                 const data = await resp.json();
-                if (data.status === "error") {
-                    console.error(`NewsAPI 内部錯誤: ${data.message}`);
-                    return [];
-                }
                 return data.articles || [];
             } catch (e) {
-                console.error(`Fetch Exception: ${e.message}`);
+                stats.errorLogs.push(`NewsAPI: ${e.message}`);
                 return [];
             }
         };
 
-        // 關鍵字設定
-        const queryKeywords = '(Hong Kong OR Taiwan OR UK OR USA OR Canada OR Australia OR Europe)';
-        const query = encodeURIComponent(queryKeywords);
-        
-        let articles = [];
-
-        // --- 階段一：嚴格權威模式 (Domains + Keywords) ---
-        articles = await fetchNews(
-            `https://newsapi.org/v2/everything?q=${query}&domains=${TRUSTED_DOMAINS}&from=${timeLimit}&sortBy=publishedAt&pageSize=40&apiKey=${process.env.NEWS_API_KEY}`
-        );
-        if (articles.length > 0) {
-            stats.stage = "嚴格模式 (權威媒體)";
-        }
-
-        // --- 階段二：全球廣泛搜尋 (No Domains, Relevancy) ---
-        if (articles.length === 0) {
-            console.log("⚠️ 權威來源無資料，執行全球廣泛搜尋...");
-            articles = await fetchNews(
-                `https://newsapi.org/v2/everything?q=${query}&from=${timeLimit}&sortBy=relevancy&language=en&pageSize=40&apiKey=${process.env.NEWS_API_KEY}`
-            );
-            if (articles.length > 0) {
-                stats.stage = "寬鬆模式 (全球來源)";
+        // Fetch RSS
+        const fetchRSS = async (source) => {
+            try {
+                const resp = await fetch(source.url);
+                const xml = await resp.text();
+                const items = parseRSS(xml, source.name);
+                return items.filter(i => new Date(i.publishedAt) > new Date(timeLimit));
+            } catch (e) {
+                console.error(`RSS Error (${source.name}):`, e.message);
+                return [];
             }
-        }
+        };
 
-        // --- 階段三：強制保底模式 (Global Top Headlines) ---
-        // 移除 query 參數，確保一定能抓到東西
-        if (articles.length === 0) {
-            console.log("⚠️ 依舊無資料，執行強制保底熱門頭條...");
-            articles = await fetchNews(
-                `https://newsapi.org/v2/top-headlines?language=en&pageSize=40&apiKey=${process.env.NEWS_API_KEY}`
-            );
-            if (articles.length > 0) {
-                stats.stage = "保底模式 (全球熱門)";
-            }
-        }
+        const [newsApiItems, ...rssResults] = await Promise.all([
+            fetchNewsAPI(),
+            ...RSS_SOURCES.map(s => fetchRSS(s))
+        ]);
 
-        stats.found = articles.length;
-        const results = [];
+        allArticles = [...newsApiItems];
+        rssResults.forEach(list => allArticles = [...allArticles, ...list]);
+        allArticles.sort(() => Math.random() - 0.5); // Shuffle
 
-        // 5. 循環處理抓到的文章
-        for (const article of articles) {
-            if (stats.published >= 5) break; 
+        stats.found = allArticles.length;
+        console.log(`Candidates Found: ${stats.found}`);
 
-            // 基本過濾
-            if (!article.title || article.title.length < 10 || !article.description) continue;
+        // 3. 處理與發佈
+        const titlesPublished = [];
+
+        for (const article of allArticles) {
+            // [FIX] 嚴格限制數量
+            if (stats.published >= FETCH_LIMIT_PER_RUN) break;
             
-            // 檢查重複
+            if (!article.title || article.title.length < 5) continue;
+
+            // 去重
             const { data: existing } = await supabase
                 .from('posts')
-                .select('url')
-                .eq('url', article.url)
-                .single();
-            
+                .select('id')
+                .or(`url.eq.${article.url},title.eq.${article.title}`)
+                .maybeSingle();
+
             if (existing) {
                 stats.duplicates++;
                 continue;
             }
 
+            let finalData = {};
+
+            // --- AI 處理區塊 (帶強力故障轉移) ---
             try {
-                // 6. AI 改寫邏輯
+                // 暫時添加 1秒 延遲以緩解 Rate Limit
+                await new Promise(r => setTimeout(r, 1000));
+
                 const prompt = `
-                你是一位專業的新聞編輯。請將以下英文新聞進行摘要改寫，目的是規避版權問題並提供繁體中文重點。
-                
-                [原始標題]: ${article.title}
-                [原始內容]: ${article.description}
-                [新聞來源]: ${article.source.name}
-
-                工作要求：
-                1. 重新撰寫標題與內容，嚴禁直接翻譯，請用專業報導口吻改寫。
-                2. 內容摘要約 150-200 字，以提取事實重點為主。
-                3. 從以下清單選擇一個最相關地區：[中國香港, 台灣, 英國, 美國, 加拿大, 澳洲, 歐洲, 其他]。
-                4. 從以下清單選擇一個最相關主題：[地產, 時事, 財經, 娛樂, 旅遊, 數碼, 汽車, 宗教, 優惠, 校園, 天氣, 社區活動]。
-
-                請僅回傳 JSON 格式數據：
-                {
-                    "titleTC": "新編寫標題",
-                    "summaryTC": "改寫摘要內容",
-                    "region": "地區名稱",
-                    "category": "主題名稱"
-                }
+                Role: Editor. Summarize for HK Web3 users.
+                Title: ${article.title}
+                Content: ${article.description || article.title}
+                Output JSON: { "titleTC": "...", "summaryTC": "...", "region": "...", "category": "..." }
                 `;
 
                 const aiResult = await ai.models.generateContent({
-                    model: 'gemini-3-flash-preview', // 使用最新模型
+                    model: 'gemini-3-flash-preview',
                     contents: prompt,
                     config: { responseMimeType: 'application/json' }
                 });
 
-                let aiData = {
+                const text = aiResult.text.replace(/```json|```/g, '').trim();
+                finalData = JSON.parse(text);
+
+            } catch (aiErr) {
+                // [FIX] 捕捉並記錄具體錯誤
+                const errorMsg = aiErr.message || "Unknown AI Error";
+                console.warn(`[Fallback] AI Failed: ${errorMsg}`);
+                
+                stats.aiFailures++;
+                stats.errorLogs.push(`AI Error (${article.title.substring(0,10)}...): ${errorMsg}`);
+                
+                // Fallback Logic
+                finalData = {
                     titleTC: article.title,
-                    summaryTC: article.description,
-                    region: '其他',
-                    category: '時事'
+                    summaryTC: article.description || article.title,
+                    region: "國際",
+                    category: "時事"
+                };
+            }
+
+            // --- 寫入 DB ---
+            try {
+                const postPayload = {
+                    id: Date.now() + Math.floor(Math.random() * 1000000),
+                    title: finalData.titleTC || article.title,
+                    content: finalData.summaryTC || article.description,
+                    contentCN: finalData.summaryTC || article.description,
+                    region: finalData.region || '國際',
+                    category: finalData.category || '時事',
+                    url: article.url,
+                    source_name: article.source.name || 'News Source',
+                    author: stats.aiFailures > 0 ? 'News Bot (Raw)' : 'AI Editor 🤖',
+                    author_id: 'bot_v7_failsafe',
+                    created_at: new Date().toISOString()
                 };
 
-                if (aiResult.text) {
-                    try {
-                        aiData = JSON.parse(aiResult.text);
-                    } catch (parseError) {
-                        const cleanJson = aiResult.text.replace(/```json|```/g, "").trim();
-                        try { aiData = JSON.parse(cleanJson); } catch(e) {}
+                const { error: insertErr } = await supabase.from('posts').insert(postPayload);
+
+                if (insertErr) {
+                    if (insertErr.code !== '23505') {
+                        stats.dbErrors++;
+                        stats.errorLogs.push(`DB Error: ${insertErr.message}`);
+                    } else {
+                        stats.duplicates++;
                     }
-                }
-
-                // 7. 同步存儲發貼資料
-                const { error: insertError } = await supabase.from('posts').insert([{
-                    id: Date.now() + Math.floor(Math.random() * 100000), // 手動 ID
-                    title: aiData.titleTC,
-                    content: aiData.summaryTC,
-                    contentCN: aiData.summaryTC,
-                    region: aiData.region,
-                    category: aiData.category,
-                    url: article.url,
-                    source_name: article.source.name,
-                    author: 'AI_新聞工作者',
-                    author_id: 'bot_active_worker',
-                    created_at: new Date().toISOString()
-                }]);
-
-                if (!insertError) {
-                    results.push(aiData.titleTC);
-                    stats.published++;
                 } else {
-                    console.error(`DB Write Error: ${insertError.message}`);
+                    console.log(`Published: ${postPayload.title}`);
+                    stats.published++;
+                    titlesPublished.push(postPayload.title);
                 }
 
-            } catch (err) {
-                stats.errors++;
-                console.error(`AI/Processing Error: ${err.message}`);
-                continue; 
+            } catch (processErr) {
+                stats.dbErrors++;
+                stats.errorLogs.push(`Process Error: ${processErr.message}`);
             }
         }
 
-        return res.status(200).json({ 
-            success: true, 
-            message: `執行狀態: [${stats.stage}] 獲取 ${stats.found} 則, 跳過重複 ${stats.duplicates} 則, 成功發佈 ${stats.published} 則`,
-            details: stats,
-            titles: results
+        const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+        
+        return res.status(200).json({
+            success: true,
+            message: `Bot Run Complete`,
+            duration: `${duration}s`,
+            stats,
+            titles: titlesPublished
         });
 
-    } catch (error) {
-        console.error("全局捕捉錯誤:", error);
-        return res.status(500).json({ success: false, error: error.message });
+    } catch (globalErr) {
+        console.error("Critical Failure:", globalErr);
+        return res.status(500).json({ error: globalErr.message, details: stats.errorLogs });
     }
 }
