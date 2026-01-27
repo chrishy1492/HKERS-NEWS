@@ -20,11 +20,6 @@ import { FortuneTeller } from './components/Fortune';
 const REGIONS: Region[] = ["全部", "中國香港", "台灣", "英國", "美國", "加拿大", "澳洲", "歐洲"];
 const TOPICS: Topic[] = ["全部", "地產", "時事", "財經", "娛樂", "旅遊", "數碼", "汽車", "宗教", "優惠", "校園", "天氣", "社區活動"];
 
-// Helper: Safe ID Generation (No Crypto)
-const generateId = () => {
-    return 'u_' + Date.now() + '_' + Math.floor(Math.random() * 1000000).toString(36);
-};
-
 // --- MAIN APP ---
 export default function App() {
   // State: Auth
@@ -63,16 +58,16 @@ export default function App() {
     const checkSession = async () => {
       const storedUserId = localStorage.getItem('hker_user_id');
       if (storedUserId) {
-        // Use getUserById which now respects write locks
-        const found = await DataService.getUserById(storedUserId);
-
+        const users = await DataService.getUsers();
+        const found = users.find(u => u.id === storedUserId);
         if (found) {
+          // Send Heartbeat immediately on restore
           await DataService.updateHeartbeat(found.id);
           setUser({ ...found, lastLogin: Date.now() });
-          setShowAuthModal(false); 
+          setShowAuthModal(false); // Skip login screen if session valid
           addLog(`Session restored for: ${found.email}`);
         } else {
-          localStorage.removeItem('hker_user_id'); 
+          localStorage.removeItem('hker_user_id'); // Clean invalid session
         }
       }
     };
@@ -80,19 +75,22 @@ export default function App() {
   }, [addLog]);
 
   const refreshData = useCallback(async () => {
+    // 1. Fetch Posts (Cloud First)
     const fetchedPosts = await DataService.getPosts();
     setPosts(fetchedPosts);
     
+    // 2. Sync User Data if logged in (Update points/level in background)
     if (user) {
+      // HEARTBEAT: Keep user "Online"
       DataService.updateHeartbeat(user.id).catch(err => console.error("Heartbeat failed", err));
 
-      // Refresh User Points (now safe from reverting recent writes)
-      const freshUser = await DataService.getUserById(user.id);
-      if (freshUser) {
-         // Only update if points differ and we are not 'rolling back' due to lag
-         if (freshUser.points !== user.points) {
-            setUser(freshUser);
-         }
+      const users = await DataService.getUsers();
+      const updatedUser = users.find(u => u.id === user.id);
+      if (updatedUser) {
+        // Only update if points or vital info changed to avoid re-renders
+        if(updatedUser.points !== user.points || updatedUser.vipLevel !== user.vipLevel) {
+           setUser(updatedUser);
+        }
       }
     }
   }, [user]);
@@ -100,22 +98,28 @@ export default function App() {
   // Initial Fetch & Polling
   useEffect(() => {
     refreshData();
-    // Auto-refresh every 30s
+    // Auto-refresh every 30s as fallback
     const interval = setInterval(refreshData, 30000);
     return () => clearInterval(interval);
   }, [refreshData]);
 
-  // --- REALTIME SUBSCRIPTION ---
+  // --- REALTIME SUBSCRIPTION (NEW) ---
   useEffect(() => {
     const channel = supabase
       .channel('realtime-posts')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'posts' }, (payload) => {
          console.log('[Realtime] New Post received:', payload.new);
+         // Map Payload to Frontend Post Type
          const newPost = DataService.mapDBPostToFrontend(payload.new);
+         
          setPosts(prev => {
+             // Prevent duplicates if polling already caught it
              if (prev.some(p => p.id === newPost.id)) return prev;
+             // Add new post to top
              return [newPost, ...prev];
          });
+
+         // Notify User
          setNotification({ msg: `新消息: ${newPost.titleCN.substring(0,15)}...`, type: 'info' });
          setTimeout(() => setNotification(null), 4000);
       })
@@ -135,22 +139,27 @@ export default function App() {
     addLog(isManual ? 'Manual Bot Trigger initiated.' : 'Auto Bot Trigger initiated.');
 
     try {
+      // Pick random parameters
       const r = REGIONS[Math.floor(Math.random() * (REGIONS.length - 1)) + 1];
       const t = TOPICS[Math.floor(Math.random() * (TOPICS.length - 1)) + 1];
+      
       addLog(`Bot Target: Region=${r}, Topic=${t}`);
 
       const newPostData = await GeminiService.generateNewsPost(r, t);
       
       if (newPostData) {
         const fullPost: Post = {
-          id: generateId(),
-          region: r, 
-          topic: t, 
-          authorId: 'bot-auto-gen', 
+          id: crypto.randomUUID(),
+          region: r, // Explicitly set from target
+          topic: t,  // Explicitly set from target
+          authorId: 'bot-auto-gen', // Mandatory ID
           ...newPostData as any
         };
+        
+        // Save to DB
         await DataService.savePost(fullPost);
         
+        // Update Local State (Usually Realtime will catch it, but this is optimistic update for manual trigger)
         setPosts(prev => {
              if (prev.some(p => p.titleCN === fullPost.titleCN)) return prev;
              return [fullPost, ...prev];
@@ -162,7 +171,8 @@ export default function App() {
         
         if (isManual) notify('機械人發貼成功 (Synced to Cloud)', 'success');
       } else {
-        console.warn("Gemini Service returned null");
+        // Graceful fallback instead of throwing
+        console.warn("Gemini Service returned null (No News Generated)");
         setBotStatus(prev => ({ ...prev, isRunning: false, error: 'No Content Generated' }));
         if (isManual) notify('機械人未生成內容，請稍後再試', 'error');
       }
@@ -174,8 +184,12 @@ export default function App() {
     }
   }, [botStatus.isRunning, addLog]);
 
+  // Client-Side Cron: Run bot every 5 minutes (300,000 ms)
   useEffect(() => {
-    const timer = setInterval(() => executeBotTask(false), 300000); 
+    const timer = setInterval(() => {
+      // Only auto-run if we aren't already running
+      executeBotTask(false);
+    }, 300000); 
     return () => clearInterval(timer);
   }, [executeBotTask]);
 
@@ -188,70 +202,64 @@ export default function App() {
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
-    try {
-      const form = e.target as HTMLFormElement;
-      const formData = new FormData(form);
-      const email = formData.get('email') as string;
-      const password = formData.get('password') as string;
+    const form = e.target as HTMLFormElement;
+    const email = (form.elements.namedItem('email') as HTMLInputElement).value;
+    const password = (form.elements.namedItem('password') as HTMLInputElement).value;
 
-      if (!email || !password) {
-        notify('請輸入電郵與密碼', 'error');
+    const allUsers = await DataService.getUsers();
+
+    if (authMode === 'login') {
+      const found = allUsers.find(u => u.email === email && u.password === password);
+      if (found) {
+        // Set online status immediately
+        await DataService.updateHeartbeat(found.id);
+        setUser({ ...found, lastLogin: Date.now() });
+        localStorage.setItem('hker_user_id', found.id); // Save Session
+        setShowAuthModal(false);
+        notify(`歡迎回來, ${found.name}`, 'success');
+        addLog(`User logged in: ${found.email}`);
+      } else {
+        notify('帳號或密碼錯誤', 'error');
+      }
+    } else {
+      // Register
+      if (allUsers.find(u => u.email === email)) {
+        notify('此電郵已被註冊', 'error');
         return;
       }
-
-      if (authMode === 'login') {
-        const found = await DataService.authenticateUser(email, password);
-        if (found) {
-          await DataService.updateHeartbeat(found.id);
-          setUser({ ...found, lastLogin: Date.now() });
-          localStorage.setItem('hker_user_id', found.id);
-          setShowAuthModal(false);
-          notify(`歡迎回來, ${found.name}`, 'success');
-          addLog(`User logged in: ${found.email}`);
-        } else {
-          notify('帳號或密碼錯誤 (或網絡問題)', 'error');
-        }
-      } else {
-        const existing = await DataService.authenticateUser(email, password);
-        if (existing) {
-          notify('此電郵已被註冊，請直接登入', 'error');
-          setAuthMode('login');
-          return;
-        }
-        
-        const newUser: User = {
-          id: generateId(),
-          email,
-          password,
-          name: (formData.get('name') as string) || 'HKER Member',
-          avatar: '😀',
-          points: 8888, 
-          role: DataService.isAdmin(email) ? 'admin' : 'user',
-          vipLevel: 1,
-          solAddress: (formData.get('solAddress') as string) || '',
-          gender: (formData.get('gender') as any) || 'O',
-          phone: (formData.get('phone') as string) || '',
-          address: (formData.get('address') as string) || '',
-          joinedAt: Date.now(),
-          lastLogin: Date.now()
-        };
-        
-        await DataService.saveUser(newUser);
+      const newUser: User = {
+        id: crypto.randomUUID(),
+        email,
+        password,
+        name: (form.elements.namedItem('name') as HTMLInputElement).value || 'HKER Member',
+        avatar: '😀',
+        points: 8888, // Welcome bonus
+        role: DataService.isAdmin(email) ? 'admin' : 'user',
+        vipLevel: 1,
+        solAddress: (form.elements.namedItem('solAddress') as HTMLInputElement).value || '',
+        gender: (form.elements.namedItem('gender') as HTMLSelectElement).value as any || 'O',
+        phone: (form.elements.namedItem('phone') as HTMLInputElement).value || '',
+        address: (form.elements.namedItem('address') as HTMLInputElement).value || '',
+        joinedAt: Date.now(),
+        lastLogin: Date.now()
+      };
+      
+      const success = await DataService.saveUser(newUser);
+      if (success) {
         setUser(newUser);
-        localStorage.setItem('hker_user_id', newUser.id);
+        localStorage.setItem('hker_user_id', newUser.id); // Save Session
         setShowAuthModal(false);
         notify('註冊成功！獲得 8888 HKER 積分', 'success');
         addLog(`New user registered: ${newUser.email}`);
+      } else {
+        notify('註冊失敗，請檢查網絡', 'error');
       }
-    } catch (err: any) {
-      console.error("Auth Error:", err);
-      notify(`系統錯誤: ${err.message}`, 'error');
     }
   };
 
   const handleLogout = () => {
     setUser(null);
-    localStorage.removeItem('hker_user_id'); 
+    localStorage.removeItem('hker_user_id'); // Clear Session
     setShowAuthModal(true);
     notify('已安全登出', 'info');
   };
@@ -268,7 +276,6 @@ export default function App() {
     }
   };
 
-  // --- FIXED: WITHDRAW LOGIC (Revert Fix) ---
   const handleWithdraw = async (amount: number) => {
     if (!user) return;
     if (amount < 1000000) {
@@ -280,30 +287,22 @@ export default function App() {
       return;
     }
     if (user.points < amount) {
-      alert("積分不足 Insufficient Points");
+      alert("積分不足");
       return;
     }
 
-    try {
-      // 1. Calculate & Persist
-      const confirmedPoints = await DataService.updatePoints(user.id, amount, 'subtract');
-      
-      // 2. Update UI with CONFIRMED points (not simple state subtraction)
-      setUser(prev => prev ? ({ ...prev, points: confirmedPoints }) : null);
-      
-      addLog(`Withdrawal: ${user.email} - ${amount} HKER. Remaining: ${confirmedPoints}`);
-      
-      window.open('https://docs.google.com/forms/d/e/1FAIpQLSf370oikUL8JlupcS8BO8bbc-7DZg7KP7OJ5tsf3P9UkgNgtA/viewform?usp=publish-editor', '_blank');
-      
-      alert(`【申請成功 Success】\n已成功扣除 ${amount} 積分。\n剩餘積分: ${confirmedPoints}\n\n請截圖此訊息！\nGoogle Form 已在新視窗開啟，請前往填寫資料並上傳此截圖。`);
-    
-    } catch (e) {
-      console.error("Withdrawal error:", e);
-      // Try to restore state
-      const freshUser = await DataService.getUserById(user.id);
-      setUser(freshUser); 
-      alert("系統錯誤，扣分失敗，已還原積分。Please try again.");
-    }
+    // Deduct points
+    const newPoints = await DataService.updatePoints(user.id, amount, 'subtract');
+    setUser(prev => prev ? ({ ...prev, points: newPoints }) : null);
+
+    // Simulate Email Logic
+    addLog(`Withdrawal Request: ${user.email} - ${amount} HKER`);
+
+    // Open Google Form directly
+    window.open('https://docs.google.com/forms/d/e/1FAIpQLSf370oikUL8JlupcS8BO8bbc-7DZg7KP7OJ5tsf3P9UkgNgtA/viewform?usp=publish-editor', '_blank');
+
+    // Show Alert (Instruction to screenshot)
+    alert(`【申請成功】\n請截圖此訊息！(Screenshot this message)\n\n提幣數量: ${amount}\n錢包: ${user.solAddress}\n\nGoogle Form 已在新視窗開啟，請前往填寫資料並上傳此截圖。`);
   };
 
   // --- INTERACTION LOGIC ---
@@ -313,6 +312,7 @@ export default function App() {
       return;
     }
 
+    // 1. Optimistic UI Update (Immediate feedback for post)
     setPosts(currentPosts => currentPosts.map(p => {
       if (p.id === postId) {
         return {
@@ -324,14 +324,24 @@ export default function App() {
       return p;
     }));
 
+    // 2. Reward User Logic (150 Points)
     const REWARD_POINTS = 150;
     try {
-      const confirmedPoints = await DataService.updatePoints(user.id, REWARD_POINTS, 'add');
+      // A. Update local state immediately
+      const newPoints = (user.points || 0) + REWARD_POINTS;
+      setUser(prev => prev ? ({ ...prev, points: newPoints }) : null);
+      
+      // B. Persist points to DB
+      await DataService.updatePoints(user.id, REWARD_POINTS, 'add');
+      
+      // C. Persist interaction to DB
       await DataService.updatePostInteraction(postId, type);
-      setUser(prev => prev ? ({ ...prev, points: confirmedPoints }) : null);
+
       notify(`互動成功！獎勵 +${REWARD_POINTS} 積分`, 'success');
     } catch (error) {
-      console.error("Interaction failed", error);
+      console.error("Interaction/Reward failed", error);
+      notify("網絡錯誤，積分未更新", "error");
+      // Optional: Revert optimistic updates here if strict consistency is needed
     }
   };
 
@@ -401,31 +411,10 @@ export default function App() {
   // GAME RENDERER
   if (selectedGame) {
     const handleGameBack = () => setSelectedGame(null);
-    
-    // FIXED: Centralized Game Point Logic (Sync Fix)
     const handlePoints = async (amt: number) => {
        if (!user) return;
-       
-       // Optimistic update for speed
-       const predictedPoints = user.points + amt;
-       setUser(prev => prev ? ({ ...prev, points: predictedPoints }) : null);
-
-       try {
-           const mode = amt >= 0 ? 'add' : 'subtract';
-           const absAmt = Math.abs(amt);
-           const confirmedPoints = await DataService.updatePoints(user.id, absAmt, mode);
-           
-           // Ensure state syncs with the confirmed result from DataService
-           if (typeof confirmedPoints === 'number') {
-               setUser(prev => prev ? ({ ...prev, points: confirmedPoints }) : null);
-           }
-       } catch (e) {
-           console.error("Points update failed", e);
-           // Force refresh on error
-           const freshUser = await DataService.getUserById(user.id);
-           setUser(freshUser);
-       }
-       
+       const newPts = await DataService.updatePoints(user.id, amt, 'add');
+       setUser({ ...user, points: newPts });
        notify(amt > 0 ? `贏得 ${amt} 分!` : `扣除 ${Math.abs(amt)} 分`, amt > 0 ? 'success' : 'info');
     };
 
@@ -469,6 +458,7 @@ export default function App() {
                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
              </div>
              
+             {/* DESKTOP NAV BUTTONS (ADDED FOR VISIBILITY) */}
              <button 
                 onClick={() => setCurrentView('games')} 
                 className={`flex items-center gap-2 px-4 py-2 rounded-full text-xs font-bold transition-all ${currentView === 'games' ? 'bg-hker-gold text-black' : 'bg-slate-800 hover:bg-slate-700 text-white'}`}
@@ -533,7 +523,7 @@ export default function App() {
          {/* LEFT SIDEBAR (Topics) */}
          <aside className="lg:w-64 space-y-4">
            
-           {/* SHORTCUTS */}
+           {/* SHORTCUTS (Newly added for visibility) */}
            <div className="bg-[#1E293B] rounded-xl p-4 border border-slate-800 shadow-xl">
               <h3 className="font-bold text-white mb-3 flex items-center gap-2">
                   <Sparkles className="w-4 h-4 text-hker-gold"/> 娛樂與服務 (Services)

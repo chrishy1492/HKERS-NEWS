@@ -1,127 +1,132 @@
 
-// api/cron.js - 真實自動化新聞發佈系統 (Hybrid V6.0 - Fail Safe Edition)
-// Features: 
-// 1. Multi-Source (NewsAPI + RSS)
-// 2. Dynamic Time Window (2h)
-// 3. Robust Deduplication
-// 4. CRITICAL: Raw Content Fallback (If AI fails, still publish)
-
+// api/cron.js - 真實自動化新聞發佈系統 (Vercel Serverless Function)
+// v4.0 Multi-Source Hybrid Edition
 import { createClient } from '@supabase/supabase-js';
 import { GoogleGenAI } from "@google/genai";
 
 // --- 設定檔 ---
-const FETCH_LIMIT_PER_RUN = 6; // 每小時目標 6 則
-
-// RSS 來源清單 (已更新至穩定源)
+const FETCH_LIMIT_PER_RUN = 6; // 目標：每小時 5-6 則
 const RSS_SOURCES = [
-    { url: 'https://news.google.com/rss?hl=zh-TW&gl=TW&ceid=TW:zh-Hant', name: 'Google News TW' },
-    { url: 'https://news.google.com/rss/search?q=香港&hl=zh-HK&gl=HK&ceid=HK:zh-Hant', name: 'Google News HK' },
-    { url: 'https://feeds.bbci.co.uk/zhongwen/trad/rss.xml', name: 'BBC 中文' },
-    { url: 'https://news.rthk.hk/rthk/ch/news/rss/c/expressnews.xml', name: 'RTHK' }
+    { url: 'https://news.google.com/rss?hl=zh-HK&gl=HK&ceid=HK:zh-Hant', name: 'Google News HK' },
+    { url: 'https://www.hk01.com/rss/channel/2', name: 'HK01' },
+    { url: 'https://rss.nytimes.com/services/xml/rss/nyt/Technology.xml', name: 'NYT Tech' }
 ];
 
-// Keys (Fallback)
-const KEYS = {
-    SB_URL: process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://wgkcwnyxjhnlkrdjvzyj.supabase.co',
-    SB_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY || 'sb_secret_ePjPbrB6vdlbMuQmOr5-6A_bn3l297A',
-    GEMINI: process.env.GEMINI_API_KEY || 'AIzaSyBqGGYUTLPw5Ut2p0CpWK6-MOL7-0GuuC8',
-    NEWS_API: process.env.NEWS_API_KEY || '64da19cb45c646c6bf0f73925c5bd611'
-};
-
-// RSS Helper (Zero dependency regex parser)
-function parseRSS(xml, sourceName) {
-  const items = [];
-  const itemRegex = /<item>([\s\S]*?)<\/item>/g;
-  let match;
-  while ((match = itemRegex.exec(xml)) !== null) {
-    const itemStr = match[1];
-    const titleMatch = itemStr.match(/<title><!\[CDATA\[(.*?)\]\]><\/title>/) || itemStr.match(/<title>(.*?)<\/title>/);
-    const linkMatch = itemStr.match(/<link>(.*?)<\/link>/);
-    // Try multiple description patterns
-    const descMatch = itemStr.match(/<description><!\[CDATA\[(.*?)\]\]><\/description>/) || 
-                      itemStr.match(/<description>(.*?)<\/description>/) ||
-                      itemStr.match(/<content:encoded><!\[CDATA\[(.*?)\]\]><\/content:encoded>/);
-    
-    const dateMatch = itemStr.match(/<pubDate>(.*?)<\/pubDate>/) || itemStr.match(/<dc:date>(.*?)<\/dc:date>/);
-
-    if (titleMatch && linkMatch) {
-      // Clean up description (remove HTML tags)
-      let cleanDesc = descMatch ? descMatch[1].replace(/<[^>]+>/g, '').trim() : '';
-      if (cleanDesc.length > 500) cleanDesc = cleanDesc.substring(0, 500) + "...";
-
-      items.push({
-        title: titleMatch[1].trim(),
-        url: linkMatch[1].trim(),
-        description: cleanDesc || titleMatch[1].trim(),
-        publishedAt: dateMatch ? new Date(dateMatch[1]).toISOString() : new Date().toISOString(),
-        source: { name: sourceName }
-      });
-    }
-  }
-  return items;
-}
-
 export default async function handler(req, res) {
+    // 1. 初始化環境
     res.setHeader('Cache-Control', 'no-store, max-age=0');
     const startTime = Date.now();
     
-    // 1. 初始化
-    const supabase = createClient(KEYS.SB_URL, KEYS.SB_KEY, { auth: { persistSession: false } });
-    const ai = new GoogleGenAI({ apiKey: KEYS.GEMINI });
+    const isForceMode = req.query.force === 'true';
+    const isTestInjection = req.query.inject_test === 'true';
 
-    console.log(`[CRON] 🚀 Job Hybrid V6.0 Started.`);
+    console.log(`[CRON] 🚀 Job started at ${new Date().toISOString()}`);
 
-    let stats = { found: 0, published: 0, duplicates: 0, errors: 0, aiFailures: 0 };
-    
-    // 時間過濾: 放寬至 2 小時以確保有內容
-    const timeFilter = Date.now() - (2 * 60 * 60 * 1000); 
+    // 2. 環境變數檢查
+    const envVars = {
+        NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
+        SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
+        GEMINI_API_KEY: process.env.GEMINI_API_KEY || process.env.API_KEY,
+        NEWS_API_KEY: process.env.NEWS_API_KEY
+    };
+
+    const missingKeys = Object.keys(envVars).filter(key => !envVars[key]);
+    if (missingKeys.length > 0) {
+        console.error(`[CRON] ❌ Missing Env: ${missingKeys.join(', ')}`);
+        return res.status(500).json({ error: 'Config Error', missing: missingKeys });
+    }
+
+    const supabase = createClient(envVars.NEXT_PUBLIC_SUPABASE_URL, envVars.SUPABASE_SERVICE_ROLE_KEY, {
+        auth: { autoRefreshToken: false, persistSession: false }
+    });
+    const ai = new GoogleGenAI({ apiKey: envVars.GEMINI_API_KEY });
+
+    // --- 測試模式: 注入單筆資料 ---
+    if (isTestInjection) {
+        console.log('[CRON] 💉 執行測試資料注入...');
+        const testPost = {
+            id: Date.now(),
+            title: `【系統測試】多來源架構驗證 - ${new Date().toLocaleTimeString('en-HK')}`,
+            content: "此訊息用於驗證 v4.0 多來源爬蟲架構的資料庫寫入權限。",
+            contentCN: "此訊息用於驗證 v4.0 多來源爬蟲架構的資料庫寫入權限。",
+            region: "全部",
+            category: "系統公告",
+            url: `https://test-v4-${Date.now()}.local`,
+            author: "System Bot 🤖",
+            author_id: "bot_system_v4",
+            created_at: new Date().toISOString()
+        };
+        const { error } = await supabase.from('posts').insert(testPost);
+        if (error) return res.status(500).json({ error: error.message });
+        return res.status(200).json({ success: true, mode: 'test_injection', post: testPost });
+    }
+
+    // --- 主邏輯: 多來源爬取 ---
+    let stats = { found: 0, published: 0, duplicates: 0, errors: 0 };
 
     try {
-        // --- 2. 抓取資料 (Fetch Data) ---
         let allArticles = [];
 
-        // A. NewsAPI (Everything Endpoint)
+        // 來源 A: NewsAPI (廣泛搜尋)
         const fetchNewsAPI = async () => {
-            if (!KEYS.NEWS_API) return [];
             try {
-                // 擴大關鍵字
-                const q = encodeURIComponent('香港 OR 國際 OR 科技 OR 經濟');
-                const fromDate = new Date(timeFilter).toISOString();
+                // 關鍵字包含中文與英文，確保覆蓋面
+                const query = encodeURIComponent('(Hong Kong OR Taiwan OR China Economy OR AI Technology OR Web3 OR Crypto OR 國際新聞)');
+                const url = `https://newsapi.org/v2/everything?q=${query}&sortBy=publishedAt&pageSize=50&apiKey=${envVars.NEWS_API_KEY}`;
                 
-                // Use 'publishedAt' sorting to get latest
-                const url = `https://newsapi.org/v2/everything?q=${q}&language=zh&sortBy=publishedAt&pageSize=50&from=${fromDate}&apiKey=${KEYS.NEWS_API}`;
-                
-                console.log('[CRON] 📡 Fetching NewsAPI...');
+                console.log(`[CRON] 📡 Fetching NewsAPI (Everything)...`);
                 const resp = await fetch(url);
+                if (!resp.ok) return [];
                 const data = await resp.json();
-                
-                if (data.articles) {
-                    return data.articles;
-                }
-                return [];
+                return data.articles || [];
             } catch (e) {
                 console.error('[CRON] NewsAPI Error:', e.message);
                 return [];
             }
         };
 
-        // B. RSS Sources
+        // 來源 B: RSS (本地與即時) - 使用 Regex 解析 XML，無需額外套件
         const fetchRSS = async (source) => {
             try {
                 console.log(`[CRON] 📡 Fetching RSS: ${source.name}`);
                 const resp = await fetch(source.url);
                 const xml = await resp.text();
-                const items = parseRSS(xml, source.name);
                 
-                // Client-side time filter for RSS
-                return items.filter(i => new Date(i.publishedAt).getTime() > timeFilter);
+                const items = [];
+                // 簡單的 Regex 來提取 RSS 2.0 item
+                const itemRegex = /<item>([\s\S]*?)<\/item>/g;
+                let match;
+                while ((match = itemRegex.exec(xml)) !== null) {
+                    const inner = match[1];
+                    const getTag = (tag) => {
+                        const m = new RegExp(`<${tag}[^>]*>(.*?)<\/${tag}>`, 's').exec(inner);
+                        return m ? m[1].replace(/<!\[CDATA\[|\]\]>/g, '').trim() : null;
+                    };
+                    
+                    const title = getTag('title');
+                    const link = getTag('link');
+                    // 清理 description 中的 HTML tags
+                    let desc = getTag('description') || '';
+                    desc = desc.replace(/<[^>]+>/g, '').substring(0, 300);
+
+                    if (title && link) {
+                        items.push({
+                            title,
+                            description: desc || title,
+                            url: link,
+                            source: { name: source.name },
+                            publishedAt: new Date().toISOString() // RSS 時間格式複雜，這裡簡化處理
+                        });
+                    }
+                }
+                return items;
             } catch (e) {
                 console.error(`[CRON] RSS Error (${source.name}):`, e.message);
                 return [];
             }
         };
 
-        // 並行執行所有請求
+        // 並行執行所有爬取任務
         const [newsApiItems, ...rssResults] = await Promise.all([
             fetchNewsAPI(),
             ...RSS_SOURCES.map(s => fetchRSS(s))
@@ -129,53 +134,72 @@ export default async function handler(req, res) {
 
         // 合併結果
         allArticles = [...newsApiItems];
-        rssResults.forEach(list => allArticles = [...allArticles, ...list]);
+        rssResults.forEach(items => allArticles = [...allArticles, ...items]);
 
-        console.log(`[CRON] Total Fresh Articles Found (Past 2h): ${allArticles.length}`);
         stats.found = allArticles.length;
+        console.log(`[CRON] Total Raw Articles: ${stats.found}`);
 
-        // 隨機打亂以增加多樣性
-        allArticles.sort(() => Math.random() - 0.5);
+        // 隨機打亂順序，避免每次都只發同一來源
+        allArticles = allArticles.sort(() => Math.random() - 0.5);
 
-        // --- 3. 處理與發佈 (Process & Publish) ---
-        for (const news of allArticles) {
+        if (allArticles.length === 0) {
+            return res.status(200).json({ message: 'No articles found', stats });
+        }
+
+        // --- 發佈循環 ---
+        for (const article of allArticles) {
             // 達到數量限制即停止
             if (stats.published >= FETCH_LIMIT_PER_RUN) break;
+            
+            // 基礎過濾
+            if (!article.title || article.title.length < 5) continue;
 
-            if (!news.title || news.title.length < 5) continue;
-
-            // --- 強力去重 (Title-based) ---
-            try {
-                const { data: existing } = await supabase
+            // --- 去重邏輯 (Deduplication) ---
+            if (!isForceMode) {
+                // 1. 檢查標題 (Title) - 對抗 URL 變動
+                const { data: existingTitle } = await supabase
                     .from('posts')
                     .select('id')
-                    .eq('title', news.title)
-                    .maybeSingle();
-
-                if (existing) {
+                    .eq('title', article.title)
+                    .single();
+                
+                if (existingTitle) {
                     stats.duplicates++;
-                    continue;
+                    continue; // 標題重複，跳過
                 }
-            } catch (err) {}
 
-            // --- AI 改寫 (帶故障轉移 Fallback) ---
-            let finalContent = {};
-            
+                // 2. 檢查 URL - 傳統去重
+                const { data: existingUrl } = await supabase
+                    .from('posts')
+                    .select('id')
+                    .eq('url', article.url)
+                    .single();
+
+                if (existingUrl) {
+                    stats.duplicates++;
+                    continue; // URL 重複，跳過
+                }
+            }
+
+            // --- AI 改寫與分類 ---
             try {
-                // console.log(`[CRON] 🤖 Rewriting: ${news.title.substring(0, 15)}...`);
-
+                console.log(`[CRON] 🤖 AI Processing: ${article.title.substring(0, 30)}...`);
+                
                 const prompt = `
-                Role: HK News Editor.
-                Task: Summarize this news for a Web3 community.
-                Source Title: ${news.title}
-                Source Desc: ${news.description}
+                Role: Senior Editor.
+                Task: Summarize/Rewrite this news for a HK audience.
+                
+                Source Title: ${article.title}
+                Source Desc: ${article.description}
+                Source Name: ${article.source.name}
                 
                 Requirements:
-                1. Traditional Chinese (HK Style).
-                2. Summary: 80-120 words.
-                3. Region: [中國香港, 台灣, 國際, 科技, 財經].
-                4. Category: [時事, 財經, 科技, 娛樂, Crypto].
-                
+                1. Language: Traditional Chinese (HK Cantonese style allowed).
+                2. Tone: Professional but engaging.
+                3. Length: 100-150 words.
+                4. Classify Region: [中國香港, 台灣, 英國, 美國, 加拿大, 澳洲, 歐洲, 國際].
+                5. Classify Category: [地產, 時事, 財經, 娛樂, 科技, 體育, 生活].
+
                 Output JSON ONLY: { "titleTC": "...", "summaryTC": "...", "region": "...", "category": "..." }
                 `;
 
@@ -185,61 +209,60 @@ export default async function handler(req, res) {
                     config: { responseMimeType: 'application/json' }
                 });
 
-                const text = result.text.replace(/```json|```/g, '').trim();
-                finalContent = JSON.parse(text);
+                let content = {};
+                try {
+                     const text = result.text.replace(/```json|```/g, '').trim();
+                     content = JSON.parse(text);
+                } catch (e) {
+                     console.warn('[CRON] JSON Parse Fail, using raw data fallback');
+                     content = { 
+                         titleTC: article.title, 
+                         summaryTC: article.description, 
+                         region: "國際", 
+                         category: "時事" 
+                     };
+                }
 
-            } catch (e) {
-                console.warn(`[CRON] ⚠️ AI Failed (${e.message}). Using Fallback.`);
-                stats.aiFailures++;
-                
-                // Fallback: Use original content if AI fails (Ensure we publish SOMETHING)
-                finalContent = {
-                    titleTC: news.title,
-                    summaryTC: news.description || news.title,
-                    region: "國際",
-                    category: "時事"
-                };
-            }
-
-            // --- DB Insert ---
-            try {
                 const post = {
-                    id: Date.now() + Math.floor(Math.random() * 1000000),
-                    title: finalContent.titleTC || news.title,
-                    content: finalContent.summaryTC || news.description,
-                    contentCN: finalContent.summaryTC || news.description, // Legacy field support
-                    region: finalContent.region || '國際',
-                    category: finalContent.category || '時事',
-                    url: news.url,
-                    source_name: news.source.name,
+                    id: Date.now() + Math.floor(Math.random() * 100000),
+                    title: content.titleTC || article.title,
+                    content: content.summaryTC || article.description,
+                    contentCN: content.summaryTC || article.description,
+                    region: content.region || '國際',
+                    category: content.category || '時事',
+                    url: article.url,
+                    source_name: article.source.name,
                     author: 'HKER Bot 🤖',
-                    author_id: 'bot_v6',
+                    author_id: 'bot_auto_v4',
                     created_at: new Date().toISOString()
                 };
 
-                const { error: insertError } = await supabase.from('posts').insert(post);
-                
-                if (insertError) {
-                    if (insertError.code === '23505') { 
+                const { error: dbError } = await supabase.from('posts').insert(post);
+                if (dbError) {
+                    // 若並發時剛好寫入重複，忽略錯誤
+                    if (dbError.code === '23505') {
                         stats.duplicates++;
-                    } else {
-                        console.error('[CRON] DB Insert Error:', insertError.message);
-                        stats.errors++;
+                        continue;
                     }
-                } else {
-                    console.log(`[CRON] ✅ Published: ${post.title}`);
-                    stats.published++;
+                    throw dbError;
                 }
-            } catch (dbErr) {
+
+                console.log(`[CRON] ✅ Published: ${post.title}`);
+                stats.published++;
+
+            } catch (err) {
+                console.error(`[CRON] ❌ Item Error: ${err.message}`);
                 stats.errors++;
+                // 繼續下一則，不要中斷 Loop
+                continue;
             }
         }
 
         const duration = ((Date.now() - startTime) / 1000).toFixed(2);
-        return res.status(200).json({ success: true, duration: `${duration}s`, stats });
+        return res.status(200).json({ success: true, duration, stats });
 
-    } catch (globalError) {
-        console.error('[CRON] 💥 Fatal Error:', globalError);
-        return res.status(500).json({ error: globalError.message });
+    } catch (error) {
+        console.error('[CRON] 💥 Fatal Error:', error);
+        return res.status(500).json({ error: error.message });
     }
 }
