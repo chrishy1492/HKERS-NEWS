@@ -20,19 +20,12 @@ import { FortuneTeller } from './components/Fortune';
 const REGIONS: Region[] = ["全部", "中國香港", "台灣", "英國", "美國", "加拿大", "澳洲", "歐洲"];
 const TOPICS: Topic[] = ["全部", "地產", "時事", "財經", "娛樂", "旅遊", "數碼", "汽車", "宗教", "優惠", "校園", "天氣", "社區活動"];
 
-// --- UTILS ---
-// Safe UUID generator that works in all environments (including HTTP)
-const generateSafeId = (prefix: string = 'id') => {
-  return `${prefix}-${Date.now()}-${Math.floor(Math.random() * 1000000)}`;
-};
-
 // --- MAIN APP ---
 export default function App() {
   // State: Auth
   const [user, setUser] = useState<User | null>(null);
   const [showAuthModal, setShowAuthModal] = useState(true);
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
-  const [authLoading, setAuthLoading] = useState(false);
   
   // State: Navigation & Views
   const [currentView, setCurrentView] = useState<'feed' | 'games' | 'fortune' | 'profile' | 'admin'>('feed');
@@ -156,7 +149,7 @@ export default function App() {
       
       if (newPostData) {
         const fullPost: Post = {
-          id: generateSafeId('post'), // Use safe ID
+          id: crypto.randomUUID(),
           region: r, // Explicitly set from target
           topic: t,  // Explicitly set from target
           authorId: 'bot-auto-gen', // Mandatory ID
@@ -210,23 +203,14 @@ export default function App() {
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     console.log("Auth Triggered: ", authMode);
-    setAuthLoading(true);
 
     try {
       const form = e.target as HTMLFormElement;
-      
-      // Safe access to form elements
-      const getVal = (name: string) => {
-        const el = form.elements.namedItem(name) as HTMLInputElement;
-        return el ? el.value : '';
-      };
-
-      const email = getVal('email');
-      const password = getVal('password');
+      const email = (form.elements.namedItem('email') as HTMLInputElement).value;
+      const password = (form.elements.namedItem('password') as HTMLInputElement).value;
 
       if (!email || !password) {
         notify('請輸入電郵與密碼', 'error');
-        setAuthLoading(false);
         return;
       }
 
@@ -249,25 +233,25 @@ export default function App() {
         const allUsers = await DataService.getUsers();
         if (allUsers.find(u => u.email === email)) {
           notify('此電郵已被註冊', 'error');
-          setAuthLoading(false);
           return;
         }
 
-        const safeId = generateSafeId('u');
+        // Use safe ID generation (Timestamp + Random) to avoid crypto.randomUUID crash in some envs
+        const safeId = `u_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
 
         const newUser: User = {
           id: safeId,
           email,
           password,
-          name: getVal('name') || 'HKER Member',
+          name: (form.elements.namedItem('name') as HTMLInputElement)?.value || 'HKER Member',
           avatar: '😀',
           points: 8888, // Welcome bonus
           role: DataService.isAdmin(email) ? 'admin' : 'user',
           vipLevel: 1,
-          solAddress: getVal('solAddress') || '',
-          gender: (getVal('gender') as any) || 'O',
-          phone: getVal('phone') || '',
-          address: getVal('address') || '',
+          solAddress: (form.elements.namedItem('solAddress') as HTMLInputElement)?.value || '',
+          gender: (form.elements.namedItem('gender') as HTMLSelectElement)?.value as any || 'O',
+          phone: (form.elements.namedItem('phone') as HTMLInputElement)?.value || '',
+          address: (form.elements.namedItem('address') as HTMLInputElement)?.value || '',
           joinedAt: Date.now(),
           lastLogin: Date.now()
         };
@@ -282,14 +266,12 @@ export default function App() {
           notify('註冊成功！獲得 8888 HKER 積分', 'success');
           addLog(`New user registered: ${newUser.email}`);
         } else {
-          notify('註冊失敗：請檢查網絡或 Supabase 設定', 'error');
+          notify('註冊失敗，請檢查網絡或瀏覽器控制台', 'error');
         }
       }
     } catch (err: any) {
       console.error("Auth Process Failed:", err);
       notify(`系統錯誤: ${err.message || 'Unknown Error'}`, 'error');
-    } finally {
-      setAuthLoading(false);
     }
   };
 
@@ -428,8 +410,7 @@ export default function App() {
               </>
             )}
 
-            <button type="submit" disabled={authLoading} className="w-full bg-gradient-to-r from-hker-red to-red-800 text-white font-black py-4 rounded-xl shadow-lg hover:scale-[1.02] transition-transform disabled:opacity-50 disabled:scale-100 flex items-center justify-center gap-2">
-              {authLoading && <RefreshCw className="w-4 h-4 animate-spin"/>}
+            <button type="submit" className="w-full bg-gradient-to-r from-hker-red to-red-800 text-white font-black py-4 rounded-xl shadow-lg hover:scale-[1.02] transition-transform">
               {authMode === 'login' ? 'ENTER PLATFORM' : 'JOIN HKER'}
             </button>
           </form>

@@ -3,11 +3,9 @@ import { createClient } from '@supabase/supabase-js';
 
 // Credentials provided by the user
 const SUPABASE_URL = 'https://wgkcwnyxjhnlkrdjvzyj.supabase.co';
-// WARNING: The fallback key must be a valid ANON KEY. If undefined, Supabase calls will fail.
-const SUPABASE_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''; 
+const SUPABASE_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'sb_publishable_O_E1KKVTudZg2Ipob5E14g_eExGWDBG';
 
-// If no key is present, create a client that will fail gracefully rather than crashing implicitly
-export const supabase = createClient(SUPABASE_URL, SUPABASE_KEY || 'invalid-key-placeholder', {
+export const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
   auth: {
     persistSession: true,
     autoRefreshToken: true,
@@ -16,10 +14,6 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_KEY || 'invalid-key-
 
 // Helper to check if we can actually connect (simple ping)
 export const checkSupabaseConnection = async () => {
-  if (!SUPABASE_KEY) {
-      console.error("Supabase Key is missing! Check your environment variables.");
-      return false;
-  }
   try {
     // Attempt a lightweight fetch
     const { count, error } = await supabase.from('users').select('id', { count: 'exact', head: true });
