@@ -1,7 +1,10 @@
 
-// api/cron.js - 真實自動化新聞發佈系統 (Vercel Serverless Function)
-// v5.1 Multi-Source Hybrid Edition
-// Features: NewsAPI 'Everything' + RSS Fallback + Deduplication + Error Handling
+// api/cron.js - 真實自動化新聞發佈系統 (Hybrid V6.0 - Fail Safe Edition)
+// Features: 
+// 1. Multi-Source (NewsAPI + RSS)
+// 2. Dynamic Time Window (2h)
+// 3. Robust Deduplication
+// 4. CRITICAL: Raw Content Fallback (If AI fails, still publish)
 
 import { createClient } from '@supabase/supabase-js';
 import { GoogleGenAI } from "@google/genai";
@@ -9,21 +12,54 @@ import { GoogleGenAI } from "@google/genai";
 // --- 設定檔 ---
 const FETCH_LIMIT_PER_RUN = 6; // 每小時目標 6 則
 
-// RSS 來源清單 (無需 Key，穩定備援)
+// RSS 來源清單 (已更新至穩定源)
 const RSS_SOURCES = [
     { url: 'https://news.google.com/rss?hl=zh-TW&gl=TW&ceid=TW:zh-Hant', name: 'Google News TW' },
+    { url: 'https://news.google.com/rss/search?q=香港&hl=zh-HK&gl=HK&ceid=HK:zh-Hant', name: 'Google News HK' },
     { url: 'https://feeds.bbci.co.uk/zhongwen/trad/rss.xml', name: 'BBC 中文' },
-    { url: 'https://rthk.hk/rthk/news/rss/c/expressnews.xml', name: 'RTHK' },
-    { url: 'https://www.hk01.com/rss/channel/2', name: 'HK01' }
+    { url: 'https://news.rthk.hk/rthk/ch/news/rss/c/expressnews.xml', name: 'RTHK' }
 ];
 
-// Fallback Keys (若 process.env 未設定)
+// Keys (Fallback)
 const KEYS = {
     SB_URL: process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://wgkcwnyxjhnlkrdjvzyj.supabase.co',
     SB_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY || 'sb_secret_ePjPbrB6vdlbMuQmOr5-6A_bn3l297A',
     GEMINI: process.env.GEMINI_API_KEY || 'AIzaSyBqGGYUTLPw5Ut2p0CpWK6-MOL7-0GuuC8',
     NEWS_API: process.env.NEWS_API_KEY || '64da19cb45c646c6bf0f73925c5bd611'
 };
+
+// RSS Helper (Zero dependency regex parser)
+function parseRSS(xml, sourceName) {
+  const items = [];
+  const itemRegex = /<item>([\s\S]*?)<\/item>/g;
+  let match;
+  while ((match = itemRegex.exec(xml)) !== null) {
+    const itemStr = match[1];
+    const titleMatch = itemStr.match(/<title><!\[CDATA\[(.*?)\]\]><\/title>/) || itemStr.match(/<title>(.*?)<\/title>/);
+    const linkMatch = itemStr.match(/<link>(.*?)<\/link>/);
+    // Try multiple description patterns
+    const descMatch = itemStr.match(/<description><!\[CDATA\[(.*?)\]\]><\/description>/) || 
+                      itemStr.match(/<description>(.*?)<\/description>/) ||
+                      itemStr.match(/<content:encoded><!\[CDATA\[(.*?)\]\]><\/content:encoded>/);
+    
+    const dateMatch = itemStr.match(/<pubDate>(.*?)<\/pubDate>/) || itemStr.match(/<dc:date>(.*?)<\/dc:date>/);
+
+    if (titleMatch && linkMatch) {
+      // Clean up description (remove HTML tags)
+      let cleanDesc = descMatch ? descMatch[1].replace(/<[^>]+>/g, '').trim() : '';
+      if (cleanDesc.length > 500) cleanDesc = cleanDesc.substring(0, 500) + "...";
+
+      items.push({
+        title: titleMatch[1].trim(),
+        url: linkMatch[1].trim(),
+        description: cleanDesc || titleMatch[1].trim(),
+        publishedAt: dateMatch ? new Date(dateMatch[1]).toISOString() : new Date().toISOString(),
+        source: { name: sourceName }
+      });
+    }
+  }
+  return items;
+}
 
 export default async function handler(req, res) {
     res.setHeader('Cache-Control', 'no-store, max-age=0');
@@ -33,34 +69,34 @@ export default async function handler(req, res) {
     const supabase = createClient(KEYS.SB_URL, KEYS.SB_KEY, { auth: { persistSession: false } });
     const ai = new GoogleGenAI({ apiKey: KEYS.GEMINI });
 
-    console.log(`[CRON] 🚀 Job v5.1 Started.`);
+    console.log(`[CRON] 🚀 Job Hybrid V6.0 Started.`);
 
-    let stats = { found: 0, published: 0, duplicates: 0, errors: 0 };
+    let stats = { found: 0, published: 0, duplicates: 0, errors: 0, aiFailures: 0 };
     
-    // 時間過濾: 只抓最近 1 小時 (3600000ms)
-    // 但為了保底，若 NewsAPI 資料較舊，RSS 通常是即時的
-    const oneHourAgo = Date.now() - 3600000;
+    // 時間過濾: 放寬至 2 小時以確保有內容
+    const timeFilter = Date.now() - (2 * 60 * 60 * 1000); 
 
     try {
         // --- 2. 抓取資料 (Fetch Data) ---
         let allArticles = [];
 
-        // A. NewsAPI (Everything Endpoint - 抓取量大)
+        // A. NewsAPI (Everything Endpoint)
         const fetchNewsAPI = async () => {
             if (!KEYS.NEWS_API) return [];
             try {
-                // 擴大關鍵字: 香港 OR 國際 OR 科技
+                // 擴大關鍵字
                 const q = encodeURIComponent('香港 OR 國際 OR 科技 OR 經濟');
-                // sortBy=publishedAt (最新), pageSize=50 (抓更多)
-                const url = `https://newsapi.org/v2/everything?q=${q}&language=zh&sortBy=publishedAt&pageSize=50&apiKey=${KEYS.NEWS_API}`;
+                const fromDate = new Date(timeFilter).toISOString();
                 
-                console.log('[CRON] 📡 Fetching NewsAPI (Everything)...');
+                // Use 'publishedAt' sorting to get latest
+                const url = `https://newsapi.org/v2/everything?q=${q}&language=zh&sortBy=publishedAt&pageSize=50&from=${fromDate}&apiKey=${KEYS.NEWS_API}`;
+                
+                console.log('[CRON] 📡 Fetching NewsAPI...');
                 const resp = await fetch(url);
                 const data = await resp.json();
                 
                 if (data.articles) {
-                    // 簡單過濾一下時間，避免太舊的
-                    return data.articles.filter(a => new Date(a.publishedAt).getTime() > oneHourAgo);
+                    return data.articles;
                 }
                 return [];
             } catch (e) {
@@ -69,47 +105,18 @@ export default async function handler(req, res) {
             }
         };
 
-        // B. RSS Sources (穩定備援)
+        // B. RSS Sources
         const fetchRSS = async (source) => {
             try {
                 console.log(`[CRON] 📡 Fetching RSS: ${source.name}`);
                 const resp = await fetch(source.url);
                 const xml = await resp.text();
+                const items = parseRSS(xml, source.name);
                 
-                const items = [];
-                // 簡單 Regex 解析 RSS
-                const itemRegex = /<item>([\s\S]*?)<\/item>/g;
-                let match;
-                while ((match = itemRegex.exec(xml)) !== null) {
-                    const inner = match[1];
-                    const getTag = (tag) => {
-                        const m = new RegExp(`<${tag}[^>]*>(.*?)<\/${tag}>`, 's').exec(inner);
-                        return m ? m[1].replace(/<!\[CDATA\[|\]\]>/g, '').trim() : null;
-                    };
-                    
-                    const title = getTag('title');
-                    const link = getTag('link');
-                    const desc = (getTag('description') || '').replace(/<[^>]+>/g, '').substring(0, 300);
-                    const pubDateStr = getTag('pubDate') || getTag('dc:date');
-                    
-                    if (title && link) {
-                        // 時間檢查
-                        if (pubDateStr) {
-                           const t = new Date(pubDateStr).getTime();
-                           if (!isNaN(t) && t < oneHourAgo) continue; 
-                        }
-                        
-                        items.push({
-                            title,
-                            description: desc || title,
-                            url: link,
-                            source: { name: source.name },
-                            publishedAt: new Date().toISOString()
-                        });
-                    }
-                }
-                return items;
+                // Client-side time filter for RSS
+                return items.filter(i => new Date(i.publishedAt).getTime() > timeFilter);
             } catch (e) {
+                console.error(`[CRON] RSS Error (${source.name}):`, e.message);
                 return [];
             }
         };
@@ -124,15 +131,15 @@ export default async function handler(req, res) {
         allArticles = [...newsApiItems];
         rssResults.forEach(list => allArticles = [...allArticles, ...list]);
 
-        console.log(`[CRON] Total Fresh Articles Found: ${allArticles.length}`);
+        console.log(`[CRON] Total Fresh Articles Found (Past 2h): ${allArticles.length}`);
         stats.found = allArticles.length;
 
-        // 隨機打亂
+        // 隨機打亂以增加多樣性
         allArticles.sort(() => Math.random() - 0.5);
 
         // --- 3. 處理與發佈 (Process & Publish) ---
         for (const news of allArticles) {
-            // 達到數量限制即停止 (5-6 則)
+            // 達到數量限制即停止
             if (stats.published >= FETCH_LIMIT_PER_RUN) break;
 
             if (!news.title || news.title.length < 5) continue;
@@ -143,7 +150,7 @@ export default async function handler(req, res) {
                     .from('posts')
                     .select('id')
                     .eq('title', news.title)
-                    .single();
+                    .maybeSingle();
 
                 if (existing) {
                     stats.duplicates++;
@@ -151,20 +158,22 @@ export default async function handler(req, res) {
                 }
             } catch (err) {}
 
-            // --- AI 改寫 (Try-Catch 包覆) ---
+            // --- AI 改寫 (帶故障轉移 Fallback) ---
+            let finalContent = {};
+            
             try {
-                console.log(`[CRON] 🤖 Rewriting: ${news.title.substring(0, 20)}...`);
+                // console.log(`[CRON] 🤖 Rewriting: ${news.title.substring(0, 15)}...`);
 
                 const prompt = `
                 Role: HK News Editor.
-                Task: Rewrite news for a Web3 community.
+                Task: Summarize this news for a Web3 community.
                 Source Title: ${news.title}
                 Source Desc: ${news.description}
                 
                 Requirements:
                 1. Traditional Chinese (HK Style).
-                2. Summary: 100-150 words.
-                3. Region: [中國香港, 台灣, 國際, 科技].
+                2. Summary: 80-120 words.
+                3. Region: [中國香港, 台灣, 國際, 科技, 財經].
                 4. Category: [時事, 財經, 科技, 娛樂, Crypto].
                 
                 Output JSON ONLY: { "titleTC": "...", "summaryTC": "...", "region": "...", "category": "..." }
@@ -176,31 +185,35 @@ export default async function handler(req, res) {
                     config: { responseMimeType: 'application/json' }
                 });
 
-                let aiContent = {};
-                try {
-                    const text = result.text.replace(/```json|```/g, '').trim();
-                    aiContent = JSON.parse(text);
-                } catch (e) {
-                    // Fallback
-                    aiContent = {
-                        titleTC: news.title,
-                        summaryTC: news.description,
-                        region: "國際",
-                        category: "時事"
-                    };
-                }
+                const text = result.text.replace(/```json|```/g, '').trim();
+                finalContent = JSON.parse(text);
 
+            } catch (e) {
+                console.warn(`[CRON] ⚠️ AI Failed (${e.message}). Using Fallback.`);
+                stats.aiFailures++;
+                
+                // Fallback: Use original content if AI fails (Ensure we publish SOMETHING)
+                finalContent = {
+                    titleTC: news.title,
+                    summaryTC: news.description || news.title,
+                    region: "國際",
+                    category: "時事"
+                };
+            }
+
+            // --- DB Insert ---
+            try {
                 const post = {
                     id: Date.now() + Math.floor(Math.random() * 1000000),
-                    title: aiContent.titleTC || news.title,
-                    content: aiContent.summaryTC || news.description,
-                    contentCN: aiContent.summaryTC || news.description,
-                    region: aiContent.region || '國際',
-                    category: aiContent.category || '時事',
+                    title: finalContent.titleTC || news.title,
+                    content: finalContent.summaryTC || news.description,
+                    contentCN: finalContent.summaryTC || news.description, // Legacy field support
+                    region: finalContent.region || '國際',
+                    category: finalContent.category || '時事',
                     url: news.url,
                     source_name: news.source.name,
                     author: 'HKER Bot 🤖',
-                    author_id: 'bot_v5',
+                    author_id: 'bot_v6',
                     created_at: new Date().toISOString()
                 };
 
@@ -217,11 +230,8 @@ export default async function handler(req, res) {
                     console.log(`[CRON] ✅ Published: ${post.title}`);
                     stats.published++;
                 }
-
-            } catch (e) {
-                console.error(`[CRON] ❌ Gemini/Process Error:`, e.message);
+            } catch (dbErr) {
                 stats.errors++;
-                continue; // 重要：即使失敗，繼續下一條
             }
         }
 
