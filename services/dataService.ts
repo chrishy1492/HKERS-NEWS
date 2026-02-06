@@ -1,14 +1,16 @@
 
-import { supabase, checkSupabaseConnection } from './supabaseClient';
+import { supabase } from './supabaseClient';
 import { User, Post, Stat } from '../types';
 
 /**
  * ============================================================================
- * DATA SERVICE - CLOUD FIRST ARCHITECTURE
+ * DATA SERVICE - HYBRID OFFLINE-FIRST ARCHITECTURE
  * 
  * Strategy:
- * 1. READ: Always attempt to fetch from Supabase first.
- * 2. WRITE: Critical data (Users/Points) MUST go to Supabase.
+ * 1. WRITE: Update LocalStorage IMMEDIATELY -> Try Supabase in background.
+ *    If Supabase fails, we still return TRUE so the user can use the app.
+ * 2. READ: Fetch Supabase -> Merge with LocalStorage -> Return Combined List.
+ *    This ensures offline-registered users don't disappear when cloud syncs.
  * ============================================================================
  */
 
@@ -18,7 +20,7 @@ const ADMIN_EMAILS = [
   'niceleung@gmail.com'
 ];
 
-// --- MAPPING HELPERS (Critical for Supabase Compatibility) ---
+// --- MAPPING HELPERS ---
 
 // Map DB (snake_case) -> Frontend (camelCase)
 const mapDBUserToFrontend = (u: any): User => ({
@@ -29,13 +31,13 @@ const mapDBUserToFrontend = (u: any): User => ({
   avatar: u.avatar || '😀',
   points: u.points || 0,
   role: u.role || 'user',
-  vipLevel: u.vip_level || 1, // Fixed: snake_case to camelCase
-  solAddress: u.sol_address || '', // Fixed: snake_case to camelCase
+  vipLevel: u.vip_level || 1,
+  solAddress: u.sol_address || '',
   gender: u.gender || 'O',
   phone: u.phone || '',
   address: u.address || '',
-  joinedAt: u.joined_at ? new Date(u.joined_at).getTime() : Date.now(), // Timestamp conversion
-  lastLogin: u.last_login ? new Date(u.last_login).getTime() : Date.now(), // Timestamp conversion
+  joinedAt: u.joined_at ? new Date(u.joined_at).getTime() : Date.now(),
+  lastLogin: u.last_login ? new Date(u.last_login).getTime() : Date.now(),
 });
 
 // Map Frontend (camelCase) -> DB (snake_case)
@@ -48,79 +50,101 @@ const mapFrontendUserToDB = (u: User): any => {
     avatar: u.avatar,
     points: u.points,
     role: u.role,
-    vip_level: u.vipLevel,     // Critical: camelCase to snake_case
-    sol_address: u.solAddress, // Critical: camelCase to snake_case
+    vip_level: u.vipLevel,
+    sol_address: u.solAddress,
     gender: u.gender,
     phone: u.phone,
     address: u.address,
-    joined_at: new Date(u.joinedAt).toISOString(),     // ISO String for Postgres
-    last_login: new Date(u.lastLogin || Date.now()).toISOString() // ISO String for Postgres
+    joined_at: new Date(u.joinedAt || Date.now()).toISOString(),
+    last_login: new Date(u.lastLogin || Date.now()).toISOString()
   };
 };
 
 // --- USERS ---
 
 export const getUsers = async (): Promise<User[]> => {
-  // Always try cloud first for users to ensure we see new registrations
-  const { data, error } = await supabase.from('users').select('*');
-      
-  if (!error && data) {
-    // Map DB rows to Frontend User objects
-    const mappedUsers = data.map(mapDBUserToFrontend);
+  let localUsers: User[] = [];
+  try {
+    const cached = localStorage.getItem('hker_users_cache');
+    if (cached) localUsers = JSON.parse(cached);
+  } catch (e) {
+    console.error("Cache parse error", e);
+  }
+
+  // 1. Try Cloud Fetch
+  const { data: cloudData, error } = await supabase.from('users').select('*');
+  
+  if (!error && cloudData) {
+    const cloudUsers = cloudData.map(mapDBUserToFrontend);
     
-    // Sort in memory
-    const sorted = mappedUsers.sort((a, b) => (b.joinedAt || 0) - (a.joinedAt || 0));
+    // 2. MERGE STRATEGY: Combine Cloud + Local
+    // Priority: Cloud version overwrites Local version if IDs match, 
+    // BUT we keep Local-only users (who haven't synced yet).
+    const mergedMap = new Map<string, User>();
     
-    // Cache for offline fallback only
+    // Add all local users first
+    localUsers.forEach(u => mergedMap.set(u.id, u));
+    
+    // Overwrite with cloud users (source of truth)
+    cloudUsers.forEach(u => mergedMap.set(u.id, u));
+    
+    const mergedList = Array.from(mergedMap.values());
+    
+    // Sort: Newest first
+    const sorted = mergedList.sort((a, b) => (b.joinedAt || 0) - (a.joinedAt || 0));
+    
+    // Update Cache
     localStorage.setItem('hker_users_cache', JSON.stringify(sorted));
     return sorted;
   } else {
-    console.warn("Failed to fetch users from Cloud, using cache.", error);
+    // Cloud failed? Return local cache only (Offline Mode)
+    console.warn("Cloud fetch failed, using local cache only.");
+    return localUsers;
   }
-  
-  // Fallback
-  const cached = localStorage.getItem('hker_users_cache');
-  return cached ? JSON.parse(cached) : [];
 };
 
 export const saveUser = async (user: User): Promise<boolean> => {
-  // 1. Critical: Write to Cloud with correct mapping
-  const dbUser = mapFrontendUserToDB(user);
-  
-  console.log("Saving user to Supabase:", dbUser); // Debug log
-
-  const { error } = await supabase
-    .from('users')
-    .upsert(dbUser);
-    
-  if (error) {
-    console.error("❌ CRITICAL: Supabase Save User Failed:", JSON.stringify(error, null, 2));
-    // Do not alert in loop/background tasks, but helpful for debugging
-    if (!error.message.includes('duplicate')) {
-       console.warn(`User Save Failed: ${error.message}`);
-    }
-    return false;
-  }
-
-  // 2. Update Local Cache (Optimistic UI)
+  // 1. ALWAYS Update Local Cache FIRST (Success guaranteed for UI)
   try {
     const cached = localStorage.getItem('hker_users_cache');
     const cachedUsers: User[] = cached ? JSON.parse(cached) : [];
+    
     const existingIdx = cachedUsers.findIndex(u => u.id === user.id);
     if (existingIdx >= 0) cachedUsers[existingIdx] = user;
     else cachedUsers.push(user);
+    
     localStorage.setItem('hker_users_cache', JSON.stringify(cachedUsers));
   } catch (e) {
-    console.warn("Local cache update failed, but cloud save was successful.");
+    console.error("Local Save Error:", e);
+    // Even if local storage fails (rare), we try cloud.
+  }
+
+  // 2. Try Sync to Cloud (Best Effort)
+  try {
+    const dbUser = mapFrontendUserToDB(user);
+    console.log("Syncing user to Cloud:", dbUser);
+    
+    const { error } = await supabase.from('users').upsert(dbUser);
+    
+    if (error) {
+      console.warn("⚠️ Cloud Sync Failed (Offline Mode active):", error.message);
+      // We return TRUE here because we successfully saved locally.
+      // The user should not be blocked from using the app just because backend is down/unconfigured.
+      return true; 
+    }
+  } catch (err) {
+    console.warn("Supabase Network Error:", err);
+    return true; // Still return true for Offline Mode
   }
 
   return true;
 };
 
 export const deleteUser = async (userId: string): Promise<void> => {
+  // Delete from Cloud
   await supabase.from('users').delete().eq('id', userId);
   
-  // Update cache
+  // Delete from Local
   const cached = localStorage.getItem('hker_users_cache');
   if (cached) {
     const users = JSON.parse(cached) as User[];
@@ -129,18 +153,18 @@ export const deleteUser = async (userId: string): Promise<void> => {
   }
 };
 
-// --- HEARTBEAT & STATS (REAL-TIME) ---
+// --- HEARTBEAT & STATS ---
 
 export const updateHeartbeat = async (userId: string): Promise<void> => {
+  // Fire and forget - don't block
   const now = new Date().toISOString();
-  // Fire and forget - use mapped column name 'last_login'
   supabase.from('users').update({ last_login: now }).eq('id', userId).then(({ error }) => {
-     if (error) console.error("Heartbeat error:", error.message);
+     if (error) console.warn("Heartbeat skipped (Offline)");
   });
 };
 
 export const getStats = async (): Promise<Stat> => {
-  // Always fetch fresh data for stats to ensure sync across devices
+  // Use getUsers() to get the merged list (Cloud + Local)
   const users = await getUsers();
   
   const now = Date.now();
@@ -148,30 +172,11 @@ export const getStats = async (): Promise<Stat> => {
   todayStart.setHours(0,0,0,0);
   const todayTs = todayStart.getTime();
 
-  // 1. Total Users
-  const totalUsers = users.length;
-  
-  // 2. Today Registers (Joined after 00:00 today)
-  const todayRegisters = users.filter(u => (u.joinedAt || 0) >= todayTs).length;
-
-  // 3. Today Visits (Active Members)
-  const todayVisits = users.filter(u => {
-      const lastActive = u.lastLogin || u.joinedAt || 0;
-      return lastActive >= todayTs;
-  }).length;
-
-  // 4. Online Users (Heartbeat within last 5 minutes)
-  const onlineThreshold = 5 * 60 * 1000; 
-  const onlineUsers = users.filter(u => {
-      const lastActive = u.lastLogin || u.joinedAt || 0;
-      return (now - lastActive) < onlineThreshold;
-  }).length;
-
   return {
-    onlineUsers: Math.max(onlineUsers, 1),
-    totalUsers,
-    todayRegisters,
-    todayVisits: Math.max(todayVisits, 1)
+    onlineUsers: Math.max(users.filter(u => (now - (u.lastLogin || 0)) < 5 * 60 * 1000).length, 1),
+    totalUsers: users.length,
+    todayRegisters: users.filter(u => (u.joinedAt || 0) >= todayTs).length,
+    todayVisits: users.filter(u => (u.lastLogin || 0) >= todayTs).length
   };
 };
 
@@ -240,25 +245,17 @@ export const savePost = async (post: Post): Promise<boolean> => {
 
   const { error } = await supabase.from('posts').upsert(dbPost);
   if (error) {
-    if (error.code === '23505' || error.message?.includes('duplicate key')) {
-      console.warn("Post duplicate skipped.");
-      return true; 
-    }
-    console.error("Supabase Save Post Error:", JSON.stringify(error, null, 2));
-    return false;
+     if (error.code !== '23505') console.warn("Save Post Failed:", error.message);
+     return false;
   }
   return true;
 };
 
 export const deletePost = async (postId: string): Promise<void> => {
-  if (!postId.includes('-')) {
-      await supabase.from('posts').delete().eq('id', postId);
-  }
-  const posts = await getPosts(); // Refresh
+  await supabase.from('posts').delete().eq('id', postId);
 };
 
 export const updatePostInteraction = async (postId: string, type: 'like' | 'love'): Promise<void> => {
-  if (!postId.includes('-')) {
     const { data: post } = await supabase.from('posts').select('*').eq('id', postId).single();
     if (post) {
       const updates = {
@@ -267,30 +264,27 @@ export const updatePostInteraction = async (postId: string, type: 'like' | 'love
       };
       await supabase.from('posts').update(updates).eq('id', postId);
     }
-  }
 };
 
 // --- POINTS SYSTEM ---
 
 export const updatePoints = async (userId: string, amount: number, mode: 'add' | 'subtract' | 'set'): Promise<number> => {
-  // 1. Fetch latest user state from DB
-  const { data: dbRows, error } = await supabase.from('users').select('*').eq('id', userId);
+  // 1. Get current state (Cloud + Local merged)
+  const allUsers = await getUsers();
+  const currentUser = allUsers.find(u => u.id === userId);
 
-  if (error || !dbRows || dbRows.length === 0) {
-    console.error("Cannot update points, user not found in DB or Network error.");
-    return 0;
-  }
-  
-  const currentUser = mapDBUserToFrontend(dbRows[0]);
+  if (!currentUser) return 0;
 
   let newBalance = 0;
   if (mode === 'set') newBalance = amount;
   else if (mode === 'add') newBalance = (currentUser.points || 0) + amount;
   else if (mode === 'subtract') newBalance = Math.max(0, (currentUser.points || 0) - amount);
 
-  // 2. Write back to DB (Using mapped function)
-  currentUser.points = newBalance;
-  await saveUser(currentUser);
+  // 2. Update Object
+  const updatedUser = { ...currentUser, points: newBalance };
+
+  // 3. Save (Updates Local immediately + tries Cloud)
+  await saveUser(updatedUser);
   
   return newBalance;
 };
