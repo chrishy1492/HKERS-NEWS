@@ -1,4 +1,8 @@
-# HKER 平台優化套件
+# HKER 平台
+
+這是一個**完整、可直接部署**的 Next.js 專案（首頁、遊戲頁、登入頁都已經接好），
+不再只是零散的補充檔案。如果你之前把上一版 zip 單獨部署導致 404，
+原因是那版沒有 `package.json` 和首頁——這版已經補齊。
 
 ## ⚠️ 第一步，一定要先做
 
@@ -12,38 +16,48 @@
 
 本套件裡的所有程式碼都改成從環境變數讀取金鑰，沒有任何一處寫死真實金鑰。
 
+
 ## 這個套件解決了什麼
 
 | 需求 | 對應檔案 |
 |---|---|
-| 1) 遊戲功能 | `games/*.html`（老虎機、小瑪莉、輪盤、魚蝦蟹，已改為純娛樂單機版，不掛帳號/代幣） |
-| 2) 會員登入後資料遺失 | `lib/supabase/client.ts`、`lib/supabase/server.ts`、`middleware.ts` |
+| 1) 遊戲功能 | `public/games/*.html`（老虎機、小瑪莉、輪盤、魚蝦蟹，已改為純娛樂單機版，不掛帳號/代幣），入口在 `/games` 頁面 |
+| 2) 會員登入後資料遺失 | `lib/supabase/client.ts`、`lib/supabase/server.ts`、`middleware.ts`、`app/login/page.tsx` |
 | 3) 手機/網站資料不同步 | 同上 + `sql/schema.sql`（所有裝置讀寫同一份 Supabase 資料，天然同步） |
 | 4) 新聞即時性（≤2天） | `app/api/news-bot/route.ts` 的 `isWithinTwoDays()` |
-| 5) 中英自動翻譯 | `app/api/news-bot/route.ts` 的 `translateText()` |
+| 5) 中英自動翻譯 | `app/api/news-bot/route.ts` 的 `translateText()`，前台切換見 `components/NewsCard.tsx` |
 | 6) 分享/按讚 | `components/NewsShareLike.tsx` |
 | 7) 背景音樂開關 | 每個遊戲 HTML 內建的 `🔊 音樂` 按鈕（Web Audio 自產音效，無版權疑慮） |
 | 8) 管理後台（會員/積分/今日統計） | `components/AdminPanel.tsx` + `sql/schema.sql` 的 `daily_stats` |
 | 9) 發文合規審查 | `app/api/news-bot/route.ts` 的 `containsSensitiveContent()` |
 | 10) 管理員公告 | `components/AnnouncementBanner.tsx` |
 
-## 安裝
+## 安裝（本機測試用，非必要，也可以直接部署到 Vercel）
 
 ```bash
-npm install @supabase/ssr @supabase/supabase-js xml2js
+npm install
+npm run dev
 ```
 
-## 部署順序
+## 部署到 Vercel（完整步驟，這次就能看到真正的首頁）
 
 1. 先在 Supabase SQL Editor 執行 `sql/schema.sql`，建立所有資料表、觸發器、權限規則
-2. 執行下面這行 SQL，把你自己的帳號設成管理員（換成你的 email）：
+2. 到 Supabase → Authentication → Providers，確認 Email 登入方式已啟用
+3. 到 Vercel，New Project → 選擇這個專案的 GitHub repo（或直接把整個資料夾拖進 Vercel 的部署介面）
+4. 在 Vercel 專案 Settings → Environment Variables，設定：
+   - `NEXT_PUBLIC_SUPABASE_URL`
+   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+   - `SUPABASE_SERVICE_ROLE_KEY`
+   - `NEWS_API_KEY`
+   - `GEMINI_API_KEY`
+5. 部署。完成後打開網域，應該會看到首頁「最新新聞」（一開始會是空的，因為新聞機械人還沒跑過）
+6. 到 `你的網域/login` 註冊一個帳號，再到 Supabase SQL Editor 執行：
    ```sql
    update public.profiles set is_admin = true where email = 'you@example.com';
    ```
-3. 把 `lib/`、`middleware.ts`、`app/api/news-bot/`、`components/` 這幾個資料夾複製進你現有的 Next.js 專案對應位置
-4. 在 `.env.local` 與 Vercel 設定好第一步提到的環境變數
-5. 在你的 `layout.tsx` 最上方放進 `<AnnouncementBanner />`，在需要管理員按鈕的頁面放進 `<AdminPanel isAdmin={...} />`
-6. 遊戲檔案（`games/*.html`）可直接當獨立頁面使用，或用 `<iframe>` 嵌入你現有頁面
+   把這個帳號設成管理員，重新整理頁面後，右下角會出現「⚙ 管理後台」按鈕
+7. 手動打開一次 `你的網域/api/news-bot` 測試新聞機械人是否正常運作，之後可以到 Vercel 的 Cron Jobs 設定定時執行（例如每小時一次）
+8. `/games` 頁面可以看到 4 個小遊戲的入口
 
 ## 關於第 9 點：法律合規的重要提醒
 

@@ -1,6 +1,9 @@
 import { parseStringPromise } from 'xml2js'
 import { createClient as createSupabaseAdminClient } from '@supabase/supabase-js'
 
+export const dynamic = 'force-dynamic'
+
+
 // ⚠️ 重要：本檔案不含任何真實金鑰。所有金鑰一律從環境變數讀取，
 // 請在 Vercel 專案設定 NEWS_API_KEY / GEMINI_API_KEY / SUPABASE_SERVICE_ROLE_KEY /
 // NEXT_PUBLIC_SUPABASE_URL。
