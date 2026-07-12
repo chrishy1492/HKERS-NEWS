@@ -11,9 +11,6 @@ export const dynamic = 'force-dynamic'
 
 const TWO_DAYS_MS = 2 * 24 * 60 * 60 * 1000
 
-// 這份清單不是法律判斷，只是「送人工審查」的觸發字詞，
-// 命中的新聞會被標記為 needs_review，不會自動發佈。
-// 香港《國家安全法》、《基本法》第23條相關內容尤其敏感，一律先擋下來給人看過。
 const SENSITIVE_KEYWORDS = [
   '國家安全法', '港獨', '顛覆國家政權', '分裂國家', '境外勢力',
   '基本法23條', '煽動', '顛覆', '恐怖活動', '勾結外國',
@@ -27,6 +24,19 @@ function isWithinTwoDays(publishedAt: string): boolean {
   const t = new Date(publishedAt).getTime()
   if (Number.isNaN(t)) return false
   return Date.now() - t <= TWO_DAYS_MS
+}
+
+function stripHtml(html: string): string {
+  return html
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
 async function translateText(text: string, targetLang: 'en' | 'zh'): Promise<string | null> {
@@ -69,19 +79,6 @@ const RSS_SOURCES = [
   'https://feeds.bbci.co.uk/zhongwen/trad/rss.xml',
   'https://news.rthk.hk/rthk/ch/news/rss/c/expressnews.xml',
 ]
-
-function stripHtml(html: string): string {
-  return html
-    .replace(/<[^>]*>/g, ' ')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/\s+/g, ' ')
-    .trim()
-}
 
 async function fetchRssNews() {
   const results = await Promise.all(
@@ -205,10 +202,6 @@ export async function GET() {
     }
   }
 
-<<<<<<< HEAD
-  // 更新今日訪客統計，供管理後台儀表板顯示
-=======
->>>>>>> 48b36d412eb0cc708af53820f75f41e3101e06d7
   try {
     await supabase.rpc('log_visit')
   } catch {}
