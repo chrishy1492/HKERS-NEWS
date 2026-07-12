@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>小瑪莉 - 純娛樂版</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body{ background:#111827; color:#f3f4f6; font-family:"Microsoft JhengHei",sans-serif; }
+  .wheel-wrap{ position:relative; width:320px; height:320px; }
+  #wheel{ width:100%; height:100%; transition: transform 4s cubic-bezier(.12,.67,.1,1); }
+  .pointer{ position:absolute; top:-10px; left:50%; transform:translateX(-50%); font-size:28px; z-index:10; }
+  .disclaimer{ font-size:11px; color:#9ca3af; }
+</style>
+</head>
+<body class="min-h-screen flex flex-col items-center justify-center p-4">
+
+  <h1 class="text-2xl font-bold mb-1">🎡 小瑪莉</h1>
+  <p class="disclaimer mb-4">純娛樂單機小遊戲・不記錄・不累計・不涉及任何帳戶或真實價值</p>
+
+  <div class="flex items-center gap-4 mb-4">
+    <span class="text-sm text-gray-400">本局分數（重新整理後歸零）：</span>
+    <span id="score" class="text-xl font-bold text-yellow-400">0</span>
+  </div>
+
+  <div class="wheel-wrap mb-6">
+    <div class="pointer">🔻</div>
+    <svg id="wheel" viewBox="0 0 300 300"></svg>
+  </div>
+
+  <div id="message" class="h-8 text-lg font-bold mb-4 text-pink-400"></div>
+
+  <div class="flex gap-3">
+    <button id="spinBtn" class="px-8 py-3 bg-pink-500 text-black font-bold rounded-full hover:bg-white transition">開始轉動</button>
+    <button id="musicBtn" class="px-4 py-3 bg-gray-800 border border-gray-600 rounded-full text-sm hover:bg-gray-700 transition">🔊 音樂：開</button>
+    <button id="speedBtn" class="px-4 py-3 bg-gray-800 border border-gray-600 rounded-full text-sm hover:bg-gray-700 transition">⚡ 速度：x1</button>
+  </div>
+
+  <p class="disclaimer mt-6 max-w-md text-center">本遊戲結果由前端隨機函式產生，僅供休閒娛樂，畫面分數不具任何真實價值，不可兌換、不可提現、不與任何帳戶或代幣連動。</p>
+
+<script>
+// ---- 音樂（同款簡易環境音，無版權疑慮）----
+let audioCtx=null, musicOn=true, musicTimer=null;
+function ensureAudio(){ if(!audioCtx) audioCtx = new (window.AudioContext||window.webkitAudioContext)(); }
+function startMusic(){
+  ensureAudio(); stopMusic();
+  const notes=[392,440,523.25,587.33];
+  let i=0;
+  musicTimer=setInterval(()=>{
+    if(!musicOn) return;
+    const osc=audioCtx.createOscillator(), gain=audioCtx.createGain();
+    osc.type='triangle'; osc.frequency.value=notes[i%notes.length];
+    gain.gain.setValueAtTime(0.0001,audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.03,audioCtx.currentTime+0.05);
+    gain.gain.exponentialRampToValueAtTime(0.0001,audioCtx.currentTime+1.0);
+    osc.connect(gain).connect(audioCtx.destination);
+    osc.start(); osc.stop(audioCtx.currentTime+1.0);
+    i++;
+  },1300);
+}
+function stopMusic(){ if(musicTimer) clearInterval(musicTimer); }
+document.getElementById('musicBtn').addEventListener('click', ()=>{
+  musicOn=!musicOn;
+  document.getElementById('musicBtn').innerText = musicOn ? '🔊 音樂：開' : '🔇 音樂：關';
+  if(musicOn){ ensureAudio(); startMusic(); } else { stopMusic(); }
+});
+
+// ---- 速度切換（1倍/2倍）----
+let speedMultiplier = 1;
+document.getElementById('speedBtn').addEventListener('click', ()=>{
+  speedMultiplier = speedMultiplier === 1 ? 2 : 1;
+  document.getElementById('speedBtn').innerText = `⚡ 速度：x${speedMultiplier}`;
+});
+
+// ---- 轉盤圖案（僅作展示用途，不再設定「利潤控制」欄位，改為純展示分值）----
+const SEGMENTS = [
+  { name:"BAR",   emoji:"🅱️", value:100 },
+  { name:"77",    emoji:"7️⃣",  value:40 },
+  { name:"星星",  emoji:"⭐", value:30 },
+  { name:"西瓜",  emoji:"🍉", value:20 },
+  { name:"鈴鐺",  emoji:"🔔", value:15 },
+  { name:"芒果",  emoji:"🥭", value:10 },
+  { name:"橘子",  emoji:"🍊", value:5 },
+  { name:"蘋果",  emoji:"🍎", value:2 },
+];
+// 24格平均分配（每個圖案重複出現，純視覺豐富度，非機率造假）
+const WHEEL_SLICES = [];
+const repeatCounts = [1,1,2,2,3,3,5,7]; // 對應上面 8 種圖案，總共 24 格
+SEGMENTS.forEach((seg, idx) => {
+  for(let r=0;r<repeatCounts[idx];r++) WHEEL_SLICES.push(seg);
+});
+// 洗牌讓視覺分佈自然
+for(let i=WHEEL_SLICES.length-1;i>0;i--){
+  const j=Math.floor(Math.random()*(i+1));
+  [WHEEL_SLICES[i],WHEEL_SLICES[j]]=[WHEEL_SLICES[j],WHEEL_SLICES[i]];
+}
+
+const wheelEl = document.getElementById('wheel');
+const cx=150, cy=150, r=140;
+const sliceAngle = 360 / WHEEL_SLICES.length;
+const colors = ['#1f2937','#374151'];
+
+WHEEL_SLICES.forEach((seg, i)=>{
+  const startA = i*sliceAngle * Math.PI/180;
+  const endA = (i+1)*sliceAngle * Math.PI/180;
+  const x1 = cx + r*Math.cos(startA), y1 = cy + r*Math.sin(startA);
+  const x2 = cx + r*Math.cos(endA), y2 = cy + r*Math.sin(endA);
+  const path = document.createElementNS("http://www.w3.org/2000/svg","path");
+  path.setAttribute("d", `M${cx},${cy} L${x1},${y1} A${r},${r} 0 0,1 ${x2},${y2} Z`);
+  path.setAttribute("fill", colors[i%2]);
+  path.setAttribute("stroke", "#111827");
+  wheelEl.appendChild(path);
+
+  const midA = (startA+endA)/2;
+  const tx = cx + (r*0.68)*Math.cos(midA), ty = cy + (r*0.68)*Math.sin(midA);
+  const text = document.createElementNS("http://www.w3.org/2000/svg","text");
+  text.setAttribute("x", tx); text.setAttribute("y", ty);
+  text.setAttribute("text-anchor","middle");
+  text.setAttribute("font-size","16");
+  text.textContent = seg.emoji;
+  wheelEl.appendChild(text);
+});
+
+let rotation = 0;
+let spinning = false;
+let score = 0;
+
+function spin(){
+  if(spinning) return;
+  spinning = true;
+  document.getElementById('message').innerText = "";
+
+  const targetIndex = Math.floor(Math.random()*WHEEL_SLICES.length);
+  const extraSpins = 4 + Math.random()*2;
+  const targetAngle = 360*extraSpins + (360 - (targetIndex*sliceAngle + sliceAngle/2));
+  const duration = 4 / speedMultiplier;
+
+  wheelEl.style.transition = `transform ${duration}s cubic-bezier(.12,.67,.1,1)`;
+  rotation += targetAngle;
+  wheelEl.style.transform = `rotate(${rotation}deg)`;
+
+  setTimeout(()=>{
+    spinning = false;
+    const seg = WHEEL_SLICES[targetIndex];
+    score += seg.value;
+    document.getElementById('score').innerText = score;
+    document.getElementById('message').innerText = `轉到 ${seg.emoji} ${seg.name}！+${seg.value} 分`;
+  }, duration*1000);
+}
+
+document.getElementById('spinBtn').addEventListener('click', spin);
+</script>
+</body>
+</html>
