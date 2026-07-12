@@ -34,7 +34,6 @@ export default function NewsShareLike({ newsId, title, url, initialLikeCount, cu
 
   async function share() {
     const shareData = { title, url }
-    // 手機瀏覽器優先用原生分享面板；桌面瀏覽器退回複製連結
     if (navigator.share) {
       try {
         await navigator.share(shareData)
@@ -46,7 +45,9 @@ export default function NewsShareLike({ newsId, title, url, initialLikeCount, cu
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     }
-    await supabase.rpc('increment_share_count', { news_id_input: newsId }).catch(() => {})
+    try {
+      await supabase.rpc('increment_share_count', { news_id_input: newsId })
+    } catch {}
   }
 
   return (
