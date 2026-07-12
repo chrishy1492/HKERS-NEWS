@@ -3,7 +3,6 @@ import { createClient as createSupabaseAdminClient } from '@supabase/supabase-js
 
 export const dynamic = 'force-dynamic'
 
-
 // ⚠️ 重要：本檔案不含任何真實金鑰。所有金鑰一律從環境變數讀取，
 // 請在 Vercel 專案設定 NEWS_API_KEY / GEMINI_API_KEY / SUPABASE_SERVICE_ROLE_KEY /
 // NEXT_PUBLIC_SUPABASE_URL。
@@ -31,8 +30,6 @@ function isWithinTwoDays(publishedAt: string): boolean {
 }
 
 async function translateText(text: string, targetLang: 'en' | 'zh'): Promise<string | null> {
-  // 用 Gemini 做翻譯（也可換成任何翻譯 API）。翻譯失敗時回傳 null，
-  // 不讓單一新聞的翻譯錯誤中斷整個流程。
   const apiKey = process.env.GEMINI_API_KEY
   if (!apiKey) return null
 
@@ -131,10 +128,8 @@ export async function GET() {
   const [rssNews, newsApiNews] = await Promise.all([fetchRssNews(), fetchNewsApiNews()])
   let allNews = [...rssNews, ...newsApiNews]
 
-  // 過濾：必須有標題，且原新聞發布時間在 2 天內
   allNews = allNews.filter((n) => n.title && isWithinTwoDays(n.publishedAt))
 
-  // 去重（標題 + 發布時間組合）
   const seen = new Set<string>()
   const uniqueNews = allNews.filter((n) => {
     const key = `${n.title}|${n.publishedAt}`
@@ -168,7 +163,6 @@ export async function GET() {
       const needsReview = containsSensitiveContent(combinedText)
 
       if (needsReview) {
-        // 命中敏感詞：不自動發佈，交由人工在管理後台審查
         flaggedForReview++
         console.warn('[news-bot] flagged for manual review:', news.title)
         continue
@@ -187,7 +181,9 @@ export async function GET() {
         published_at: new Date(news.publishedAt).toISOString(),
       })
 
-      await supabase.rpc('log_news_posted').catch(() => {})
+      try {
+        await supabase.rpc('log_news_posted')
+      } catch {}
       published++
       titles.push(news.title)
     } catch (e) {
@@ -196,8 +192,9 @@ export async function GET() {
     }
   }
 
-  // 更新今日發文統計，供管理後台儀表板顯示
-  await supabase.rpc('log_visit').catch(() => {})
+  try {
+    await supabase.rpc('log_visit')
+  } catch {}
 
   return Response.json({
     success: true,
