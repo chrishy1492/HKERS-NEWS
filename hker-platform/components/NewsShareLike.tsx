@@ -54,14 +54,14 @@ export default function NewsShareLike({ newsId, title, url, initialLikeCount, cu
       <button
         onClick={toggleLike}
         className={`flex items-center gap-1 rounded-full px-3 py-1 transition ${
-          liked ? 'bg-pink-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+          liked ? 'bg-hker-red text-white' : 'bg-black/30 text-stone-300 hover:bg-black/50'
         }`}
       >
         {liked ? '❤️' : '🤍'} {likeCount}
       </button>
       <button
         onClick={share}
-        className="flex items-center gap-1 rounded-full bg-slate-800 px-3 py-1 text-slate-300 hover:bg-slate-700"
+        className="flex items-center gap-1 rounded-full bg-black/30 px-3 py-1 text-stone-300 hover:bg-black/50"
       >
         🔗 {copied ? '已複製連結' : '分享'}
       </button>

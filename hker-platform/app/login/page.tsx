@@ -42,16 +42,16 @@ export default function LoginPage() {
 
   return (
     <div className="mx-auto max-w-sm p-4 pt-16">
-      <div className="mb-6 flex rounded-lg border border-slate-800 p-1">
+      <div className="mb-6 flex rounded-lg border border-hker-gold/20 p-1">
         <button
           onClick={() => setMode('login')}
-          className={`flex-1 rounded py-2 text-sm font-bold ${mode === 'login' ? 'bg-cyan-500 text-black' : 'text-slate-400'}`}
+          className={`flex-1 rounded py-2 text-sm font-bold ${mode === 'login' ? 'bg-hker-red text-white' : 'text-stone-400'}`}
         >
           登入
         </button>
         <button
           onClick={() => setMode('signup')}
-          className={`flex-1 rounded py-2 text-sm font-bold ${mode === 'signup' ? 'bg-cyan-500 text-black' : 'text-slate-400'}`}
+          className={`flex-1 rounded py-2 text-sm font-bold ${mode === 'signup' ? 'bg-hker-red text-white' : 'text-stone-400'}`}
         >
           註冊
         </button>
@@ -64,7 +64,7 @@ export default function LoginPage() {
           placeholder="Email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-          className="w-full rounded bg-slate-800 px-3 py-2 text-sm outline-none"
+          className="w-full rounded bg-hker-charcoal px-3 py-2 text-sm text-stone-100 outline-none ring-1 ring-hker-gold/10 focus:ring-hker-gold/50"
         />
         <input
           type="password"
@@ -73,18 +73,18 @@ export default function LoginPage() {
           placeholder="密碼（至少 6 碼）"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          className="w-full rounded bg-slate-800 px-3 py-2 text-sm outline-none"
+          className="w-full rounded bg-hker-charcoal px-3 py-2 text-sm text-stone-100 outline-none ring-1 ring-hker-gold/10 focus:ring-hker-gold/50"
         />
         <button
           type="submit"
           disabled={loading}
-          className="w-full rounded bg-cyan-500 py-2 font-bold text-black hover:bg-cyan-400 disabled:opacity-50"
+          className="w-full rounded bg-hker-red py-2 font-bold text-white hover:bg-hker-red-dark disabled:opacity-50"
         >
           {loading ? '處理中...' : mode === 'login' ? '登入' : '註冊'}
         </button>
       </form>
 
-      {message && <p className="mt-4 text-center text-sm text-amber-400">{message}</p>}
+      {message && <p className="mt-4 text-center text-sm text-hker-gold-light">{message}</p>}
     </div>
   )
 }

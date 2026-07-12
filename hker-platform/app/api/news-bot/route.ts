@@ -73,6 +73,19 @@ const RSS_SOURCES = [
   'https://news.rthk.hk/rthk/ch/news/rss/c/expressnews.xml',
 ]
 
+function stripHtml(html: string): string {
+  return html
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 async function fetchRssNews() {
   const results = await Promise.all(
     RSS_SOURCES.map(async (url) => {
@@ -83,8 +96,8 @@ async function fetchRssNews() {
         const parsed = await parseStringPromise(xml)
         const items = parsed?.rss?.channel?.[0]?.item || []
         return items.map((item: any) => ({
-          title: item.title?.[0] ?? '',
-          content: item.description?.[0] ?? item.content?.[0] ?? '',
+          title: stripHtml(item.title?.[0] ?? ''),
+          content: stripHtml(item.description?.[0] ?? item.content?.[0] ?? ''),
           url: item.link?.[0] ?? '',
           source_name: new URL(url).hostname,
           publishedAt: item.pubDate?.[0] ?? '',
@@ -187,7 +200,9 @@ export async function GET() {
         published_at: new Date(news.publishedAt).toISOString(),
       })
 
-      await supabase.rpc('log_news_posted').catch(() => {})
+      try {
+        await supabase.rpc('log_news_posted')
+      } catch {}
       published++
       titles.push(news.title)
     } catch (e) {
@@ -196,8 +211,10 @@ export async function GET() {
     }
   }
 
-  // 更新今日發文統計，供管理後台儀表板顯示
-  await supabase.rpc('log_visit').catch(() => {})
+  // 更新今日訪客統計，供管理後台儀表板顯示
+  try {
+    await supabase.rpc('log_visit')
+  } catch {}
 
   return Response.json({
     success: true,

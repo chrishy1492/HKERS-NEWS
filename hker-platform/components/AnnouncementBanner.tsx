@@ -42,7 +42,7 @@ export default function AnnouncementBanner() {
   if (!announcement || dismissed) return null
 
   return (
-    <div className="flex items-center justify-between gap-3 bg-amber-500 px-4 py-2 text-sm font-medium text-black">
+    <div className="flex items-center justify-between gap-3 bg-hker-gold px-4 py-2 text-sm font-medium text-hker-ink">
       <span>📢 {announcement.message}</span>
       <button onClick={() => setDismissed(true)} className="shrink-0 opacity-70 hover:opacity-100">✕</button>
     </div>

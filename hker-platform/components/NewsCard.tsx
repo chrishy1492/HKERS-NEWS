@@ -25,22 +25,22 @@ export default function NewsCard({
   const content = lang === 'zh' ? contentZh : (contentEn ?? contentZh)
 
   return (
-    <article className="rounded-lg border border-slate-800 bg-slate-900/50 p-4">
+    <article className="rounded-lg border border-hker-gold/20 bg-hker-charcoal p-4 shadow-sm transition hover:border-hker-gold/50">
       <div className="mb-2 flex items-center justify-between">
-        <span className="text-xs text-slate-500">
+        <span className="text-xs text-stone-500">
           {sourceName} · {new Date(publishedAt).toLocaleString('zh-HK')}
         </span>
         {titleEn && (
           <div className="flex gap-1 text-xs">
             <button
               onClick={() => setLang('zh')}
-              className={`rounded px-2 py-0.5 ${lang === 'zh' ? 'bg-cyan-500 text-black' : 'bg-slate-800 text-slate-400'}`}
+              className={`rounded px-2 py-0.5 ${lang === 'zh' ? 'bg-hker-red text-white' : 'bg-black/30 text-stone-400'}`}
             >
               中文
             </button>
             <button
               onClick={() => setLang('en')}
-              className={`rounded px-2 py-0.5 ${lang === 'en' ? 'bg-cyan-500 text-black' : 'bg-slate-800 text-slate-400'}`}
+              className={`rounded px-2 py-0.5 ${lang === 'en' ? 'bg-hker-red text-white' : 'bg-black/30 text-stone-400'}`}
             >
               EN
             </button>
@@ -48,11 +48,11 @@ export default function NewsCard({
         )}
       </div>
 
-      <h2 className="mb-1 text-lg font-bold">{title}</h2>
-      <p className="mb-3 text-sm text-slate-300">{content}</p>
+      <h2 className="mb-1 text-lg font-bold text-hker-gold-light">{title}</h2>
+      <p className="mb-3 text-sm leading-relaxed text-stone-300">{content}</p>
 
-      <div className="flex items-center justify-between">
-        <a href={sourceUrl} target="_blank" rel="noreferrer" className="text-xs text-cyan-400 hover:underline">
+      <div className="flex items-center justify-between border-t border-hker-gold/10 pt-3">
+        <a href={sourceUrl} target="_blank" rel="noreferrer" className="text-xs text-hker-gold-light hover:underline">
           查看原文 →
         </a>
         <NewsShareLike

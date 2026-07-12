@@ -1,4 +1,5 @@
 import './globals.css'
+import Image from 'next/image'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import AnnouncementBanner from '@/components/AnnouncementBanner'
@@ -34,23 +35,34 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       <body>
         <AnnouncementBanner />
 
-        <nav className="flex items-center justify-between border-b border-slate-800 px-4 py-3">
-          <Link href="/" className="text-lg font-bold text-cyan-400">HKER News</Link>
-          <div className="flex items-center gap-4 text-sm">
-            <Link href="/" className="hover:text-cyan-400">新聞</Link>
-            <Link href="/games" className="hover:text-cyan-400">遊戲</Link>
-            {user ? (
-              <>
-                <span className="text-slate-400">{displayName}</span>
-                <LogoutButton />
-              </>
-            ) : (
-              <Link href="/login" className="rounded bg-cyan-500 px-3 py-1 font-bold text-black hover:bg-cyan-400">登入 / 註冊</Link>
-            )}
+        <nav className="sticky top-0 z-30 border-b border-hker-gold/30 bg-hker-ink/95 backdrop-blur">
+          <div className="mx-auto flex max-w-4xl items-center justify-between px-4 py-3">
+            <Link href="/" className="flex items-center gap-2">
+              <Image src="/logo.png" alt="HKER" width={36} height={36} className="rounded-full ring-1 ring-hker-gold/60" />
+              <span className="text-lg font-bold tracking-wide text-hker-gold-light">HKER News</span>
+            </Link>
+            <div className="flex items-center gap-5 text-sm">
+              <Link href="/" className="text-stone-300 transition hover:text-hker-gold-light">新聞</Link>
+              <Link href="/games" className="text-stone-300 transition hover:text-hker-gold-light">遊戲</Link>
+              {user ? (
+                <>
+                  <span className="hidden text-stone-400 sm:inline">{displayName}</span>
+                  <LogoutButton />
+                </>
+              ) : (
+                <Link
+                  href="/login"
+                  className="rounded-full bg-hker-red px-4 py-1.5 font-bold text-white shadow shadow-hker-red/30 transition hover:bg-hker-red-dark"
+                >
+                  登入 / 註冊
+                </Link>
+              )}
+            </div>
           </div>
+          <div className="gold-divider" />
         </nav>
 
-        <main className="min-h-screen">{children}</main>
+        <main className="min-h-screen bg-hker-ink">{children}</main>
 
         <AdminPanel isAdmin={isAdmin} />
       </body>
