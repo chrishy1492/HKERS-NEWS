@@ -46,7 +46,9 @@ export default function NewsShareLike({ newsId, title, url, initialLikeCount, cu
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     }
-  await supabase.rpc('increment_share_count', { news_id_input: newsId }).catch(() => {})
+try {
+  await supabase.rpc('increment_share_count', { news_id_input: newsId })
+} catch {}
   }
 
   return (
