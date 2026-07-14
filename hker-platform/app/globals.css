@@ -1,0 +1,28 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@500;700;900&family=Noto+Sans+TC:wght@400;500;700&display=swap');
+
+body {
+  background-color: #0b0908;
+  color: #f2ece0;
+  font-family: 'Noto Sans TC', "Microsoft JhengHei", sans-serif;
+}
+
+h1, h2, h3, .font-display {
+  font-family: 'Noto Serif TC', serif;
+}
+
+::selection {
+  background-color: #a11423;
+  color: #f2ece0;
+}
+
+/* 山脈輪廓分隔線 — 呼應 Logo 的山形線條，作為全站重複出現的品牌記號 */
+.ridge-divider {
+  width: 100%;
+  height: 14px;
+  color: #c9a227;
+  opacity: 0.55;
+}

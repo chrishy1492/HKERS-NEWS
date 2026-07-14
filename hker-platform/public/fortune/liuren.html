@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>掐指一算 - HKER</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@700;900&family=Noto+Sans+TC:wght@400;500&display=swap');
+  body{ background:#0b0908; color:#f2ece0; font-family:"Noto Sans TC",sans-serif; }
+  h1,h2{ font-family:"Noto Serif TC",serif; }
+  .result-badge{ background:linear-gradient(135deg,#a11423,#6e0e18); border:2px solid #c9a227; }
+</style>
+</head>
+<body class="min-h-screen p-4 md:p-8 flex flex-col items-center">
+
+<div class="max-w-lg w-full">
+  <header class="mb-6 border-b border-[#c9a227]/25 pb-4 text-center">
+    <h1 class="text-3xl font-black text-[#e6c65c]">🔮 掐指一算（小六壬）</h1>
+    <p class="text-xs text-[#a89a86] mt-2">純粹娛樂參考・不代表真實預測</p>
+    <button id="musicBtn" class="mt-3 rounded-full border border-[#c9a227]/40 bg-black/30 px-3 py-1 text-xs">🔊 音樂：開</button>
+  </header>
+
+  <section class="bg-black/30 p-6 rounded-xl border border-[#c9a227]/20 space-y-4">
+    <div>
+      <label class="text-sm text-[#a89a86]">請選擇日期</label>
+      <input id="dateInput" type="date" class="w-full mt-1 rounded bg-black/40 border border-[#c9a227]/20 px-3 py-2 text-sm text-[#f2ece0]">
+    </div>
+    <div>
+      <label class="text-sm text-[#a89a86]">請選擇時辰（小時）</label>
+      <input id="hourInput" type="number" min="0" max="23" value="12" class="w-full mt-1 rounded bg-black/40 border border-[#c9a227]/20 px-3 py-2 text-sm text-[#f2ece0]">
+    </div>
+    <button onclick="calculate()" class="w-full py-3 rounded-full bg-[#a11423] font-bold hover:bg-[#6e0e18] transition">開始占算</button>
+  </section>
+
+  <section id="result" class="hidden mt-6 space-y-4">
+    <div class="result-badge rounded-xl p-6 text-center">
+      <div id="conclusion" class="text-3xl font-black text-white"></div>
+    </div>
+    <div class="bg-black/30 p-4 rounded-xl border border-[#c9a227]/20 text-sm text-[#a89a86] space-y-1">
+      <div id="dateInfo"></div>
+      <div id="lunarInfo"></div>
+      <div id="shichenInfo"></div>
+    </div>
+    <div class="bg-black/30 p-5 rounded-xl border-l-4 border-[#c9a227] text-sm leading-relaxed text-stone-300" id="poemBox"></div>
+    <div class="text-center p-4 border border-dashed border-[#a11423]/50 rounded-lg bg-[#a11423]/10">
+      <p class="text-[#e6c65c] text-sm font-bold">以上結果只供參考娛樂，不可盡信</p>
+    </div>
+  </section>
+</div>
+
+<script>
+// 音樂
+let audioCtx=null, musicOn=true, musicTimer=null;
+function ensureAudio(){ if(!audioCtx) audioCtx=new (window.AudioContext||window.webkitAudioContext)(); }
+function startMusic(){
+  ensureAudio(); stopMusic();
+  const notes=[440,523.25,587.33,659.25];
+  let i=0;
+  musicTimer=setInterval(()=>{
+    if(!musicOn) return;
+    const osc=audioCtx.createOscillator(), gain=audioCtx.createGain();
+    osc.type='sine'; osc.frequency.value=notes[i%notes.length];
+    gain.gain.setValueAtTime(0.0001,audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.03,audioCtx.currentTime+0.05);
+    gain.gain.exponentialRampToValueAtTime(0.0001,audioCtx.currentTime+1.5);
+    osc.connect(gain).connect(audioCtx.destination);
+    osc.start(); osc.stop(audioCtx.currentTime+1.5);
+    i++;
+  },1700);
+}
+function stopMusic(){ if(musicTimer) clearInterval(musicTimer); }
+document.getElementById('musicBtn').addEventListener('click', ()=>{
+  musicOn=!musicOn;
+  document.getElementById('musicBtn').innerText = musicOn ? '🔊 音樂：開' : '🔇 音樂：關';
+  if(musicOn){ ensureAudio(); startMusic(); } else { stopMusic(); }
+});
+startMusic();
+
+// ---- 農曆換算表 (1900-2100)，經典公開演算法 ----
+const lunarInfo = [0x04bd8,0x04ae0,0x0a570,0x054d5,0x0d260,0x0d950,0x16554,0x056a0,0x09ad0,0x055d2,
+0x04ae0,0x0a5b6,0x0a4d0,0x0d250,0x1d255,0x0b540,0x0d6a0,0x0ada2,0x095b0,0x14977,
+0x04970,0x0a4b0,0x0b4b5,0x06a50,0x06d40,0x1ab54,0x02b60,0x09570,0x052f2,0x04970,
+0x06566,0x0d4a0,0x0ea50,0x06e95,0x05ad0,0x02b60,0x186e3,0x092e0,0x1c8d7,0x0c950,
+0x0d4a0,0x1d8a6,0x0b550,0x056a0,0x1a5b4,0x025d0,0x092d0,0x0d2b2,0x0a950,0x0b557,
+0x06ca0,0x0b550,0x15355,0x04da0,0x0a5d0,0x14573,0x052d0,0x0a9a8,0x0e950,0x06aa0,
+0x0aea6,0x0ab50,0x04b60,0x0aae4,0x0a570,0x05260,0x0f263,0x0d950,0x05b57,0x056a0,
+0x096d0,0x04dd5,0x04ad0,0x0a4d0,0x0d4d4,0x0d250,0x0d558,0x0b540,0x0b5a0,0x195a6,
+0x095b0,0x049b0,0x0a974,0x0a4b0,0x0b27a,0x06a50,0x06d40,0x0af46,0x0ab60,0x09570,
+0x04af5,0x04970,0x064b0,0x074a3,0x0ea50,0x06b58,0x055c0,0x0ab60,0x096d5,0x092e0,
+0x0c960,0x0d954,0x0d4a0,0x0da50,0x07552,0x056a0,0x0abb7,0x025d0,0x092d0,0x0cab5,
+0x0a950,0x0b4a0,0x0baa4,0x0ad50,0x055d9,0x04ba0,0x0a5b0,0x15176,0x052b0,0x0a930,
+0x07954,0x06aa0,0x0ad50,0x05b52,0x04b60,0x0a6e6,0x0a4e0,0x0d260,0x0ea65,0x0d530,
+0x05aa0,0x076a3,0x096d0,0x04bd7,0x04ad0,0x0a4d0,0x1d0b6,0x0d250,0x0d520,0x0dd45,
+0x0b5a0,0x056d0,0x055b2,0x049b0,0x0a577,0x0a4b0,0x0aa50,0x1b255,0x06d20,0x0ada0];
+
+function lunarYearDays(y){
+  let sum=348;
+  for(let i=0x8000;i>0x8;i>>=1) sum += (lunarInfo[y-1900]&i)?1:0;
+  return sum + leapDays(y);
+}
+function leapMonth(y){ return lunarInfo[y-1900]&0xf; }
+function leapDays(y){ return leapMonth(y) ? ((lunarInfo[y-1900]&0x10000)?30:29) : 0; }
+function monthDays(y,m){ return (lunarInfo[y-1900]&(0x10000>>m))?30:29; }
+
+function solarToLunar(y,m,d){
+  const baseDate = new Date(1900,0,31);
+  const objDate = new Date(y,m-1,d);
+  let offset = Math.round((objDate-baseDate)/86400000);
+  let lYear=1900, temp=0;
+  for(; lYear<2101 && offset>0; lYear++){
+    temp = lunarYearDays(lYear);
+    offset -= temp;
+  }
+  if(offset<0){ offset += temp; lYear--; }
+  const leap = leapMonth(lYear);
+  let isLeap=false, lMonth=1;
+  for(; lMonth<13 && offset>0; lMonth++){
+    if(leap>0 && lMonth===(leap+1) && !isLeap){ --lMonth; isLeap=true; temp=leapDays(lYear); }
+    else temp=monthDays(lYear,lMonth);
+    if(isLeap && lMonth===(leap+1)) isLeap=false;
+    offset -= temp;
+  }
+  if(offset===0 && leap>0 && lMonth===leap+1){
+    if(isLeap){ isLeap=false; } else { isLeap=true; --lMonth; }
+  }
+  if(offset<0){ offset += temp; --lMonth; }
+  const lDay = offset+1;
+  return { year:lYear, month:lMonth, day:lDay };
+}
+
+function getShichen(hour){
+  const names=["子","丑","寅","卯","辰","巳","午","未","申","酉","戌","亥"];
+  const index=Math.floor((hour+1)/2)%12;
+  return { index:index+1, name:names[index] };
+}
+
+const RESULT_NAMES = ["空亡","大安","留連","速喜","赤口","小吉"];
+const POEMS = {
+  "大安":"大安事事昌，求財在坤方，失物去不遠，宅舍保安康。行人身未動，病者主無妨，將軍回田野，仔細更推詳。",
+  "留連":"留連事難成，求謀日未明，官事宜緩，去者未回程。失物南方見，急討方心稱，更須防口舌，人口且平平。",
+  "速喜":"速喜喜來臨，求財向南行，失物申未午，逢人路上尋。官事有福德，病者無禍侵，田宅六畜吉，行人有信音。",
+  "赤口":"赤口主口舌，官非切宜防，失物速速討，行人有驚慌。六畜多作怪，病者出西方，更須防咀咒，誠恐染瘟皇。",
+  "小吉":"小吉最吉昌，路上好商量，陰人來報喜，失物在坤方。行人即便至，交關甚是強，凡事皆和合，病者叩窮蒼。",
+  "空亡":"空亡事不祥，陰人多乖張，求財無利益，行人有災殃。失物尋不見，官事有刑傷，病人逢暗鬼，解禳保安康。"
+};
+
+function calculate(){
+  const dateVal = document.getElementById('dateInput').value;
+  const hourVal = parseInt(document.getElementById('hourInput').value, 10);
+  if(!dateVal || isNaN(hourVal)){ alert('請完整選擇日期與時辰'); return; }
+
+  const [y,m,d] = dateVal.split('-').map(Number);
+  const lunar = solarToLunar(y,m,d);
+  const shichen = getShichen(hourVal);
+
+  let resIndex = (lunar.month + lunar.day + shichen.index - 2) % 6;
+  if(resIndex < 0) resIndex += 6;
+  const conclusion = RESULT_NAMES[resIndex];
+
+  document.getElementById('conclusion').innerText = `【 ${conclusion} 】`;
+  document.getElementById('dateInfo').innerText = `西曆：${y}年${m}月${d}日`;
+  document.getElementById('lunarInfo').innerText = `農曆：${lunar.year}年${lunar.month}月${lunar.day}日`;
+  document.getElementById('shichenInfo').innerText = `對應時辰：${shichen.name}時`;
+  document.getElementById('poemBox').innerText = POEMS[conclusion];
+  document.getElementById('result').classList.remove('hidden');
+}
+
+// 預設今天
+document.getElementById('dateInput').valueAsDate = new Date();
+</script>
+</body>
+</html>

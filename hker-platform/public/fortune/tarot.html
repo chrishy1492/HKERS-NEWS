@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>塔羅占卜 - HKER</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@700;900&family=Noto+Sans+TC:wght@400;500&display=swap');
+  body{ background:#0b0908; color:#f2ece0; font-family:"Noto Sans TC",sans-serif; }
+  h1,h2,h3{ font-family:"Noto Serif TC",serif; }
+  .tarot-card{ perspective:1000px; }
+  .card-inner{ position:relative; width:100%; height:100%; transition:transform .8s; transform-style:preserve-3d; }
+  .flipped .card-inner{ transform:rotateY(180deg); }
+  .card-front,.card-back{ position:absolute; width:100%; height:100%; backface-visibility:hidden; border-radius:14px; display:flex; align-items:center; justify-content:center; flex-direction:column; }
+  .card-back{ background:linear-gradient(135deg,#181310,#231a14); border:2px solid #c9a227; }
+  .card-front{ background:#181310; transform:rotateY(180deg); border:2px solid #a11423; }
+  .ctx-btn.active{ background:#a11423; border-color:#c9a227; color:#fff; }
+  .loading-bar{ width:0%; height:3px; background:#c9a227; transition:width .5s; }
+</style>
+</head>
+<body class="min-h-screen p-4 md:p-8 flex flex-col items-center">
+
+<div class="max-w-2xl w-full">
+  <header class="mb-6 border-b border-[#c9a227]/25 pb-4 text-center">
+    <h1 class="text-3xl font-black text-[#e6c65c]">🔮 塔羅占卜</h1>
+    <p class="text-xs text-[#a89a86] mt-2">純粹娛樂參考・不代表真實預測</p>
+    <button id="musicBtn" class="mt-3 rounded-full border border-[#c9a227]/40 bg-black/30 px-3 py-1 text-xs">🔊 音樂：開</button>
+  </header>
+
+  <section id="setup-section" class="bg-black/30 p-6 rounded-xl border border-[#c9a227]/20">
+    <h2 class="text-lg mb-4 text-[#e6c65c] font-bold">Step 1：選擇你想占卜的面向</h2>
+    <div class="grid grid-cols-3 gap-3">
+      <button onclick="selectContext('工作')" class="ctx-btn p-3 bg-black/40 rounded border border-[#c9a227]/20">工作</button>
+      <button onclick="selectContext('愛情')" class="ctx-btn p-3 bg-black/40 rounded border border-[#c9a227]/20">愛情</button>
+      <button onclick="selectContext('財富')" class="ctx-btn p-3 bg-black/40 rounded border border-[#c9a227]/20">財富</button>
+      <button onclick="selectContext('家庭')" class="ctx-btn p-3 bg-black/40 rounded border border-[#c9a227]/20">家庭</button>
+      <button onclick="selectContext('學業')" class="ctx-btn p-3 bg-black/40 rounded border border-[#c9a227]/20">學業</button>
+      <button onclick="selectContext('健康')" class="ctx-btn p-3 bg-black/40 rounded border border-[#c9a227]/20">健康</button>
+    </div>
+    <div class="mt-6 flex flex-col items-center">
+      <p id="selected-hint" class="text-[#e6c65c] mb-3 h-6 font-bold text-sm"></p>
+      <button id="draw-btn" onclick="startReading()" disabled class="px-8 py-3 bg-black/40 text-[#5c5248] rounded-full cursor-not-allowed font-bold tracking-widest">
+        抽一張牌
+      </button>
+    </div>
+  </section>
+
+  <div id="loading-view" class="hidden flex-col items-center mt-10">
+    <div class="w-64 bg-black/40 rounded-full overflow-hidden"><div id="progress" class="loading-bar"></div></div>
+    <p id="loading-text" class="text-xs mt-3 text-[#e6c65c]"></p>
+  </div>
+
+  <section id="result-section" class="hidden mt-8 space-y-6">
+    <div class="flex justify-center">
+      <div id="tarot-card-ui" class="tarot-card w-48 h-80">
+        <div class="card-inner">
+          <div class="card-back"><span class="text-[#5c5248] text-4xl">?</span></div>
+          <div class="card-front">
+            <div id="card-emoji" class="text-5xl mb-4"></div>
+            <h3 id="card-name" class="text-lg font-bold text-white px-2 text-center"></h3>
+            <span id="card-orientation" class="text-xs px-2 py-1 bg-[#a11423] rounded mt-2"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="bg-black/30 p-6 rounded-xl border-l-4 border-[#c9a227]">
+      <h2 class="text-lg font-bold mb-3 text-[#e6c65c]">📝 解讀</h2>
+      <div id="reading-content" class="space-y-3 text-stone-300 text-sm leading-relaxed"></div>
+    </div>
+
+    <div class="text-center p-4 border border-dashed border-[#a11423]/50 rounded-lg bg-[#a11423]/10">
+      <p class="text-[#e6c65c] text-sm font-bold">以上結果只供參考娛樂，不可盡信</p>
+      <button onclick="location.reload()" class="mt-3 text-[#e6c65c] text-sm hover:underline">重新占卜</button>
+    </div>
+  </section>
+</div>
+
+<script>
+// 音樂
+let audioCtx=null, musicOn=true, musicTimer=null;
+function ensureAudio(){ if(!audioCtx) audioCtx=new (window.AudioContext||window.webkitAudioContext)(); }
+function startMusic(){
+  ensureAudio(); stopMusic();
+  const notes=[329.63,392,440,523.25];
+  let i=0;
+  musicTimer=setInterval(()=>{
+    if(!musicOn) return;
+    const osc=audioCtx.createOscillator(), gain=audioCtx.createGain();
+    osc.type='sine'; osc.frequency.value=notes[i%notes.length];
+    gain.gain.setValueAtTime(0.0001,audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.03,audioCtx.currentTime+0.05);
+    gain.gain.exponentialRampToValueAtTime(0.0001,audioCtx.currentTime+1.6);
+    osc.connect(gain).connect(audioCtx.destination);
+    osc.start(); osc.stop(audioCtx.currentTime+1.6);
+    i++;
+  },1800);
+}
+function stopMusic(){ if(musicTimer) clearInterval(musicTimer); }
+document.getElementById('musicBtn').addEventListener('click', ()=>{
+  musicOn=!musicOn;
+  document.getElementById('musicBtn').innerText = musicOn ? '🔊 音樂：開' : '🔇 音樂：關';
+  if(musicOn){ ensureAudio(); startMusic(); } else { stopMusic(); }
+});
+startMusic();
+
+let currentContext = "";
+const cardsData = [
+  { name:"愚者 The Fool", emoji:"🃏", keyword:"冒險、開端、不確定性", 工作:"新的機會但缺乏規劃", 愛情:"自由的感情關係", 財富:"意外的財務變動", 家庭:"家中出現新的變化", 學業:"嘗試新的學習方式", 健康:"注意作息不規律" },
+  { name:"魔術師 The Magician", emoji:"🪄", keyword:"創造力、技能、資源", 工作:"展現專業能力的時刻", 愛情:"主動追求的魅力", 財富:"靠智慧創造財富", 家庭:"你是家中的協調者", 學業:"學習效率大幅提升", 健康:"精神狀態極佳" },
+  { name:"女祭司 The High Priestess", emoji:"🌙", keyword:"直覺、潛意識、靜止", 工作:"等待最佳時機", 愛情:"柏拉圖式的精神連結", 財富:"保守觀望為宜", 家庭:"家人間有未說出口的話", 學業:"適合安靜自修", 健康:"多留意睡眠品質" },
+  { name:"皇后 The Empress", emoji:"👑", keyword:"豐饒、母性、感官", 工作:"創意開花結果", 愛情:"穩定的情感照顧", 財富:"物質生活優渥", 家庭:"闔家和樂融融", 學業:"創作類科目有佳績", 健康:"整體健康狀況良好" },
+  { name:"高塔 The Tower", emoji:"⚡", keyword:"劇變、覺醒、崩潰", 工作:"突如其來的職場變動", 愛情:"關係的震盪與破裂", 財富:"突發性損失，宜謹慎", 家庭:"家中出現意外狀況", 學業:"考試前宜提早準備", 健康:"留意突發身體警訊" },
+  { name:"死神 Death", emoji:"💀", keyword:"結束、轉化、新生", 工作:"職涯的徹底轉型", 愛情:"一段關係的終結與重生", 財富:"清空舊帳務、重新開始", 家庭:"家庭角色重新調整", 學業:"適合轉換學習方向", 健康:"戒除不良習慣的時機" },
+  { name:"命運之輪 Wheel of Fortune", emoji:"🎡", keyword:"輪迴、契機、轉折", 工作:"關鍵的升遷或跳槽機會", 愛情:"緣分的牽引", 財富:"財運週期的波動", 家庭:"家中將有意外驚喜", 學業:"成績出現轉折點", 健康:"健康狀態起伏，宜觀察" },
+  { name:"太陽 The Sun", emoji:"☀️", keyword:"成功、喜悅、光明", 工作:"獲得高度認可", 愛情:"充滿活力的熱戀", 財富:"明朗的投資前景", 家庭:"家庭氣氛溫暖愉快", 學業:"學習成果顯著", 健康:"精力充沛、狀態極佳" },
+  { name:"正義 Justice", emoji:"⚖️", keyword:"公平、決策、因果", 工作:"合約與法律事務順利", 愛情:"需要溝通平衡的關係", 財富:"理性的資產分配", 家庭:"家務分配趨於公平", 學業:"憑實力獲得肯定", 健康:"生活作息趨於平衡" },
+];
+
+function selectContext(ctx) {
+  currentContext = ctx;
+  document.querySelectorAll('.ctx-btn').forEach(b => b.classList.remove('active'));
+  event.target.classList.add('active');
+  document.getElementById('selected-hint').innerText = `已選擇：${ctx}`;
+  const btn = document.getElementById('draw-btn');
+  btn.disabled = false;
+  btn.classList.remove('bg-black/40','text-[#5c5248]','cursor-not-allowed');
+  btn.classList.add('bg-[#a11423]','text-white');
+}
+
+async function startReading() {
+  document.getElementById('setup-section').classList.add('hidden');
+  const loading = document.getElementById('loading-view');
+  loading.classList.remove('hidden');
+  const tasks = ["正在洗牌...", "正在感應你的能量...", "正在抽取牌卡...", "正在生成解讀..."];
+  for (let i = 0; i < tasks.length; i++) {
+    document.getElementById('loading-text').innerText = tasks[i];
+    document.getElementById('progress').style.width = ((i + 1) * 25) + "%";
+    await new Promise(r => setTimeout(r, 500));
+  }
+  displayResult();
+}
+
+function displayResult() {
+  document.getElementById('loading-view').classList.add('hidden');
+  document.getElementById('result-section').classList.remove('hidden');
+  const card = cardsData[Math.floor(Math.random() * cardsData.length)];
+  const isUpright = Math.random() > 0.3;
+
+  document.getElementById('card-emoji').innerText = card.emoji;
+  document.getElementById('card-name').innerText = card.name;
+  document.getElementById('card-orientation').innerText = isUpright ? "正位" : "逆位";
+  setTimeout(() => document.getElementById('tarot-card-ui').classList.add('flipped'), 300);
+
+  const content = document.getElementById('reading-content');
+  const meaning = card[currentContext] || "需注意平衡與未知的變數。";
+  content.innerHTML = `
+    <p><b class="text-[#e6c65c]">核心意涵：</b>${card.keyword}</p>
+    <p><b class="text-[#e6c65c]">針對「${currentContext}」：</b>${meaning}${isUpright ? '，目前處於穩定期。' : '，但目前處於滯礙期，宜多加留意。'}</p>
+    <p><b class="text-[#e6c65c]">小提醒：</b>${isUpright ? '保持目前的節奏，穩步前進。' : '建議放慢腳步，重新檢視現況。'}</p>
+  `;
+}
+</script>
+</body>
+</html>
