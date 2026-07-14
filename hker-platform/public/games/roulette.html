@@ -35,7 +35,7 @@
 
     <div class="flex-grow flex flex-col items-center justify-center p-2 relative overflow-hidden">
         <div id="announcement" class="absolute top-4 text-xl text-yellow-400 font-bold h-8 z-10 transition-all"></div>
-        <canvas id="gameCanvas" width="420" height="420" class="mb-4"></canvas>
+        <canvas id="gameCanvas" width="560" height="560" class="mb-4"></canvas>
 
         <div class="w-full max-w-4xl flex flex-col md:flex-row gap-4 items-end bg-black/50 p-4 rounded-lg border border-white/10">
             <div class="flex-grow">
@@ -131,7 +131,7 @@
         }
 
         function drawWheel(angle) {
-            const centerX = canvas.width/2, centerY = canvas.height/2, radius = 180, innerRadius = 140;
+            const centerX = canvas.width/2, centerY = canvas.height/2, radius = 240, innerRadius = 185;
             ctx.clearRect(0,0,canvas.width,canvas.height);
 
             particles.forEach(p => {
@@ -154,7 +154,7 @@
                 ctx.strokeStyle = 'rgba(255,255,255,0.1)'; ctx.lineWidth = 1; ctx.stroke();
 
                 ctx.save(); ctx.translate(centerX,centerY); ctx.rotate(startAngle+segmentAngle/2);
-                ctx.textAlign = "center"; ctx.fillStyle = "white"; ctx.font = "bold 12px Orbitron";
+                ctx.textAlign = "center"; ctx.fillStyle = "white"; ctx.font = "bold 15px Orbitron";
                 ctx.fillText(num, radius-20, 5); ctx.restore();
             }
 
@@ -164,7 +164,7 @@
             ctx.shadowBlur = 10; ctx.strokeStyle = COLORS.cyan; ctx.lineWidth = 1;
             ctx.beginPath(); ctx.arc(centerX,centerY,innerRadius-10,0,Math.PI*2); ctx.stroke();
 
-            ctx.fillStyle = COLORS.cyan; ctx.font = "bold 13px Orbitron";
+            ctx.fillStyle = COLORS.cyan; ctx.font = "bold 16px Orbitron";
             ctx.textAlign = "center"; ctx.fillText("純娛樂", centerX, centerY+5);
 
             ctx.shadowBlur = 15; ctx.fillStyle = COLORS.cyan;

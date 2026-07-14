@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 
 const NAV = [
@@ -29,8 +30,9 @@ export default function Sidebar() {
         印
       </button>
 
-      {/* 桌面版：固定在左側的欄位，印章紅底風格 */}
-      <aside className="fixed left-0 top-[57px] hidden h-[calc(100vh-57px)] w-48 flex-col gap-4 border-r border-hker-gold/15 bg-hker-charcoal p-3 md:flex">
+      {/* 桌面版：固定在左側的欄位 */}
+      <aside className="fixed left-0 top-[57px] hidden h-[calc(100vh-57px)] w-48 flex-col gap-4 overflow-y-auto border-r border-hker-gold/15 bg-hker-charcoal p-3 md:flex">
+        <SearchBox />
         <SidebarSection title="探索" items={NAV} />
         <div className="ridge-divider" />
         <SidebarSection title="網站資料" items={INFO} />
@@ -39,11 +41,12 @@ export default function Sidebar() {
       {/* 手機版：滑出側邊欄 */}
       {open && (
         <div className="fixed inset-0 z-40 flex md:hidden">
-          <div className="flex w-56 flex-col gap-4 border-r border-hker-gold/20 bg-hker-charcoal p-3">
+          <div className="flex w-56 flex-col gap-4 overflow-y-auto border-r border-hker-gold/20 bg-hker-charcoal p-3">
             <div className="flex items-center justify-between">
               <span className="text-sm font-bold text-hker-gold-light">HKER News</span>
               <button onClick={() => setOpen(false)} className="text-stone-400">✕</button>
             </div>
+            <SearchBox onNavigate={() => setOpen(false)} />
             <SidebarSection title="探索" items={NAV} onNavigate={() => setOpen(false)} />
             <div className="ridge-divider" />
             <SidebarSection title="網站資料" items={INFO} onNavigate={() => setOpen(false)} />
@@ -52,6 +55,36 @@ export default function Sidebar() {
         </div>
       )}
     </>
+  )
+}
+
+function SearchBox({ onNavigate }: { onNavigate?: () => void }) {
+  const router = useRouter()
+  const [value, setValue] = useState('')
+
+  function submit(e: React.FormEvent) {
+    e.preventDefault()
+    const trimmed = value.trim()
+    router.push(trimmed ? `/?q=${encodeURIComponent(trimmed)}` : '/')
+    onNavigate?.()
+  }
+
+  return (
+    <form onSubmit={submit} className="flex items-center gap-1">
+      <input
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        placeholder="尋找新聞..."
+        className="w-full rounded bg-hker-ink px-2.5 py-1.5 text-xs text-stone-200 outline-none ring-1 ring-hker-gold/15 focus:ring-hker-gold/50"
+      />
+      <button
+        type="submit"
+        aria-label="搜尋"
+        className="flex h-7 w-7 shrink-0 items-center justify-center rounded bg-hker-lacquer text-xs text-white"
+      >
+        🔍
+      </button>
+    </form>
   )
 }
 

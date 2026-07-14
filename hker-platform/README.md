@@ -56,7 +56,9 @@ npm run dev
    update public.profiles set is_admin = true where email = 'you@example.com';
    ```
    把這個帳號設成管理員，重新整理頁面後，右下角會出現「⚙ 管理後台」按鈕
-7. 手動打開一次 `你的網域/api/news-bot` 測試新聞機械人是否正常運作，之後可以到 Vercel 的 Cron Jobs 設定定時執行（例如每小時一次）
+7. 專案裡的 `vercel.json` 已經設定好排程（每小時觸發一次 `/api/news-bot`）。**但 Vercel 免費 Hobby 方案的 Cron Jobs 一天只會真正執行一次**，不管設定裡寫多頻繁。如果要做到真正 24 小時、每小時更新，有兩個選擇：
+   - 升級到 Vercel Pro 方案（$20/月起），Cron 才能照設定的頻率執行
+   - 或使用免費的外部排程服務（例如 [cron-job.org](https://cron-job.org)），設定它每小時呼叫一次 `https://你的網域/api/news-bot`，效果一樣，且免費
 8. `/games` 頁面可以看到 4 個小遊戲的入口
 
 ## 關於第 9 點：法律合規的重要提醒

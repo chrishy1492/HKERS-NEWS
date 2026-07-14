@@ -30,6 +30,55 @@ function isWithinTwoDays(publishedAt: string): boolean {
   return Date.now() - t <= TWO_DAYS_MS
 }
 
+const REGIONS = ['中國香港', '台灣', '英國', '美國', '加拿大', '澳洲', '歐洲']
+const TOPICS = ['地產', '時事', '財經', '娛樂', '旅遊', '數碼', '汽車', '宗教', '優惠', '校園', '天氣', '社區活動']
+
+type Classification = { titleEn: string | null; contentEn: string | null; region: string; topic: string }
+
+async function classifyAndTranslate(title: string, content: string): Promise<Classification> {
+  const apiKey = process.env.GEMINI_API_KEY
+  const fallback: Classification = { titleEn: null, contentEn: null, region: '中國香港', topic: '時事' }
+  if (!apiKey) return fallback
+
+  const prompt = `你是一個嚴謹的新聞編輯助理。請根據以下中文新聞的標題與內文，完成三件事，並「只」回傳一個 JSON 物件，不要加任何說明文字或 markdown 符號：
+1. title_en：把標題翻譯成自然的英文
+2. content_en：把內文翻譯成自然的英文
+3. region：從這個清單裡選一個最符合的地區：${REGIONS.join('、')}
+4. topic：從這個清單裡選一個最符合的主題：${TOPICS.join('、')}
+
+規則：只根據新聞實際內容判斷，不要編造或誇大內容。如果無法確定地區，預設選「中國香港」；無法確定主題，預設選「時事」。
+
+標題：${title}
+內文：${content}
+
+回傳格式範例：{"title_en":"...","content_en":"...","region":"中國香港","topic":"時事"}`
+
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
+      }
+    )
+    if (!res.ok) return fallback
+    const data = await res.json()
+    const raw: string = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? ''
+    const cleaned = raw.replace(/```json|```/g, '').trim()
+    const parsed = JSON.parse(cleaned)
+    return {
+      titleEn: parsed.title_en ?? null,
+      contentEn: parsed.content_en ?? null,
+      region: REGIONS.includes(parsed.region) ? parsed.region : '中國香港',
+      topic: TOPICS.includes(parsed.topic) ? parsed.topic : '時事',
+    }
+  } catch (e) {
+    console.error('[news-bot] classify/translate failed:', (e as Error).message)
+    return fallback
+  }
+}
+
 async function translateText(text: string, targetLang: 'en' | 'zh'): Promise<string | null> {
   // 用 Gemini 做翻譯（也可換成任何翻譯 API）。翻譯失敗時回傳 null，
   // 不讓單一新聞的翻譯錯誤中斷整個流程。
@@ -187,8 +236,7 @@ export async function GET() {
         continue
       }
 
-      const titleEn = await translateText(news.title, 'en')
-      const contentEn = await translateText(news.content, 'en')
+      const { titleEn, contentEn, region, topic } = await classifyAndTranslate(news.title, news.content)
 
       await supabase.from('news_posts').insert({
         title_zh: news.title,
@@ -197,6 +245,8 @@ export async function GET() {
         content_en: contentEn,
         source_url: news.url,
         source_name: news.source_name,
+        region,
+        topic,
         published_at: new Date(news.publishedAt).toISOString(),
       })
 

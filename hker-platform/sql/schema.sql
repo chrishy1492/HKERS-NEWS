@@ -95,6 +95,8 @@ create table if not exists public.news_posts (
   content_en text,
   source_url text not null,
   source_name text,
+  region text, -- 例如：香港/台灣/英國/美國/加拿大/澳洲/歐洲
+  topic text,  -- 例如：時事/財經/娛樂/旅遊/數碼/汽車/地產/宗教/優惠/校園/天氣/社區活動
   published_at timestamptz not null, -- 原新聞發布時間，用於「不可多於2天」的過濾
   posted_at timestamptz not null default now(), -- 機械人貼上本站的時間
   like_count integer not null default 0,
@@ -102,6 +104,12 @@ create table if not exists public.news_posts (
 );
 
 create index if not exists idx_news_posts_published_at on public.news_posts (published_at desc);
+create index if not exists idx_news_posts_region on public.news_posts (region);
+create index if not exists idx_news_posts_topic on public.news_posts (topic);
+
+-- 若資料表已存在（舊版本），補上新欄位
+alter table public.news_posts add column if not exists region text;
+alter table public.news_posts add column if not exists topic text;
 
 alter table public.news_posts enable row level security;
 
