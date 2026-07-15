@@ -1,5 +1,3 @@
-// 呼應 HKER Logo 山形線條的分隔線，取代通用的漸層直線，
-// 讓品牌識別在每個區塊之間都重複出現。
 export default function RidgeDivider({ className = '' }: { className?: string }) {
   return (
     <svg
