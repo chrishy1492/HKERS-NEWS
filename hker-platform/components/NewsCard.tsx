@@ -1,5 +1,4 @@
 'use client'
-
 import { useState } from 'react'
 import NewsShareLike from '@/components/NewsShareLike'
 
@@ -22,12 +21,11 @@ export default function NewsCard({
   id, titleZh, titleEn, contentZh, contentEn, sourceUrl, sourceName, region, topic, publishedAt, likeCount, currentUserId,
 }: Props) {
   const [lang, setLang] = useState<'zh' | 'en'>('zh')
-
   const title = lang === 'zh' ? titleZh : (titleEn ?? titleZh)
   const content = lang === 'zh' ? contentZh : (contentEn ?? contentZh)
 
   return (
-    <article className="flex gap-3 rounded-md bg-hker-charcoal/60 pr-4 shadow-sm transition hover:bg-hker-charcoal">
+    <article className="break-inside-avoid-column mb-4 flex gap-3 rounded-md bg-hker-charcoal/60 pr-4 shadow-sm transition hover:bg-hker-charcoal">
       <div className="w-1 shrink-0 rounded-full bg-hker-lacquer" />
       <div className="flex-1 py-4">
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
@@ -45,10 +43,8 @@ export default function NewsCard({
             🌐 {lang === 'zh' ? '譯做英文' : '轉回中文'}
           </button>
         </div>
-
         <h2 className="font-display mb-1.5 text-xl font-bold leading-snug text-hker-gold-light">{title}</h2>
-        <p className="mb-3 text-sm leading-relaxed text-stone-300">{content}</p>
-
+        <p className="mb-3 text-sm leading-relaxed text-stone-300 whitespace-pre-line">{content}</p>
         <div className="flex items-center justify-between border-t border-hker-gold/10 pt-3">
           <a href={sourceUrl} target="_blank" rel="noreferrer" className="text-xs text-hker-gold-light hover:underline">
             查看原文 →
