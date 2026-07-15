@@ -35,20 +35,20 @@ const REGIONS = ['中國香港', '台灣', '英國', '美國', '加拿大', '澳
 const TOPICS = ['地產', '時事', '財經', '娛樂', '旅遊', '數碼', '汽車', '宗教', '優惠', '校園', '天氣', '社區活動']
 
 // ============================================================
-// 【新增】機械人聲明 + 版權聯絡文字
-// 每則新聞存進資料庫前，都會自動附加這段文字在內文最後面。
-// 如果之後想改文字內容，只要改這裡，不用動其他程式邏輯。
+// 【修改】機械人聲明 + 版權聯絡文字
+// 不再把完整原文網址寫進內文（避免撐爆卡片版面、跟畫面下方
+// 「查看原文→」按鈕功能重複），改為引導使用者點擊該按鈕。
+// sourceUrl 參數保留，避免呼叫端程式碼要跟著改動。
 // ============================================================
 function buildDisclaimer(sourceName: string, sourceUrl: string, lang: 'zh' | 'en'): string {
   if (lang === 'zh') {
-    return `\n\n---\n本文由機械人整理自動生成，並非逐字轉載原文。\n資料來源：${sourceName}｜原文網址：${sourceUrl}\n如有任何版權問題，歡迎與我們聯絡處理。`
+    return `\n\n---\n本文由機械人整理自動生成，並非逐字轉載原文。\n資料來源：${sourceName}（原文網址請點擊下方「查看原文」按鈕）\n如有任何版權問題，歡迎與我們聯絡處理。`
   }
-  return `\n\n---\nThis article was automatically compiled and summarized by an AI bot, not copied verbatim from the source.\nSource: ${sourceName} | Original article: ${sourceUrl}\nIf you have any copyright concerns, please contact us.`
+  return `\n\n---\nThis article was automatically compiled and summarized by an AI bot, not copied verbatim from the source.\nSource: ${sourceName} (click "View Original" below for the source link)\nIf you have any copyright concerns, please contact us.`
 }
 
 // ============================================================
-// 【修改】原本的 classifyAndTranslate 改名為 processNewsContent，
-// 新增「改寫重點摘要」這個步驟，避免逐字複製原文造成版權問題。
+// 改寫成重點摘要，避免逐字複製原文造成版權問題。
 // 回傳值多了 rewrittenZh（改寫後的中文重點摘要）。
 // ============================================================
 type ProcessedContent = {
@@ -72,7 +72,6 @@ async function processNewsContent(title: string, content: string): Promise<Proce
   }
   if (!apiKey) return fallback
 
-  // 【修改】prompt 新增第 0 點：要求改寫成重點摘要，而不是逐字翻譯/照抄
   const prompt = `你是一個嚴謹的新聞編輯助理，同時也要注意版權規範。請根據以下中文新聞的標題與內文，完成四件事，並「只」回傳一個 JSON 物件，不要加任何說明文字或 markdown 符號：
 
 1. content_zh_rewritten：用你自己的話，改寫這則新聞的重點摘要（繁體中文，約 100-200 字）。
@@ -216,7 +215,7 @@ export async function GET() {
   let flaggedForReview = 0
   let duplicates = 0
   let errors = 0
-  let rewriteFailures = 0 // 【新增】記錄有幾篇改寫失敗、退回原文
+  let rewriteFailures = 0
   const titles: string[] = []
 
   for (const news of selected) {
@@ -236,7 +235,6 @@ export async function GET() {
       const needsReview = containsSensitiveContent(combinedText)
 
       if (needsReview) {
-        // 命中敏感詞：不自動發佈，交由人工在管理後台審查
         flaggedForReview++
         console.warn('[news-bot] flagged for manual review:', news.title)
         continue
@@ -246,18 +244,13 @@ export async function GET() {
         await processNewsContent(news.title, news.content)
 
       if (!wasRewritten) {
-        // 【新增】改寫失敗時記錄一下，方便你之後檢查是不是 Gemini API key 有問題、
-        // 或者這篇新聞的內容導致 AI 判斷失敗。目前仍會退回原文發佈，
-        // 但這代表這篇文章沒有經過改寫，版權風險較高，建議留意 log。
         rewriteFailures++
         console.warn('[news-bot] rewrite failed, falling back to original content:', news.title)
       }
 
-      // 【修改】最終存入的中文內容：優先用改寫後的摘要，失敗才退回原文
       const finalContentZh =
         (rewrittenZh ?? news.content) + buildDisclaimer(news.source_name, news.url, 'zh')
 
-      // 英文版：如果有翻譯就加上聲明，沒有就存 null（前端可以顯示「翻譯暫不可用」）
       const finalContentEn = contentEn
         ? contentEn + buildDisclaimer(news.source_name, news.url, 'en')
         : null
@@ -285,7 +278,6 @@ export async function GET() {
     }
   }
 
-  // 更新今日訪客統計，供管理後台儀表板顯示
   try {
     await supabase.rpc('log_visit')
   } catch {}
@@ -297,7 +289,7 @@ export async function GET() {
     duplicates,
     flaggedForReview,
     errors,
-    rewriteFailures, // 【新增】回傳這次有幾篇是退回原文的，方便你監控
+    rewriteFailures,
     titles,
   })
 }
