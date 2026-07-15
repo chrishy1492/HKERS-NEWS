@@ -25,9 +25,9 @@ export default function NewsCard({
   const content = lang === 'zh' ? contentZh : (contentEn ?? contentZh)
 
   return (
-    <article className="break-inside-avoid-column mb-4 flex gap-3 rounded-md bg-hker-charcoal/60 pr-4 shadow-sm transition hover:bg-hker-charcoal">
+    <article className="min-w-0 flex gap-3 rounded-md bg-hker-charcoal/60 pr-4 shadow-sm transition hover:bg-hker-charcoal">
       <div className="w-1 shrink-0 rounded-full bg-hker-lacquer" />
-      <div className="flex-1 py-4">
+      <div className="min-w-0 flex-1 py-4">
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
           <div className="flex flex-wrap items-center gap-2 text-xs uppercase tracking-wide text-hker-stone">
             <span>{sourceName} · {new Date(publishedAt).toLocaleString('zh-HK')}</span>
@@ -43,10 +43,10 @@ export default function NewsCard({
             🌐 {lang === 'zh' ? '譯做英文' : '轉回中文'}
           </button>
         </div>
-        <h2 className="font-display mb-1.5 text-xl font-bold leading-snug text-hker-gold-light">{title}</h2>
-        <p className="mb-3 text-sm leading-relaxed text-stone-300 whitespace-pre-line">{content}</p>
+        <h2 className="font-display mb-1.5 break-words text-xl font-bold leading-snug text-hker-gold-light">{title}</h2>
+        <p className="mb-3 whitespace-pre-line break-words text-sm leading-relaxed text-stone-300">{content}</p>
         <div className="flex items-center justify-between border-t border-hker-gold/10 pt-3">
-          <a href={sourceUrl} target="_blank" rel="noreferrer" className="text-xs text-hker-gold-light hover:underline">
+          <a href={sourceUrl} target="_blank" rel="noreferrer" className="min-w-0 truncate text-xs text-hker-gold-light hover:underline">
             查看原文 →
           </a>
           <NewsShareLike
