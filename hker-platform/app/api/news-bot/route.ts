@@ -18,6 +18,7 @@ const TWO_DAYS_MS = 2 * 24 * 60 * 60 * 1000
 const SENSITIVE_KEYWORDS = [
   '國家安全法', '港獨', '顛覆國家政權', '分裂國家', '境外勢力',
   '基本法23條', '煽動', '顛覆', '恐怖活動', '勾結外國',
+  '台獨', '藏獨', '疆獨', '分離主義', '暴動', '策動',
 ]
 
 function containsSensitiveContent(text: string): boolean {
@@ -33,25 +34,63 @@ function isWithinTwoDays(publishedAt: string): boolean {
 const REGIONS = ['中國香港', '台灣', '英國', '美國', '加拿大', '澳洲', '歐洲']
 const TOPICS = ['地產', '時事', '財經', '娛樂', '旅遊', '數碼', '汽車', '宗教', '優惠', '校園', '天氣', '社區活動']
 
-type Classification = { titleEn: string | null; contentEn: string | null; region: string; topic: string }
+// ============================================================
+// 【新增】機械人聲明 + 版權聯絡文字
+// 每則新聞存進資料庫前，都會自動附加這段文字在內文最後面。
+// 如果之後想改文字內容，只要改這裡，不用動其他程式邏輯。
+// ============================================================
+function buildDisclaimer(sourceName: string, sourceUrl: string, lang: 'zh' | 'en'): string {
+  if (lang === 'zh') {
+    return `\n\n---\n本文由機械人整理自動生成，並非逐字轉載原文。\n資料來源：${sourceName}｜原文網址：${sourceUrl}\n如有任何版權問題，歡迎與我們聯絡處理。`
+  }
+  return `\n\n---\nThis article was automatically compiled and summarized by an AI bot, not copied verbatim from the source.\nSource: ${sourceName} | Original article: ${sourceUrl}\nIf you have any copyright concerns, please contact us.`
+}
 
-async function classifyAndTranslate(title: string, content: string): Promise<Classification> {
+// ============================================================
+// 【修改】原本的 classifyAndTranslate 改名為 processNewsContent，
+// 新增「改寫重點摘要」這個步驟，避免逐字複製原文造成版權問題。
+// 回傳值多了 rewrittenZh（改寫後的中文重點摘要）。
+// ============================================================
+type ProcessedContent = {
+  rewrittenZh: string | null
+  titleEn: string | null
+  contentEn: string | null
+  region: string
+  topic: string
+  wasRewritten: boolean
+}
+
+async function processNewsContent(title: string, content: string): Promise<ProcessedContent> {
   const apiKey = process.env.GEMINI_API_KEY
-  const fallback: Classification = { titleEn: null, contentEn: null, region: '中國香港', topic: '時事' }
+  const fallback: ProcessedContent = {
+    rewrittenZh: null,
+    titleEn: null,
+    contentEn: null,
+    region: '中國香港',
+    topic: '時事',
+    wasRewritten: false,
+  }
   if (!apiKey) return fallback
 
-  const prompt = `你是一個嚴謹的新聞編輯助理。請根據以下中文新聞的標題與內文，完成三件事，並「只」回傳一個 JSON 物件，不要加任何說明文字或 markdown 符號：
-1. title_en：把標題翻譯成自然的英文
-2. content_en：把內文翻譯成自然的英文
-3. region：從這個清單裡選一個最符合的地區：${REGIONS.join('、')}
-4. topic：從這個清單裡選一個最符合的主題：${TOPICS.join('、')}
+  // 【修改】prompt 新增第 0 點：要求改寫成重點摘要，而不是逐字翻譯/照抄
+  const prompt = `你是一個嚴謹的新聞編輯助理，同時也要注意版權規範。請根據以下中文新聞的標題與內文，完成四件事，並「只」回傳一個 JSON 物件，不要加任何說明文字或 markdown 符號：
+
+1. content_zh_rewritten：用你自己的話，改寫這則新聞的重點摘要（繁體中文，約 100-200 字）。
+   規則：
+   - 只保留最重要的事實重點（誰、什麼事、何時、影響），不要逐句照抄或近似照抄原文的句子結構與用字。
+   - 不可以捏造原文沒有提到的細節或數字。
+   - 語氣可以是新聞報導的客觀語氣，但必須是「你重新組織後的表達方式」。
+2. title_en：把標題翻譯成自然的英文
+3. content_en：把你改寫後的中文摘要（content_zh_rewritten）翻譯成自然的英文，不是翻譯原文
+4. region：從這個清單裡選一個最符合的地區：${REGIONS.join('、')}
+5. topic：從這個清單裡選一個最符合的主題：${TOPICS.join('、')}
 
 規則：只根據新聞實際內容判斷，不要編造或誇大內容。如果無法確定地區，預設選「中國香港」；無法確定主題，預設選「時事」。
 
-標題：${title}
-內文：${content}
+原標題：${title}
+原內文：${content}
 
-回傳格式範例：{"title_en":"...","content_en":"...","region":"中國香港","topic":"時事"}`
+回傳格式範例：{"content_zh_rewritten":"...","title_en":"...","content_en":"...","region":"中國香港","topic":"時事"}`
 
   try {
     const res = await fetch(
@@ -67,52 +106,18 @@ async function classifyAndTranslate(title: string, content: string): Promise<Cla
     const raw: string = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? ''
     const cleaned = raw.replace(/```json|```/g, '').trim()
     const parsed = JSON.parse(cleaned)
+
     return {
+      rewrittenZh: parsed.content_zh_rewritten ?? null,
       titleEn: parsed.title_en ?? null,
       contentEn: parsed.content_en ?? null,
       region: REGIONS.includes(parsed.region) ? parsed.region : '中國香港',
       topic: TOPICS.includes(parsed.topic) ? parsed.topic : '時事',
+      wasRewritten: !!parsed.content_zh_rewritten,
     }
   } catch (e) {
-    console.error('[news-bot] classify/translate failed:', (e as Error).message)
+    console.error('[news-bot] process content failed:', (e as Error).message)
     return fallback
-  }
-}
-
-async function translateText(text: string, targetLang: 'en' | 'zh'): Promise<string | null> {
-  // 用 Gemini 做翻譯（也可換成任何翻譯 API）。翻譯失敗時回傳 null，
-  // 不讓單一新聞的翻譯錯誤中斷整個流程。
-  const apiKey = process.env.GEMINI_API_KEY
-  if (!apiKey) return null
-
-  try {
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [
-            {
-              parts: [
-                {
-                  text:
-                    targetLang === 'en'
-                      ? `Translate the following Chinese news text into natural English. Only return the translation, no extra commentary:\n\n${text}`
-                      : `請將以下英文新聞翻譯成自然的繁體中文，只回傳翻譯內容，不要加任何說明：\n\n${text}`,
-                },
-              ],
-            },
-          ],
-        }),
-      }
-    )
-    if (!res.ok) return null
-    const data = await res.json()
-    return data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ?? null
-  } catch (e) {
-    console.error('[news-bot] translate failed:', (e as Error).message)
-    return null
   }
 }
 
@@ -211,6 +216,7 @@ export async function GET() {
   let flaggedForReview = 0
   let duplicates = 0
   let errors = 0
+  let rewriteFailures = 0 // 【新增】記錄有幾篇改寫失敗、退回原文
   const titles: string[] = []
 
   for (const news of selected) {
@@ -236,13 +242,31 @@ export async function GET() {
         continue
       }
 
-      const { titleEn, contentEn, region, topic } = await classifyAndTranslate(news.title, news.content)
+      const { rewrittenZh, titleEn, contentEn, region, topic, wasRewritten } =
+        await processNewsContent(news.title, news.content)
+
+      if (!wasRewritten) {
+        // 【新增】改寫失敗時記錄一下，方便你之後檢查是不是 Gemini API key 有問題、
+        // 或者這篇新聞的內容導致 AI 判斷失敗。目前仍會退回原文發佈，
+        // 但這代表這篇文章沒有經過改寫，版權風險較高，建議留意 log。
+        rewriteFailures++
+        console.warn('[news-bot] rewrite failed, falling back to original content:', news.title)
+      }
+
+      // 【修改】最終存入的中文內容：優先用改寫後的摘要，失敗才退回原文
+      const finalContentZh =
+        (rewrittenZh ?? news.content) + buildDisclaimer(news.source_name, news.url, 'zh')
+
+      // 英文版：如果有翻譯就加上聲明，沒有就存 null（前端可以顯示「翻譯暫不可用」）
+      const finalContentEn = contentEn
+        ? contentEn + buildDisclaimer(news.source_name, news.url, 'en')
+        : null
 
       await supabase.from('news_posts').insert({
         title_zh: news.title,
         title_en: titleEn,
-        content_zh: news.content,
-        content_en: contentEn,
+        content_zh: finalContentZh,
+        content_en: finalContentEn,
         source_url: news.url,
         source_name: news.source_name,
         region,
@@ -273,6 +297,7 @@ export async function GET() {
     duplicates,
     flaggedForReview,
     errors,
+    rewriteFailures, // 【新增】回傳這次有幾篇是退回原文的，方便你監控
     titles,
   })
 }
