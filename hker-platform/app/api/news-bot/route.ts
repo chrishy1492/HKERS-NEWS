@@ -70,7 +70,10 @@ async function processNewsContent(title: string, content: string): Promise<Proce
     topic: '時事',
     wasRewritten: false,
   }
-  if (!apiKey) return fallback
+  if (!apiKey) {
+    console.error('[news-bot] GEMINI_API_KEY is missing')
+    return fallback
+  }
 
   const prompt = `你是一個嚴謹的新聞編輯助理，同時也要注意版權規範。請根據以下中文新聞的標題與內文，完成四件事，並「只」回傳一個 JSON 物件，不要加任何說明文字或 markdown 符號：
 
@@ -100,9 +103,19 @@ async function processNewsContent(title: string, content: string): Promise<Proce
         body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
       }
     )
-    if (!res.ok) return fallback
+    if (!res.ok) {
+      // 【新增】把失敗的狀態碼跟回應內容印出來，才能知道真正原因
+      const errorBody = await res.text()
+      console.error(`[news-bot] Gemini API error, status ${res.status}:`, errorBody.slice(0, 500))
+      return fallback
+    }
     const data = await res.json()
     const raw: string = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? ''
+    if (!raw) {
+      // 【新增】如果 Gemini 回應成功但內容是空的，也要記錄下來
+      console.error('[news-bot] Gemini returned empty content:', JSON.stringify(data).slice(0, 500))
+      return fallback
+    }
     const cleaned = raw.replace(/```json|```/g, '').trim()
     const parsed = JSON.parse(cleaned)
 
@@ -118,178 +131,4 @@ async function processNewsContent(title: string, content: string): Promise<Proce
     console.error('[news-bot] process content failed:', (e as Error).message)
     return fallback
   }
-}
-
-const RSS_SOURCES = [
-  'https://news.google.com/rss?hl=zh-TW&gl=TW&ceid=TW:zh-Hant',
-  'https://feeds.bbci.co.uk/zhongwen/trad/rss.xml',
-  'https://news.rthk.hk/rthk/ch/news/rss/c/expressnews.xml',
-]
-
-function stripHtml(html: string): string {
-  return html
-    .replace(/<[^>]*>/g, ' ')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/\s+/g, ' ')
-    .trim()
-}
-
-async function fetchRssNews() {
-  const results = await Promise.all(
-    RSS_SOURCES.map(async (url) => {
-      try {
-        const res = await fetch(url)
-        if (!res.ok) throw new Error(`RSS ${res.status}`)
-        const xml = await res.text()
-        const parsed = await parseStringPromise(xml)
-        const items = parsed?.rss?.channel?.[0]?.item || []
-        return items.map((item: any) => ({
-          title: stripHtml(item.title?.[0] ?? ''),
-          content: stripHtml(item.description?.[0] ?? item.content?.[0] ?? ''),
-          url: item.link?.[0] ?? '',
-          source_name: new URL(url).hostname,
-          publishedAt: item.pubDate?.[0] ?? '',
-        }))
-      } catch (e) {
-        console.error('[news-bot] RSS fetch failed for', url, (e as Error).message)
-        return []
-      }
-    })
-  )
-  return results.flat()
-}
-
-async function fetchNewsApiNews() {
-  const key = process.env.NEWS_API_KEY
-  if (!key) return []
-  const twoDaysAgo = new Date(Date.now() - TWO_DAYS_MS).toISOString().slice(0, 10)
-  const url = `https://newsapi.org/v2/everything?q=香港 OR 國際 OR 科技 OR 經濟&language=zh&sortBy=publishedAt&pageSize=50&from=${twoDaysAgo}&apiKey=${key}`
-  try {
-    const res = await fetch(url)
-    if (!res.ok) throw new Error(`NewsAPI ${res.status}`)
-    const data = await res.json()
-    return (data.articles || []).map((a: any) => ({
-      title: a.title,
-      content: a.description || a.content || '',
-      url: a.url,
-      source_name: a.source?.name || 'NewsAPI',
-      publishedAt: a.publishedAt,
-    }))
-  } catch (e) {
-    console.error('[news-bot] NewsAPI fetch failed:', (e as Error).message)
-    return []
-  }
-}
-
-export async function GET() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-  if (!supabaseUrl || !serviceKey) {
-    return Response.json({ success: false, message: '缺少 Supabase 環境變數' }, { status: 500 })
-  }
-  const supabase = createSupabaseAdminClient(supabaseUrl, serviceKey)
-
-  const [rssNews, newsApiNews] = await Promise.all([fetchRssNews(), fetchNewsApiNews()])
-  let allNews = [...rssNews, ...newsApiNews]
-
-  // 過濾：必須有標題，且原新聞發布時間在 2 天內
-  allNews = allNews.filter((n) => n.title && isWithinTwoDays(n.publishedAt))
-
-  // 去重（標題 + 發布時間組合）
-  const seen = new Set<string>()
-  const uniqueNews = allNews.filter((n) => {
-    const key = `${n.title}|${n.publishedAt}`
-    if (seen.has(key)) return false
-    seen.add(key)
-    return true
-  })
-
-  const selected = uniqueNews.sort(() => 0.5 - Math.random()).slice(0, 6)
-
-  let published = 0
-  let flaggedForReview = 0
-  let duplicates = 0
-  let errors = 0
-  let rewriteFailures = 0
-  const titles: string[] = []
-
-  for (const news of selected) {
-    try {
-      const { data: existing } = await supabase
-        .from('news_posts')
-        .select('id')
-        .eq('title_zh', news.title)
-        .maybeSingle()
-
-      if (existing) {
-        duplicates++
-        continue
-      }
-
-      const combinedText = `${news.title}\n${news.content}`
-      const needsReview = containsSensitiveContent(combinedText)
-
-      if (needsReview) {
-        flaggedForReview++
-        console.warn('[news-bot] flagged for manual review:', news.title)
-        continue
-      }
-
-      const { rewrittenZh, titleEn, contentEn, region, topic, wasRewritten } =
-        await processNewsContent(news.title, news.content)
-
-      if (!wasRewritten) {
-        rewriteFailures++
-        console.warn('[news-bot] rewrite failed, falling back to original content:', news.title)
-      }
-
-      const finalContentZh =
-        (rewrittenZh ?? news.content) + buildDisclaimer(news.source_name, news.url, 'zh')
-
-      const finalContentEn = contentEn
-        ? contentEn + buildDisclaimer(news.source_name, news.url, 'en')
-        : null
-
-      await supabase.from('news_posts').insert({
-        title_zh: news.title,
-        title_en: titleEn,
-        content_zh: finalContentZh,
-        content_en: finalContentEn,
-        source_url: news.url,
-        source_name: news.source_name,
-        region,
-        topic,
-        published_at: new Date(news.publishedAt).toISOString(),
-      })
-
-      try {
-        await supabase.rpc('log_news_posted')
-      } catch {}
-      published++
-      titles.push(news.title)
-    } catch (e) {
-      console.error('[news-bot] error processing:', news.title, (e as Error).message)
-      errors++
-    }
-  }
-
-  try {
-    await supabase.rpc('log_visit')
-  } catch {}
-
-  return Response.json({
-    success: true,
-    found: uniqueNews.length,
-    published,
-    duplicates,
-    flaggedForReview,
-    errors,
-    rewriteFailures,
-    titles,
-  })
 }
