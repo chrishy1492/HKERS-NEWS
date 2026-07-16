@@ -1,8 +1,9 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { createClient } from '@/lib/supabase/client'
 
 const NAV = [
   { href: '/games', label: '遊戲', emoji: '🎮' },
@@ -33,6 +34,7 @@ export default function Sidebar() {
       {/* 桌面版：固定在左側的欄位 */}
       <aside className="fixed left-0 top-[57px] hidden h-[calc(100vh-57px)] w-48 flex-col gap-4 overflow-y-auto border-r border-hker-gold/15 bg-hker-charcoal p-3 md:flex">
         <SearchBox />
+        <AccountBox />
         <SidebarSection title="探索" items={NAV} />
         <div className="ridge-divider" />
         <SidebarSection title="網站資料" items={INFO} />
@@ -47,6 +49,7 @@ export default function Sidebar() {
               <button onClick={() => setOpen(false)} className="text-stone-400">✕</button>
             </div>
             <SearchBox onNavigate={() => setOpen(false)} />
+            <AccountBox onNavigate={() => setOpen(false)} />
             <SidebarSection title="探索" items={NAV} onNavigate={() => setOpen(false)} />
             <div className="ridge-divider" />
             <SidebarSection title="網站資料" items={INFO} onNavigate={() => setOpen(false)} />
@@ -55,6 +58,80 @@ export default function Sidebar() {
         </div>
       )}
     </>
+  )
+}
+
+// ============================================================
+// 【新增】帳戶資訊區塊：顯示登入狀態、姓名、積分，
+// 以及進入「個人設定」頁面的連結。
+// ============================================================
+function AccountBox({ onNavigate }: { onNavigate?: () => void }) {
+  const [loading, setLoading] = useState(true)
+  const [profile, setProfile] = useState<{ display_name: string | null; points: number; email: string | null } | null>(null)
+
+  useEffect(() => {
+    const supabase = createClient()
+    let active = true
+
+    async function load() {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+
+      if (!user) {
+        if (active) {
+          setProfile(null)
+          setLoading(false)
+        }
+        return
+      }
+
+      const { data } = await supabase
+        .from('profiles')
+        .select('display_name, points, email')
+        .eq('id', user.id)
+        .single()
+
+      if (active) {
+        setProfile(data ?? { display_name: null, points: 0, email: user.email ?? null })
+        setLoading(false)
+      }
+    }
+
+    load()
+    return () => {
+      active = false
+    }
+  }, [])
+
+  if (loading) return null
+
+  if (!profile) {
+    return (
+      <Link
+        href="/login"
+        onClick={onNavigate}
+        className="flex items-center justify-center gap-2 rounded bg-hker-lacquer px-3 py-2 text-sm font-bold text-white hover:bg-hker-lacquer-dark"
+      >
+        登入 / 註冊
+      </Link>
+    )
+  }
+
+  return (
+    <Link
+      href="/account"
+      onClick={onNavigate}
+      className="flex flex-col gap-1 rounded border border-hker-gold/15 bg-hker-ink px-3 py-2 transition hover:border-hker-gold/40"
+    >
+      <span className="truncate text-sm font-bold text-hker-gold-light">
+        {profile.display_name || profile.email || '會員'}
+      </span>
+      <span className="flex items-center justify-between text-xs text-hker-stone">
+        <span>積分：{profile.points}</span>
+        <span>⚙️ 設定</span>
+      </span>
+    </Link>
   )
 }
 
