@@ -16,10 +16,10 @@
 <body class="min-h-screen flex flex-col items-center justify-center p-4">
 
   <h1 class="text-4xl font-bold mb-2">🎡 小瑪莉</h1>
-  <p class="disclaimer mb-4">純娛樂單機小遊戲・不記錄・不累計・不涉及任何帳戶或真實價值</p>
+  <p class="disclaimer mb-4">畫面分數僅供娛樂展示，實際積分以「本局淨變化」結算至你的帳戶，並有每日上限保護</p>
 
   <div class="flex items-center gap-4 mb-4">
-    <span class="text-base text-gray-400">本局分數（重新整理後歸零）：</span>
+    <span class="text-base text-gray-400">本局分數：</span>
     <span id="score" class="text-3xl font-bold text-yellow-400">0</span>
   </div>
 
@@ -29,6 +29,7 @@
   </div>
 
   <div id="message" class="h-8 text-lg font-bold mb-4 text-pink-400"></div>
+  <div id="settleStatus" class="h-5 text-xs mb-2 text-gray-500"></div>
 
   <div class="flex gap-3">
     <button id="spinBtn" class="px-12 py-4 text-lg bg-pink-500 text-black font-bold rounded-full hover:bg-white transition">開始轉動</button>
@@ -36,7 +37,7 @@
     <button id="speedBtn" class="px-4 py-3 bg-gray-800 border border-gray-600 rounded-full text-sm hover:bg-gray-700 transition">⚡ 速度：x1</button>
   </div>
 
-  <p class="disclaimer mt-6 max-w-md text-center">本遊戲結果由前端隨機函式產生，僅供休閒娛樂，畫面分數不具任何真實價值，不可兌換、不可提現、不與任何帳戶或代幣連動。</p>
+  <p class="disclaimer mt-6 max-w-md text-center">本遊戲結果由前端隨機函式產生，僅供休閒娛樂。積分結算需登入 HKER 帳號，每日透過遊戲增減的積分有上限，不可兌換、不可提現、不與任何真實貨幣連動。</p>
 
 <script>
 // ---- 音樂（同款簡易環境音，無版權疑慮）----
@@ -83,13 +84,11 @@ const SEGMENTS = [
   { name:"橘子",  emoji:"🍊", value:5 },
   { name:"蘋果",  emoji:"🍎", value:2 },
 ];
-// 24格平均分配（每個圖案重複出現，純視覺豐富度，非機率造假）
 const WHEEL_SLICES = [];
-const repeatCounts = [1,1,2,2,3,3,5,7]; // 對應上面 8 種圖案，總共 24 格
+const repeatCounts = [1,1,2,2,3,3,5,7];
 SEGMENTS.forEach((seg, idx) => {
   for(let r=0;r<repeatCounts[idx];r++) WHEEL_SLICES.push(seg);
 });
-// 洗牌讓視覺分佈自然
 for(let i=WHEEL_SLICES.length-1;i>0;i--){
   const j=Math.floor(Math.random()*(i+1));
   [WHEEL_SLICES[i],WHEEL_SLICES[j]]=[WHEEL_SLICES[j],WHEEL_SLICES[i]];
@@ -125,6 +124,10 @@ let rotation = 0;
 let spinning = false;
 let score = 0;
 
+// 【新增】累積本次遊戲階段的淨分數變化
+let pendingDelta = 0;
+let settled = false;
+
 function spin(){
   if(spinning) return;
   spinning = true;
@@ -143,12 +146,47 @@ function spin(){
     spinning = false;
     const seg = WHEEL_SLICES[targetIndex];
     score += seg.value;
+    pendingDelta += seg.value; // 【新增】累積到本局結算變數
     document.getElementById('score').innerText = score;
     document.getElementById('message').innerText = `轉到 ${seg.emoji} ${seg.name}！+${seg.value} 分`;
   }, duration*1000);
 }
 
 document.getElementById('spinBtn').addEventListener('click', spin);
+
+// ============================================================
+// 【新增】結算邏輯：把本局累積的淨分數送到後端 API，
+// 由後端驗證登入身分、檢查每日上限後，才真正寫入資料庫。
+// ============================================================
+async function settleScore(useBeacon){
+  if(settled || pendingDelta === 0) return;
+  settled = true;
+  const payload = JSON.stringify({ game: 'xiao-mali', delta: pendingDelta });
+
+  try{
+    if(useBeacon && navigator.sendBeacon){
+      const blob = new Blob([payload], { type: 'application/json' });
+      navigator.sendBeacon('/api/games/settle', blob);
+    } else {
+      await fetch('/api/games/settle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: payload,
+        credentials: 'include',
+      });
+      document.getElementById('settleStatus').innerText = '本局積分已結算';
+    }
+  } catch(e){
+    console.error('settle failed', e);
+  }
+}
+
+document.addEventListener('visibilitychange', () => {
+  if(document.visibilityState === 'hidden'){
+    settleScore(true);
+  }
+});
+window.addEventListener('pagehide', () => settleScore(true));
 </script>
 </body>
 </html>
