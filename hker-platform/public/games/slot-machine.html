@@ -18,10 +18,10 @@
 <body class="min-h-screen flex flex-col items-center justify-center p-4">
 
   <h1 class="text-4xl font-bold glow mb-2">🎰 幸運老虎機</h1>
-  <p class="disclaimer mb-4">純娛樂單機小遊戲・不記錄・不累計・不涉及任何帳戶或真實價值</p>
+  <p class="disclaimer mb-4">畫面分數僅供娛樂展示，實際積分以「本局淨變化」結算至你的帳戶，並有每日上限保護</p>
 
   <div class="flex items-center gap-4 mb-6">
-    <span class="text-base text-gray-400">本局分數（重新整理後歸零）：</span>
+    <span class="text-base text-gray-400">本局分數：</span>
     <span id="score" class="text-3xl font-bold text-yellow-400">0</span>
   </div>
 
@@ -32,13 +32,14 @@
   </div>
 
   <div id="message" class="h-8 text-lg font-bold mb-4 text-cyan-400"></div>
+  <div id="settleStatus" class="h-5 text-xs mb-2 text-gray-500"></div>
 
   <div class="flex gap-3">
     <button id="spinBtn" class="px-12 py-4 text-lg bg-cyan-500 text-black font-bold rounded-full hover:bg-white transition">拉一把</button>
     <button id="musicBtn" class="px-4 py-3 bg-gray-800 border border-gray-600 rounded-full text-sm hover:bg-gray-700 transition">🔊 音樂：開</button>
   </div>
 
-  <p class="disclaimer mt-6 max-w-md text-center">本遊戲結果由前端隨機函式產生，僅供休閒娛樂，畫面分數不具任何真實價值，不可兌換、不可提現、不與任何帳戶或代幣連動。</p>
+  <p class="disclaimer mt-6 max-w-md text-center">本遊戲結果由前端隨機函式產生，僅供休閒娛樂。積分結算需登入 HKER 帳號，每日透過遊戲增減的積分有上限，不可兌換、不可提現、不與任何真實貨幣連動。</p>
 
 <script>
 // ---- 輕柔背景音樂（僅用 Web Audio 產生的簡單提示音，避免外部音源版權問題）----
@@ -52,7 +53,7 @@ function ensureAudio(){
 function startAmbientMusic(){
   ensureAudio();
   stopAmbientMusic();
-  const notes = [523.25, 587.33, 659.25, 783.99]; // C D E G 五聲音階片段
+  const notes = [523.25, 587.33, 659.25, 783.99];
   let i = 0;
   const interval = setInterval(()=>{
     if(!musicOn) return;
@@ -87,9 +88,12 @@ const VALUES  = {"🍒":1,"🍋":2,"🔔":3,"⭐":5,"💎":10,"🍀":8};
 let score = 0;
 let spinning = false;
 
+// 【新增】累積本次遊戲階段（開啟頁面到離開頁面）的淨分數變化
+let pendingDelta = 0;
+let settled = false; // 避免重複送出結算
+
 function buildReel(el){
   el.innerHTML = "";
-  // 產生一條長長的隨機符號帶，方便做捲動動畫
   for(let i=0;i<30;i++){
     const s = SYMBOLS[Math.floor(Math.random()*SYMBOLS.length)];
     const cell = document.createElement('div');
@@ -118,7 +122,7 @@ function spin(){
 
     el.style.transition = 'none';
     el.style.transform = 'translateY(0)';
-    void el.offsetHeight; // reflow
+    void el.offsetHeight;
     el.style.transition = `transform ${2 + idx*0.4}s cubic-bezier(.17,.67,.32,1.3)`;
     el.style.transform = `translateY(-${30*150}px)`;
   });
@@ -131,20 +135,58 @@ function spin(){
 
 function evaluate(results){
   const msg = document.getElementById('message');
+  let gain = 0;
   if(results[0]===results[1] && results[1]===results[2]){
-    const gain = VALUES[results[0]] * 10;
-    score += gain;
+    gain = VALUES[results[0]] * 10;
     msg.innerText = `🎉 三連中！+${gain} 分`;
   } else if(results[0]===results[1] || results[1]===results[2] || results[0]===results[2]){
-    score += 2;
+    gain = 2;
     msg.innerText = `不錯，兩個相同 +2 分`;
   } else {
     msg.innerText = `再接再厲！`;
   }
+  score += gain;
+  pendingDelta += gain; // 【新增】累積到本局結算變數
   document.getElementById('score').innerText = score;
 }
 
 document.getElementById('spinBtn').addEventListener('click', spin);
+
+// ============================================================
+// 【新增】結算邏輯：把本局累積的淨分數送到後端 API，
+// 由後端驗證登入身分、檢查每日上限後，才真正寫入資料庫。
+// ============================================================
+async function settleScore(useBeacon){
+  if(settled || pendingDelta === 0) return;
+  settled = true;
+  const payload = JSON.stringify({ game: 'slot-machine', delta: pendingDelta });
+
+  try{
+    if(useBeacon && navigator.sendBeacon){
+      // 頁面即將關閉時，用 sendBeacon 確保請求能送出（fetch 在 unload 階段可能被瀏覽器中斷）
+      const blob = new Blob([payload], { type: 'application/json' });
+      navigator.sendBeacon('/api/games/settle', blob);
+    } else {
+      await fetch('/api/games/settle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: payload,
+        credentials: 'include', // 確保帶上登入 session cookie
+      });
+      document.getElementById('settleStatus').innerText = '本局積分已結算';
+    }
+  } catch(e){
+    console.error('settle failed', e);
+  }
+}
+
+// 玩家關閉分頁、切換分頁、或瀏覽器最小化時觸發結算
+document.addEventListener('visibilitychange', () => {
+  if(document.visibilityState === 'hidden'){
+    settleScore(true);
+  }
+});
+window.addEventListener('pagehide', () => settleScore(true));
 </script>
 </body>
 </html>
