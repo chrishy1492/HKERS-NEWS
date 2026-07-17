@@ -31,6 +31,19 @@ function isWithinTwoDays(publishedAt: string): boolean {
   return Date.now() - t <= TWO_DAYS_MS
 }
 
+// --- 節流工具 ---
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+// 每呼叫一次 Gemini API，至少間隔這麼多毫秒。
+// 免費層級限制是「每分鐘 20 次」，換算大約每 3 秒 1 次是安全值；
+// 這裡抓 4000ms 留一點緩衝空間，避免踩到邊界。
+const GEMINI_CALL_INTERVAL_MS = 4000
+
+// 撞到 429 時最多重試幾次
+const MAX_RETRIES = 2
+
 const REGIONS = ['中國香港', '台灣', '英國', '美國', '加拿大', '澳洲', '歐洲']
 const TOPICS = ['地產', '時事', '財經', '娛樂', '旅遊', '數碼', '汽車', '宗教', '優惠', '校園', '天氣', '社區活動']
 
@@ -48,6 +61,21 @@ type ProcessedContent = {
   region: string
   topic: string
   wasRewritten: boolean
+}
+
+// 從 Gemini 的 429 錯誤訊息裡解析出建議的等待秒數，
+// 例如 "Please retry in 20.419614338s." -> 20419 (ms)
+// 抓不到的話就給一個保守的預設值。
+function parseRetryDelayMs(errorBody: string, fallbackMs: number): number {
+  const match = errorBody.match(/retry in ([\d.]+)s/i)
+  if (match) {
+    const seconds = parseFloat(match[1])
+    if (!Number.isNaN(seconds)) {
+      // 多加 500ms 緩衝，避免卡在邊界又撞一次
+      return Math.ceil(seconds * 1000) + 500
+    }
+  }
+  return fallbackMs
 }
 
 async function processNewsContent(title: string, content: string): Promise<ProcessedContent> {
@@ -84,41 +112,62 @@ async function processNewsContent(title: string, content: string): Promise<Proce
 
 回傳格式範例：{"content_zh_rewritten":"...","title_en":"...","content_en":"...","region":"中國香港","topic":"時事"}`
 
-  try {
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
-      }
-    )
-    if (!res.ok) {
-      const errorBody = await res.text()
-      console.error(`[news-bot] Gemini API error, status ${res.status}:`, errorBody.slice(0, 500))
-      return fallback
-    }
-    const data = await res.json()
-    const raw: string = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? ''
-    if (!raw) {
-      console.error('[news-bot] Gemini returned empty content:', JSON.stringify(data).slice(0, 500))
-      return fallback
-    }
-    const cleaned = raw.replace(/```json|```/g, '').trim()
-    const parsed = JSON.parse(cleaned)
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${apiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
+        }
+      )
 
-    return {
-      rewrittenZh: parsed.content_zh_rewritten ?? null,
-      titleEn: parsed.title_en ?? null,
-      contentEn: parsed.content_en ?? null,
-      region: REGIONS.includes(parsed.region) ? parsed.region : '中國香港',
-      topic: TOPICS.includes(parsed.topic) ? parsed.topic : '時事',
-      wasRewritten: !!parsed.content_zh_rewritten,
+      if (res.status === 429) {
+        const errorBody = await res.text()
+        console.error(
+          `[news-bot] Gemini API error, status 429 (attempt ${attempt + 1}/${MAX_RETRIES + 1}):`,
+          errorBody.slice(0, 500)
+        )
+        if (attempt < MAX_RETRIES) {
+          const waitMs = parseRetryDelayMs(errorBody, GEMINI_CALL_INTERVAL_MS * 2)
+          console.warn(`[news-bot] rate limited, waiting ${waitMs}ms before retry`)
+          await sleep(waitMs)
+          continue // 重試
+        }
+        return fallback // 重試次數用完，放棄這篇
+      }
+
+      if (!res.ok) {
+        const errorBody = await res.text()
+        console.error(`[news-bot] Gemini API error, status ${res.status}:`, errorBody.slice(0, 500))
+        return fallback
+      }
+
+      const data = await res.json()
+      const raw: string = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? ''
+      if (!raw) {
+        console.error('[news-bot] Gemini returned empty content:', JSON.stringify(data).slice(0, 500))
+        return fallback
+      }
+      const cleaned = raw.replace(/```json|```/g, '').trim()
+      const parsed = JSON.parse(cleaned)
+
+      return {
+        rewrittenZh: parsed.content_zh_rewritten ?? null,
+        titleEn: parsed.title_en ?? null,
+        contentEn: parsed.content_en ?? null,
+        region: REGIONS.includes(parsed.region) ? parsed.region : '中國香港',
+        topic: TOPICS.includes(parsed.topic) ? parsed.topic : '時事',
+        wasRewritten: !!parsed.content_zh_rewritten,
+      }
+    } catch (e) {
+      console.error('[news-bot] process content failed:', (e as Error).message)
+      return fallback
     }
-  } catch (e) {
-    console.error('[news-bot] process content failed:', (e as Error).message)
-    return fallback
   }
+
+  return fallback
 }
 
 const RSS_SOURCES = [
@@ -217,6 +266,8 @@ export async function GET() {
   let rewriteFailures = 0
   const titles: string[] = []
 
+  let isFirstGeminiCall = true
+
   for (const news of selected) {
     try {
       const { data: existing } = await supabase
@@ -238,6 +289,12 @@ export async function GET() {
         console.warn('[news-bot] flagged for manual review:', news.title)
         continue
       }
+
+      // 在每次呼叫 Gemini API 之前，先間隔一下（第一次不用等）
+      if (!isFirstGeminiCall) {
+        await sleep(GEMINI_CALL_INTERVAL_MS)
+      }
+      isFirstGeminiCall = false
 
       const { rewrittenZh, titleEn, contentEn, region, topic, wasRewritten } =
         await processNewsContent(news.title, news.content)
