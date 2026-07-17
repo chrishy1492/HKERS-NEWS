@@ -50,10 +50,6 @@ type ProcessedContent = {
   wasRewritten: boolean
 }
 
-// ============================================================
-// 【修改】加強錯誤記錄：Gemini API 呼叫失敗時，
-// 把狀態碼跟回應內容印出來，方便在 Vercel Logs 裡看到真正原因。
-// ============================================================
 async function processNewsContent(title: string, content: string): Promise<ProcessedContent> {
   const apiKey = process.env.GEMINI_API_KEY
   const fallback: ProcessedContent = {
@@ -90,7 +86,7 @@ async function processNewsContent(title: string, content: string): Promise<Proce
 
   try {
     const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
