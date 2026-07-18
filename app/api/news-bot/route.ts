@@ -4,13 +4,6 @@ import { GoogleGenerativeAI } from '@google/generative-ai'
 
 export const dynamic = 'force-dynamic'
 
-
-// ⚠️ 重要：本檔案不含任何真實金鑰。所有金鑰一律從環境變數讀取，
-// 請在 Vercel 專案設定 NEWS_API_KEY / GEMINI_API_KEY / SUPABASE_SERVICE_ROLE_KEY /
-// NEXT_PUBLIC_SUPABASE_URL。
-// 如果這幾組金鑰曾經以明文出現在任何文件、聊天紀錄或程式碼裡，
-// 請視為已外洩，先到對應後台重新產生（rotate）新金鑰再部署本檔案。
-
 const TWO_DAYS_MS = 2 * 24 * 60 * 60 * 1000
 
 const SENSITIVE_KEYWORDS = [
@@ -227,6 +220,8 @@ async function fetchNewsApiNews() {
 }
 
 export async function GET() {
+  console.log('[news-bot] CODE_VERSION: sdk-v3-2026-07-18')
+
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
   if (!supabaseUrl || !serviceKey) {
