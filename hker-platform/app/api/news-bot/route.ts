@@ -1,20 +1,11 @@
 import { parseStringPromise } from 'xml2js'
 import { createClient as createSupabaseAdminClient } from '@supabase/supabase-js'
+import { GoogleGenerativeAI } from '@google/generative-ai'
 
 export const dynamic = 'force-dynamic'
 
-
-// ⚠️ 重要：本檔案不含任何真實金鑰。所有金鑰一律從環境變數讀取，
-// 請在 Vercel 專案設定 NEWS_API_KEY / GEMINI_API_KEY / SUPABASE_SERVICE_ROLE_KEY /
-// NEXT_PUBLIC_SUPABASE_URL。
-// 如果這幾組金鑰曾經以明文出現在任何文件、聊天紀錄或程式碼裡，
-// 請視為已外洩，先到對應後台重新產生（rotate）新金鑰再部署本檔案。
-
 const TWO_DAYS_MS = 2 * 24 * 60 * 60 * 1000
 
-// 這份清單不是法律判斷，只是「送人工審查」的觸發字詞，
-// 命中的新聞會被標記為 needs_review，不會自動發佈。
-// 香港《國家安全法》、《基本法》第23條相關內容尤其敏感，一律先擋下來給人看過。
 const SENSITIVE_KEYWORDS = [
   '國家安全法', '港獨', '顛覆國家政權', '分裂國家', '境外勢力',
   '基本法23條', '煽動', '顛覆', '恐怖活動', '勾結外國',
@@ -31,19 +22,11 @@ function isWithinTwoDays(publishedAt: string): boolean {
   return Date.now() - t <= TWO_DAYS_MS
 }
 
-// --- 節流工具 ---
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-// 每呼叫一次 Gemini API，至少間隔這麼多毫秒。
-// 目標：控制在每分鐘 12 次以下（免費層級常見上限是 15~20 次/分鐘，
-// 這裡刻意抓得更保守）。
-// 60000ms ÷ 12 次 = 5000ms，這裡抓 6000ms 留緩衝空間，
-// 實際等於每分鐘最多約 10 次請求。
 const GEMINI_CALL_INTERVAL_MS = 6000
-
-// 撞到 429 時最多重試幾次
 const MAX_RETRIES = 2
 
 const REGIONS = ['中國香港', '台灣', '英國', '美國', '加拿大', '澳洲', '歐洲']
@@ -65,15 +48,11 @@ type ProcessedContent = {
   wasRewritten: boolean
 }
 
-// 從 Gemini 的 429 錯誤訊息裡解析出建議的等待秒數，
-// 例如 "Please retry in 20.419614338s." -> 20419 (ms)
-// 抓不到的話就給一個保守的預設值。
 function parseRetryDelayMs(errorBody: string, fallbackMs: number): number {
   const match = errorBody.match(/retry in ([\d.]+)s/i)
   if (match) {
     const seconds = parseFloat(match[1])
     if (!Number.isNaN(seconds)) {
-      // 多加 500ms 緩衝，避免卡在邊界又撞一次
       return Math.ceil(seconds * 1000) + 500
     }
   }
@@ -116,53 +95,42 @@ async function processNewsContent(title: string, content: string): Promise<Proce
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-goog-api-key': apiKey,
-          },
-          body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
-        }
-      )
+      const genAI = new GoogleGenerativeAI(apiKey)
+      const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-lite' })
 
-      if (res.status === 429) {
-        const errorBody = await res.text()
-        console.error(
-          `[news-bot] Gemini API error, status 429 (attempt ${attempt + 1}/${MAX_RETRIES + 1}):`,
-          errorBody.slice(0, 500)
-        )
+      let raw: string
+      try {
+        const result = await model.generateContent(prompt)
+        raw = result.response.text()
+      } catch (sdkError: any) {
+        const message: string = sdkError?.message ?? String(sdkError)
+        const statusMatch = message.match(/\[(\d{3})\s/)
+        const status = statusMatch ? parseInt(statusMatch[1], 10) : 0
 
-        // 如果錯誤訊息顯示 limit: 0，代表這個專案根本沒有可用配額
-        // （通常是帳號被歸類到需要計費的層級但餘額是 0），
-        // 這種情況不管等多久重試都不會成功，直接放棄，
-        // 避免疊加多次等待導致 Vercel function 整體逾時。
-        if (/limit:\s*0\b/.test(errorBody)) {
-          console.error('[news-bot] quota limit is 0 (billing likely required), skipping retries')
+        if (status === 429) {
+          console.error(
+            `[news-bot] Gemini API error, status 429 (attempt ${attempt + 1}/${MAX_RETRIES + 1}):`,
+            message.slice(0, 500)
+          )
+          if (/limit:\s*0\b/.test(message)) {
+            console.error('[news-bot] quota limit is 0 (billing likely required), skipping retries')
+            return fallback
+          }
+          if (attempt < MAX_RETRIES) {
+            const waitMs = parseRetryDelayMs(message, GEMINI_CALL_INTERVAL_MS * 2)
+            console.warn(`[news-bot] rate limited, waiting ${waitMs}ms before retry`)
+            await sleep(waitMs)
+            continue
+          }
           return fallback
         }
 
-        if (attempt < MAX_RETRIES) {
-          const waitMs = parseRetryDelayMs(errorBody, GEMINI_CALL_INTERVAL_MS * 2)
-          console.warn(`[news-bot] rate limited, waiting ${waitMs}ms before retry`)
-          await sleep(waitMs)
-          continue // 重試
-        }
-        return fallback // 重試次數用完，放棄這篇
-      }
-
-      if (!res.ok) {
-        const errorBody = await res.text()
-        console.error(`[news-bot] Gemini API error, status ${res.status}:`, errorBody.slice(0, 500))
+        console.error(`[news-bot] Gemini API error via SDK:`, message.slice(0, 500))
         return fallback
       }
 
-      const data = await res.json()
-      const raw: string = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? ''
       if (!raw) {
-        console.error('[news-bot] Gemini returned empty content:', JSON.stringify(data).slice(0, 500))
+        console.error('[news-bot] Gemini returned empty content')
         return fallback
       }
       const cleaned = raw.replace(/```json|```/g, '').trim()
@@ -252,6 +220,8 @@ async function fetchNewsApiNews() {
 }
 
 export async function GET() {
+  console.log('[news-bot] CODE_VERSION: sdk-v3-2026-07-18')
+
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
   if (!supabaseUrl || !serviceKey) {
@@ -305,7 +275,6 @@ export async function GET() {
         continue
       }
 
-      // 在每次呼叫 Gemini API 之前，先間隔一下（第一次不用等）
       if (!isFirstGeminiCall) {
         await sleep(GEMINI_CALL_INTERVAL_MS)
       }
