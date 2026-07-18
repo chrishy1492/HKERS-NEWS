@@ -37,9 +37,11 @@ function sleep(ms: number): Promise<void> {
 }
 
 // 每呼叫一次 Gemini API，至少間隔這麼多毫秒。
-// 免費層級限制是「每分鐘 20 次」，換算大約每 3 秒 1 次是安全值；
-// 這裡抓 4000ms 留一點緩衝空間，避免踩到邊界。
-const GEMINI_CALL_INTERVAL_MS = 4000
+// 目標：控制在每分鐘 12 次以下（免費層級常見上限是 15~20 次/分鐘，
+// 這裡刻意抓得更保守）。
+// 60000ms ÷ 12 次 = 5000ms，這裡抓 6000ms 留緩衝空間，
+// 實際等於每分鐘最多約 10 次請求。
+const GEMINI_CALL_INTERVAL_MS = 6000
 
 // 撞到 429 時最多重試幾次
 const MAX_RETRIES = 2
@@ -129,6 +131,16 @@ async function processNewsContent(title: string, content: string): Promise<Proce
           `[news-bot] Gemini API error, status 429 (attempt ${attempt + 1}/${MAX_RETRIES + 1}):`,
           errorBody.slice(0, 500)
         )
+
+        // 如果錯誤訊息顯示 limit: 0，代表這個專案根本沒有可用配額
+        // （通常是帳號被歸類到需要計費的層級但餘額是 0），
+        // 這種情況不管等多久重試都不會成功，直接放棄，
+        // 避免疊加多次等待導致 Vercel function 整體逾時。
+        if (/limit:\s*0\b/.test(errorBody)) {
+          console.error('[news-bot] quota limit is 0 (billing likely required), skipping retries')
+          return fallback
+        }
+
         if (attempt < MAX_RETRIES) {
           const waitMs = parseRetryDelayMs(errorBody, GEMINI_CALL_INTERVAL_MS * 2)
           console.warn(`[news-bot] rate limited, waiting ${waitMs}ms before retry`)
